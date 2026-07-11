@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/personas"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -52,6 +54,8 @@ type SubagentRunner struct {
 	// QuietRegistryDiagnostics is set by TUI-originated runners so background
 	// child registry construction cannot write stderr over the alternate screen.
 	QuietRegistryDiagnostics bool
+	Metrics                  telemetry.Metrics
+	Broker                   BrokerController
 }
 
 // WithInbox returns a copy of the runner with InboxFn set. Implements
@@ -116,7 +120,28 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if r.Provider == nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: provider required")
 	}
-	child, err := ForkSession(r.Config, r.Parent)
+	childBroker := r.Broker
+	var child *stadogit.Session
+	if r.Broker != nil {
+		childBroker, err = r.Broker.CreateSubagent(ctx, BrokerSubagentRequest{
+			Role: req.Role, Mode: req.Mode,
+			WriteScope: append([]string(nil), req.WriteScope...),
+		})
+		if err != nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: broker child session: %w", err)
+		}
+		defer func() { _ = childBroker.Close() }()
+		if reserved := childBroker.Worktree(); reserved != "" {
+			worktreeRoot := filepath.Clean(r.Config.WorktreeDir())
+			if filepath.Dir(filepath.Clean(reserved)) != worktreeRoot {
+				return subagent.Result{}, fmt.Errorf("spawn_agent: broker child worktree %q is outside %q", reserved, worktreeRoot)
+			}
+			child, err = ForkSessionWithID(r.Config, r.Parent, filepath.Base(reserved))
+		}
+	}
+	if child == nil && err == nil {
+		child, err = ForkSession(r.Config, r.Parent)
+	}
 	if err != nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: fork child session: %w", err)
 	}
@@ -152,7 +177,15 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
 		return subagent.Result{}, err
 	}
-	childHost, scopedHost, err := configureSubagentTools(req, exec)
+	if childBroker != nil {
+		childBroker.Sandbox().Apply(exec)
+	}
+	childSandbox := ExecutorSandbox{}
+	if childBroker != nil {
+		childSandbox = childBroker.Sandbox()
+	}
+	childHost, scopedHost, err := configureSubagentTools(req, exec,
+		childSandbox.DefaultSandboxPolicy(child.WorktreePath))
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
@@ -189,6 +222,12 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
 		Provider:                 r.Provider,
 		Executor:                 exec,
+		Config:                   r.Config,
+		Metrics:                  r.Metrics,
+		Broker:                   childBroker,
+		InitialTaint:             ContextTainted,
+		DisableVerify:            true,
+		DefaultSandboxPolicy:     childSandbox.DefaultSandboxPolicy(child.WorktreePath),
 		Model:                    r.Model,
 		Messages:                 seed,
 		MaxTurns:                 req.MaxTurns,
@@ -244,9 +283,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 
 func (r SubagentRunner) buildExecutor(child *stadogit.Session, agentName string) (*tools.Executor, error) {
 	if r.QuietRegistryDiagnostics {
-		return BuildExecutorQuiet(child, r.Config, agentName)
+		return BuildExecutorQuiet(child, r.Config, agentName, r.Metrics)
 	}
-	return BuildExecutor(child, r.Config, agentName)
+	return BuildExecutor(child, r.Config, agentName, r.Metrics)
 }
 
 func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
@@ -371,13 +410,14 @@ func subagentResult(req subagent.Request, child *stadogit.Session, text string, 
 	}
 }
 
-func configureSubagentTools(req subagent.Request, exec *tools.Executor) (tool.Host, *subagent.ScopedWriteHost, error) {
+func configureSubagentTools(req subagent.Request, exec *tools.Executor, defaultSandboxPolicy any) (tool.Host, *subagent.ScopedWriteHost, error) {
 	if req.Mode == subagent.WorkspaceWriteMode {
 		keepWorkspaceWriteTools(exec.Registry)
 		scopedHost, err := subagent.NewScopedWriteHost(autoApproveHost{
-			workdir: exec.Session.WorktreePath,
-			readLog: exec.ReadLog,
-			runner:  exec.Runner,
+			workdir:              exec.Session.WorktreePath,
+			readLog:              exec.ReadLog,
+			runner:               exec.Runner,
+			defaultSandboxPolicy: defaultSandboxPolicy,
 		}, req.WriteScope)
 		if err != nil {
 			return nil, nil, err

@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +14,36 @@ func TestPolicyMerge_FS(t *testing.T) {
 	merged := outer.Merge(inner)
 	if len(merged.FSRead) != 2 {
 		t.Fatalf("FSRead intersection = %v, want 2 entries", merged.FSRead)
+	}
+}
+
+func TestPolicyMerge_ExecNilEmptySemantics(t *testing.T) {
+	tests := []struct {
+		name       string
+		outer      []string
+		inner      []string
+		want       []string
+		wantNonNil bool
+	}{
+		{name: "unrestricted outer inherits allowlist", outer: nil, inner: []string{"git"}, want: []string{"git"}, wantNonNil: true},
+		{name: "unrestricted inner preserves allowlist", outer: []string{"git"}, inner: nil, want: []string{"git"}, wantNonNil: true},
+		{name: "explicit deny-all wins", outer: []string{}, inner: []string{"git"}, want: []string{}, wantNonNil: true},
+		{name: "disjoint allowlists deny all", outer: []string{"git"}, inner: []string{"go"}, want: []string{}, wantNonNil: true},
+		{name: "both unrestricted remain unrestricted", outer: nil, inner: nil, want: nil, wantNonNil: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (Policy{Exec: tc.outer}).Merge(Policy{Exec: tc.inner}).Exec
+			if tc.wantNonNil && got == nil {
+				t.Fatalf("Exec = nil, want %#v", tc.want)
+			}
+			if !tc.wantNonNil && got != nil {
+				t.Fatalf("Exec = %#v, want nil", got)
+			}
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("Exec = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 

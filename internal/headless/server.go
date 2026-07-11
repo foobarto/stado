@@ -17,13 +17,17 @@ import (
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
 // Server is the headless JSON-RPC daemon served by stado run --headless.
 type Server struct {
-	Cfg      *config.Config
-	Provider agent.Provider
+	Cfg           *config.Config
+	Provider      agent.Provider
+	Metrics       telemetry.Metrics
+	Broker        runtime.BrokerController
+	BrokerFactory func(context.Context, string) (runtime.BrokerController, error)
 
 	// ExecutorSandbox is derived once by the CLI from the broker session and
 	// applied to every per-session executor this long-lived server creates.
@@ -57,6 +61,7 @@ type hSession struct {
 	persistedViewLen int               // folded conversation messages persisted to conversation.jsonl
 	lastInputTokens  int               // most recent input-token observation
 	busy             bool
+	broker           runtime.BrokerController
 
 	// persona is the resolved persona for this session. Set at
 	// session.new from `persona` param (per-call) or

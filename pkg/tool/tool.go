@@ -59,9 +59,33 @@ func ClassOf(t Tool) Class {
 }
 
 type Result struct {
-	Content string
-	Error   string
+	Content     string
+	Error       string
+	FailureKind FailureKind
+	ExitCode    *int
 }
+
+// FailureKind classifies a tool-side failure without forcing callers to infer
+// infrastructure state from human-readable error text.
+type FailureKind string
+
+const (
+	FailureUnknown FailureKind = ""
+	FailureLaunch  FailureKind = "launch"
+	FailureExit    FailureKind = "exit"
+)
+
+// ErrorEnvelopeV1 is the structured tool-side error format carried across the
+// WASM plugin ABI. Plugin adapters decode it back into Result fields while
+// preserving Error as the user-facing message.
+type ErrorEnvelopeV1 struct {
+	Schema   string      `json:"schema"`
+	Kind     FailureKind `json:"kind"`
+	Message  string      `json:"message"`
+	ExitCode *int        `json:"exit_code,omitempty"`
+}
+
+const ErrorEnvelopeSchemaV1 = "stado.tool-error.v1"
 
 // Host is the read-write surface tools use to reach the runtime.
 // PriorRead / RecordRead support in-turn read-dedup — see DESIGN §"Context

@@ -64,8 +64,8 @@ func TestSubagentCeiling_OutsideScopeDropped_CeilTr(t *testing.T) {
 	})
 
 	gotWrite := ceilTrStrset(child.FSWrite)
-	if !gotWrite["/work/pkg/sub"] {
-		t.Errorf("subpath /work/pkg/sub should be allowed; child.FSWrite=%v", child.FSWrite)
+	if !gotWrite["/work/pkg"] {
+		t.Errorf("subpath /work/pkg/sub should project to mount root /work/pkg; child.FSWrite=%v", child.FSWrite)
 	}
 	if !gotWrite["/tmp"] {
 		t.Errorf("exact match /tmp should be allowed; child.FSWrite=%v", child.FSWrite)
@@ -166,6 +166,17 @@ func TestSubagentCeiling_ReadNetExecEnvAttenuate_CeilTr(t *testing.T) {
 	}
 }
 
+func TestSubagentCeiling_PreservesExecDenyAll(t *testing.T) {
+	parent := sandbox.Policy{Exec: []string{}}
+	child, _ := SubagentCeiling(parent, "explorer", "read_only", nil)
+	if child.Exec == nil {
+		t.Fatal("child.Exec is nil, want inherited non-nil empty deny-all")
+	}
+	if !IsSubsetOf(child, parent) {
+		t.Fatal("deny-all child must remain a subset of deny-all parent")
+	}
+}
+
 // -------------------------------------------------------------------
 // 2. IsSubsetOf — the predicate that defines "<=".
 // -------------------------------------------------------------------
@@ -240,6 +251,18 @@ func TestIsSubsetOf_WideningRejected_CeilTr(t *testing.T) {
 				t.Errorf("IsSubsetOf(%+v, ref) = %v, want %v", tc.candidate, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIsSubsetOf_ExecNilEmptySemantics(t *testing.T) {
+	if IsSubsetOf(sandbox.Policy{Exec: nil}, sandbox.Policy{Exec: []string{"git"}}) {
+		t.Fatal("unrestricted nil Exec must not be a subset of an allowlist")
+	}
+	if !IsSubsetOf(sandbox.Policy{Exec: []string{}}, sandbox.Policy{Exec: []string{"git"}}) {
+		t.Fatal("non-nil empty deny-all Exec must be a subset of an allowlist")
+	}
+	if !IsSubsetOf(sandbox.Policy{Exec: []string{"git"}}, sandbox.Policy{Exec: nil}) {
+		t.Fatal("an Exec allowlist must be a subset of unrestricted nil Exec")
 	}
 }
 
@@ -398,8 +421,8 @@ func TestSubagentCeiling_DotDotEscapeDropped_CeilTr(t *testing.T) {
 	if gotWrite["/etc"] {
 		t.Fatalf("dotdot escape /work/../etc leaked into child.FSWrite=%v — ceiling WIDENED", child.FSWrite)
 	}
-	if !gotWrite["/work/b"] {
-		t.Errorf("/work/a/../b (=/work/b) should be allowed; child.FSWrite=%v", child.FSWrite)
+	if !gotWrite["/work"] {
+		t.Errorf("/work/a/../b should project to mount root /work; child.FSWrite=%v", child.FSWrite)
 	}
 	// The escaped path is surfaced (under its cleaned form) in dropped.
 	if !ceilTrStrset(dropped)["/etc"] {

@@ -69,9 +69,10 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0043 | [Shell PTY-UX rethink — read modes, no lock, labeled sessions](./0043-shell-pty-ux-rethink.md) | Standards | Implemented |
 | 0044 | [Repo-config trust boundary — project-config strip-list + opt-in gates](./0044-repo-config-trust-boundary.md) | Standards | Implemented |
 | 0045 | [Model-Invocable Skills (Agent Skills parity)](./0045-model-invocable-skills.md) | Standards | Partial |
-| 0046 | [Verify-Work Phase — command-gate and LLM-judge verification](./0046-verify-work-phase.md) | Standards | Draft |
+| 0046 | [Verify-Work Phase — command-gate and LLM-judge verification](./0046-verify-work-phase.md) | Standards | Partial |
 | 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Partial |
+| 0051 | [Lua Lifecycle Hook Contract](./0051-lua-lifecycle-hook-contract.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

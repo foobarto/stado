@@ -87,8 +87,8 @@ func TestProjectGitSubagentCeiling_WriteScopeFiltered(t *testing.T) {
 		AllowEgressOnlyToDeclaredHosts: true,
 	}
 	child, dropped := ProjectGitSubagentCeiling(parent, spec)
-	if len(child.FSWrite) != 1 || child.FSWrite[0] != "/work/vendor" {
-		t.Errorf("FSWrite = %v, want [/work/vendor]", child.FSWrite)
+	if len(child.FSWrite) != 1 || child.FSWrite[0] != "/work" {
+		t.Errorf("FSWrite = %v, want concrete mount root [/work]", child.FSWrite)
 	}
 	found := false
 	for _, d := range dropped {

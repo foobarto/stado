@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"math"
 	"os/exec"
 	"slices"
 	"strings"
@@ -35,6 +36,32 @@ func (h runnerToolHost) Workdir() string { return "/work" }
 func (h runnerToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 	return tool.PriorReadInfo{}, false
 }
+
+func TestCappedOutputDrainsAndBoundsMemory(t *testing.T) {
+	w := &cappedOutput{limit: 5}
+	for _, chunk := range []string{"abc", "defgh"} {
+		n, err := w.Write([]byte(chunk))
+		if err != nil || n != len(chunk) {
+			t.Fatalf("Write(%q) = %d, %v", chunk, n, err)
+		}
+	}
+	if got := w.String(); got != "abcde" {
+		t.Fatalf("captured output = %q", got)
+	}
+	if !w.overflow || w.buf.Len() != 5 {
+		t.Fatalf("overflow=%v len=%d", w.overflow, w.buf.Len())
+	}
+}
+
+func TestProcCaptureLimitIgnoresOversizedGuestClaim(t *testing.T) {
+	if got := procCaptureLimit(math.MaxUint32); got != maxProcCaptureBytes {
+		t.Fatalf("capture limit for max guest claim = %d, want %d", got, maxProcCaptureBytes)
+	}
+	if got := procCaptureLimit(4096); got != 4096 {
+		t.Fatalf("capture limit for small guest claim = %d", got)
+	}
+}
+
 func (h runnerToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 func (h runnerToolHost) Runner() sandbox.Runner                      { return h.runner }
 func (h runnerToolHost) DefaultSandboxPolicy() any                   { return h.defaultPolicy }

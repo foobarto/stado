@@ -32,10 +32,11 @@ var ErrEffectiveWiderThanCeiling = errors.New("broker: proposed effective set wo
 //   - role=explorer (default) + mode=read_only (default) → child
 //     ceiling has FSWrite=[] (no writes). Reads inherit parent.
 //   - role=worker + mode=workspace_write + write_scope=[paths] →
-//     child ceiling FSWrite is the intersection of (paths under
-//     parent's FSWrite) and parent's FSWrite. Paths outside the
-//     parent's writable set are dropped silently with a note in
-//     the dropped slice the caller can surface.
+//     child ceiling FSWrite contains concrete mount roots covering the
+//     requested paths. The ScopedWriteHost remains the exact path/glob guard;
+//     sandbox runners cannot bind-mount a glob or a missing file itself.
+//     Paths outside the parent's writable set are dropped silently with a
+//     note in the dropped slice the caller can surface.
 //   - Other combinations: treat as read-only (most conservative).
 //
 // The function never widens. If parent has FSWrite=[A] and the
@@ -48,11 +49,13 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 	child := sandbox.Policy{
 		// Reads always attenuate to parent's read set; the child
 		// can only read what the parent could read.
-		FSRead: append([]string(nil), parent.FSRead...),
-		Net:    parent.Net,
-		Exec:   append([]string(nil), parent.Exec...),
-		Env:    append([]string(nil), parent.Env...),
-		CWD:    parent.CWD,
+		FSRead:  append([]string(nil), parent.FSRead...),
+		Net:     parent.Net,
+		Exec:    cloneOptionalStrings(parent.Exec),
+		Env:     withoutString(parent.Env, "SSH_AUTH_SOCK"),
+		CWD:     parent.CWD,
+		Timeout: parent.Timeout,
+		Mask:    append([]string(nil), parent.Mask...),
 	}
 
 	// Default (and read-only roles) get no writes.
@@ -66,13 +69,57 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 	for _, requested := range writeScope {
 		req := filepath.Clean(requested)
 		if anyParentCovers(parent.FSWrite, req) {
-			allowed = append(allowed, req)
+			mountRoot := writableMountRoot(req)
+			if !anyParentCovers(parent.FSWrite, mountRoot) {
+				mountRoot = req
+			}
+			allowed = appendUnique(allowed, mountRoot)
 		} else {
 			dropped = append(dropped, req)
 		}
 	}
 	child.FSWrite = allowed
 	return child, dropped
+}
+
+// writableMountRoot turns an exact or globbed write scope into a concrete
+// path a sandbox runner can bind-mount. Exact scopes use their parent so a
+// missing file can be created. Glob scopes use the fixed prefix before the
+// first wildcard. ScopedWriteHost still enforces the original request.
+func writableMountRoot(scope string) string {
+	scope = filepath.Clean(scope)
+	meta := strings.IndexAny(scope, "*?[")
+	if meta < 0 {
+		return filepath.Dir(scope)
+	}
+	prefix := scope[:meta]
+	separator := strings.LastIndexAny(prefix, `/\`)
+	if separator < 0 {
+		return "."
+	}
+	if separator == 0 {
+		return scope[:1]
+	}
+	return filepath.Clean(scope[:separator])
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func withoutString(values []string, drop string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != drop {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // anyParentCovers reports whether requested is the same as, or a
@@ -115,7 +162,7 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 	if !fsSubset(candidate.FSWrite, reference.FSWrite) {
 		return false
 	}
-	if !exactSubset(candidate.Exec, reference.Exec) {
+	if !execSubset(candidate.Exec, reference.Exec) {
 		return false
 	}
 	if !exactSubset(candidate.Env, reference.Env) {
@@ -124,7 +171,29 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 	if !netSubset(candidate.Net, reference.Net) {
 		return false
 	}
+	if !exactSubset(candidate.Sockets, reference.Sockets) {
+		return false
+	}
+	// Masks restrict access, so a child must retain every parent mask.
+	if !exactSubset(reference.Mask, candidate.Mask) {
+		return false
+	}
+	if reference.Timeout > 0 && (candidate.Timeout == 0 || candidate.Timeout > reference.Timeout) {
+		return false
+	}
 	return true
+}
+
+// execSubset preserves Policy.Exec's nil-vs-empty contract: nil means
+// unrestricted execution, while a non-nil empty slice denies every binary.
+func execSubset(candidate, reference []string) bool {
+	if reference == nil {
+		return true
+	}
+	if candidate == nil {
+		return false
+	}
+	return exactSubset(candidate, reference)
 }
 
 // fsSubset reports whether every path in candidate is the same as,
@@ -203,9 +272,50 @@ func (s *Service) NarrowEffective(sessionID string, narrowed sandbox.Policy) err
 	if st.terminated {
 		return ErrSessionTerminated
 	}
+	// Restriction-only fields are sticky. Callers narrowing a capability set
+	// commonly specify only the allow dimensions; omission must not remove a
+	// parent mask or timeout and accidentally turn a partial update into a
+	// widening request.
+	narrowed.Mask = appendMissing(narrowed.Mask, st.handle.Effective.Mask)
+	if narrowed.Timeout == 0 {
+		narrowed.Timeout = st.handle.Effective.Timeout
+	}
+	// Exec=nil means unrestricted execution, not an empty allowlist. Treat an
+	// omitted field as a partial update and preserve the current restriction;
+	// a caller-supplied non-nil empty slice remains an explicit deny-all.
+	if narrowed.Exec == nil {
+		narrowed.Exec = cloneOptionalStrings(st.handle.Effective.Exec)
+	}
+	// CWD is session identity, not an attenuable capability. Partial narrow
+	// requests commonly omit it; accepting that omission would make later child
+	// path rebasing resolve against an empty or attacker-selected root.
+	narrowed.CWD = st.handle.Effective.CWD
 	if !IsSubsetOf(narrowed, st.handle.Effective) {
 		return fmt.Errorf("%w (session %s)", ErrEffectiveWiderThanCeiling, sessionID)
 	}
 	st.handle.Effective = narrowed
 	return nil
+}
+
+func cloneOptionalStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append([]string{}, values...)
+}
+
+func appendMissing(dst, required []string) []string {
+	out := append([]string(nil), dst...)
+	seen := make(map[string]struct{}, len(out))
+	for _, value := range out {
+		seen[value] = struct{}{}
+	}
+	for _, value := range required {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = struct{}{}
+	}
+	return out
 }

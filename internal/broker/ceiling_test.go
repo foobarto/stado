@@ -37,7 +37,7 @@ func TestSubagentCeiling_WorkerWorkspaceWriteFiltersScope(t *testing.T) {
 		"/etc/passwd",     // outside parent writable, dropped
 		"/home/test/.ssh", // outside parent writable, dropped
 	})
-	wantAllowed := map[string]bool{"/work/pkg/foo": true, "/work/pkg/bar": true}
+	wantAllowed := map[string]bool{"/work/pkg": true}
 	if len(child.FSWrite) != len(wantAllowed) {
 		t.Errorf("worker child FSWrite = %v, want %v", child.FSWrite, wantAllowed)
 	}
@@ -171,9 +171,60 @@ func TestNarrowEffective_AllowsNarrowing(t *testing.T) {
 	if len(got.Effective.FSWrite) != 1 || got.Effective.FSWrite[0] != "/work" {
 		t.Errorf("Effective.FSWrite after narrow = %v, want [/work]", got.Effective.FSWrite)
 	}
+	if got.Effective.CWD != "/work" {
+		t.Errorf("Effective.CWD after partial narrow = %q, want immutable /work", got.Effective.CWD)
+	}
 	// Ceiling must be unchanged.
 	if len(got.Ceiling.FSWrite) != len(handle.Ceiling.FSWrite) {
 		t.Errorf("Ceiling.FSWrite changed: %v vs %v", got.Ceiling.FSWrite, handle.Ceiling.FSWrite)
+	}
+}
+
+func TestNarrowEffective_PreservesOmittedExecRestriction(t *testing.T) {
+	svc := NewService(DefaultPolicy(), nil)
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+
+	handle, _, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat,
+		Profile: ProfileDefault,
+		CWD:     "/work",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	allowGit := handle.Effective
+	allowGit.Exec = []string{"git"}
+	if err := svc.NarrowEffective(handle.SessionID, allowGit); err != nil {
+		t.Fatalf("NarrowEffective allow git: %v", err)
+	}
+	narrowed := sandbox.Policy{FSRead: handle.Effective.FSRead}
+	if err := svc.NarrowEffective(handle.SessionID, narrowed); err != nil {
+		t.Fatalf("NarrowEffective: %v", err)
+	}
+	got, _, err := svc.LookupSession(handle.SessionID)
+	if err != nil {
+		t.Fatalf("LookupSession: %v", err)
+	}
+	if len(got.Effective.Exec) != 1 || got.Effective.Exec[0] != "git" {
+		t.Fatalf("Effective.Exec = %#v, want preserved [git]", got.Effective.Exec)
+	}
+
+	explicitDenyAll := sandbox.Policy{
+		FSRead: got.Effective.FSRead,
+		Exec:   []string{},
+	}
+	if err := svc.NarrowEffective(handle.SessionID, explicitDenyAll); err != nil {
+		t.Fatalf("NarrowEffective deny-all: %v", err)
+	}
+	got, _, err = svc.LookupSession(handle.SessionID)
+	if err != nil {
+		t.Fatalf("LookupSession deny-all: %v", err)
+	}
+	if got.Effective.Exec == nil || len(got.Effective.Exec) != 0 {
+		t.Fatalf("Effective.Exec = %#v, want non-nil empty deny-all", got.Effective.Exec)
 	}
 }
 
@@ -348,8 +399,8 @@ func TestProjectCeiling_SubagentWriteScopeResolvedAgainstCWD(t *testing.T) {
 		Mode:       "workspace_write",
 		WriteScope: []string{"src/foo", "src/bar"},
 	})
-	wantWrites := map[string]bool{"/work/src/foo": true, "/work/src/bar": true}
-	if len(pol.FSWrite) != 2 {
+	wantWrites := map[string]bool{"/work/src": true}
+	if len(pol.FSWrite) != 1 {
 		t.Fatalf("FSWrite = %v, want %v (resolved against cwd)", pol.FSWrite, wantWrites)
 	}
 	for _, w := range pol.FSWrite {
@@ -360,6 +411,32 @@ func TestProjectCeiling_SubagentWriteScopeResolvedAgainstCWD(t *testing.T) {
 	}
 	if len(wantWrites) != 0 {
 		t.Errorf("missing FSWrite paths: %v", wantWrites)
+	}
+}
+
+func TestSubagentCeiling_ProjectsGlobAndFileScopesToMountRoots(t *testing.T) {
+	parent := sandbox.Policy{FSWrite: []string{"/work"}}
+	child, dropped := SubagentCeiling(parent, "worker", "workspace_write", []string{
+		"/work/internal/foo/**",
+		"/work/docs/*.md",
+		"/work/new/file.txt",
+	})
+	if len(dropped) != 0 {
+		t.Fatalf("dropped=%v", dropped)
+	}
+	want := map[string]bool{
+		"/work/internal/foo": true,
+		"/work/docs":         true,
+		"/work/new":          true,
+	}
+	for _, mountRoot := range child.FSWrite {
+		if !want[mountRoot] {
+			t.Fatalf("unexpected mount root %q in %v", mountRoot, child.FSWrite)
+		}
+		delete(want, mountRoot)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing mount roots %v from %v", want, child.FSWrite)
 	}
 }
 

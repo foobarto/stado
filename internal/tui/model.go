@@ -23,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/agentpicker"
 	"github.com/foobarto/stado/internal/tui/filepicker"
@@ -230,8 +231,12 @@ type (
 		providerName string
 		models       []string
 	}
-	streamTickMsg            struct{}
-	streamDoneMsg            struct{}
+	streamTickMsg   struct{}
+	streamDoneMsg   struct{}
+	verifyResultMsg struct {
+		outcome    runtime.VerifyOutcome
+		generation uint64
+	}
 	recoveryTimeoutMsg       struct{}
 	toolsExecutedMsg         struct{ results []agent.ToolResultBlock }
 	pluginApprovalRequestMsg struct {
@@ -380,9 +385,16 @@ type Model struct {
 
 	// Tool execution + git state. executor may be nil (no session) in which
 	// case tool calls are reported but not executed.
-	executor        *tools.Executor
-	executorSandbox runtime.ExecutorSandbox
-	session         *stadogit.Session
+	executor         *tools.Executor
+	executorSandbox  runtime.ExecutorSandbox
+	metrics          telemetry.Metrics
+	broker           runtime.BrokerController
+	verifyConfig     runtime.VerifyConfig
+	verifyEnabled    bool
+	verifyRounds     int
+	verifying        bool
+	verifyGeneration uint64
+	session          *stadogit.Session
 	// Cached footer VCS summary. Status rendering happens frequently, so
 	// avoid probing git on every frame.
 	statusGitCwd       string

@@ -102,6 +102,11 @@ worktree dir   /home/user/.local/state/stado/worktrees
   hard_input_tokens  (unset)
   warn_output_tokens (unset)
   hard_output_tokens (unset)
+
+[verify]
+  commands    (unset - disabled)
+  max_rounds  3 when commands are configured
+  strict      false
 ```
 
 A missing config file is not an error — the output notes that values
@@ -164,6 +169,7 @@ stado: ignoring "…" from project .stado/config.toml — not honored from a rep
 | Key / table | Why |
 |-------------|-----|
 | `[hooks]`, `[aliases]` | Arbitrary exec / slash-command expansion |
+| `[verify]` | Automatic command execution when the model finishes |
 | `[keymap]` | Could neutralize Esc/Ctrl+G interrupt or swap input model |
 | `[defaults].persona`, `[defaults].allow_project_persona` | System-prompt injection; repo can't self-enable persona opt-in |
 | `[agent].system_prompt_path` | Repo-controlled provider system prompt |
@@ -177,6 +183,10 @@ stado: ignoring "…" from project .stado/config.toml — not honored from a rep
 **Still honored from project config:** e.g. `[defaults].model` /
 `.provider` (select among user-defined providers), `[tools].*`,
 `[context].*`, `[memory].*`, `[budget].*`, `[approvals].*`.
+
+`[verify]` is intentionally not project-overridable. Configure it in the user
+file only; commands run automatically and therefore cross the repo-to-host
+trust boundary even though execution remains inside the session sandbox.
 
 ### Operator opt-ins (user config only)
 

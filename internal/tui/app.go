@@ -49,7 +49,7 @@ import (
 //   - "ollama" / "llamacpp" / "vllm"      → OAI-compat presets
 //   - "oaicompat:<url>"                   → OAI-compat with explicit endpoint
 //   - anything else matching inference.presets.<name>.endpoint  → OAI-compat
-func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.ExecutorSandbox) error {
+func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.ExecutorSandbox, metrics telemetry.Metrics, brokerController runtime.BrokerController) error {
 	done := tuiTraceCall("tui.Run")
 	defer done()
 	// startupNotices carries the pre-launch banner (sandbox posture,
@@ -85,7 +85,7 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 		// Non-fatal: run without git state; tool-call audit will be skipped.
 		notices = append(notices, fmt.Sprintf("stado: git state unavailable: %v (continuing without audit)", err))
 	}
-	exec, err := runtime.BuildExecutor(sess, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutor(sess, cfg, "stado-tui", metrics)
 	if err != nil {
 		return fmt.Errorf("tui: tools: %w", err)
 	}
@@ -97,6 +97,10 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
+	m.metrics = metrics
+	m.broker = brokerController
+	m.verifyConfig = runtime.VerifyConfigFrom(cfg)
+	m.verifyEnabled = m.verifyConfig.Enabled()
 	// EP-0030: security harness — prepend to the system prompt in security mode,
 	// same as `stado run`. Previously the [harness].mode config knob was honored
 	// only by `stado run`, silently ignored by the TUI.

@@ -7,10 +7,21 @@ import (
 )
 
 func (s *Server) buildExecutor(sess *stadogit.Session) (*tools.Executor, error) {
-	exec, err := runtime.BuildExecutor(sess, s.Cfg, "stado-acp")
+	return s.buildExecutorWithSandbox(sess, s.ExecutorSandbox)
+}
+
+func (s *Server) buildExecutorWithSandbox(sess *stadogit.Session, executorSandbox runtime.ExecutorSandbox) (*tools.Executor, error) {
+	exec, err := runtime.BuildExecutor(sess, s.Cfg, "stado-acp", s.Metrics)
 	if err != nil {
 		return nil, err
 	}
-	s.ExecutorSandbox.Apply(exec)
+	executorSandbox.Apply(exec)
 	return exec, nil
+}
+
+func (s *Server) executorSandboxFor(sess *acpSession) runtime.ExecutorSandbox {
+	if sess != nil && sess.broker != nil {
+		return sess.broker.Sandbox()
+	}
+	return s.ExecutorSandbox
 }

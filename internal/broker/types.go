@@ -79,9 +79,9 @@ type CapabilityRequest struct {
 	// Profile selects the mount-table tightness.
 	Profile Profile
 
-	// CWD is the absolute working directory the orchestrator was
-	// launched in (or, for sub-agents, the parent session's CWD).
-	// Becomes part of the projected ceiling's writable set.
+	// CWD is the absolute working directory the orchestrator was launched in.
+	// For subagents it is the already-materialized managed child worktree;
+	// relative write_scope entries are resolved against the parent handle's CWD.
 	CWD string
 
 	// PluginName, when Purpose is PurposeToolRun, names the wasm
@@ -127,6 +127,16 @@ type SessionHandle struct {
 	// Purpose is echoed from the request for the orchestrator's
 	// convenience.
 	Purpose Purpose
+
+	// Profile is retained so a child request cannot switch its parent to a
+	// weaker sandbox profile.
+	Profile Profile
+
+	// CWD is the broker-owned working directory for the handle. For ordinary
+	// subagents the broker reserves this directory itself before returning the
+	// handle, so the orchestrator cannot redirect a child grant at another
+	// session's worktree.
+	CWD string
 
 	// Ceiling is the immutable maximal capability set for this
 	// session, derived at session-creation from Purpose+Profile

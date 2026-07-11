@@ -231,6 +231,13 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	}
 	switch parts[0] {
 	case "/clear":
+		if m.verifying {
+			m.cancelRunningTool()
+			m.verifying = false
+			m.verifyGeneration++
+			m.verifyRounds = 0
+			m.state = stateIdle
+		}
 		if m.state == stateStreaming && m.streamCancel != nil {
 			m.streamCancel()
 			m.streamCancel = nil
@@ -275,6 +282,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			rest = strings.TrimSpace(strings.Join(parts[1:], " "))
 		}
 		return m.handleLoopCmd(rest)
+	case "/verify":
+		return m.handleVerifySlash(parts[1:])
 	case "/monitor":
 		// /monitor <cmd>  or  /monitor stop — EP-0036.
 		rest := ""
@@ -993,6 +1002,11 @@ func (m *Model) handleRetrySlash() tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "/retry: last message is already a user prompt — press Enter to submit"})
 		return nil
 	}
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.appendBlock(block{kind: "system", body: "/retry: broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
 	// Drop everything after the last user message. The LLM will
 	// regenerate the assistant (+ tool-use) blocks from scratch on
 	// the same prompt.
@@ -1195,8 +1209,8 @@ func (m *Model) handleDescribeSlash(parts []string) {
 // handleConfigReload re-reads config from disk and refreshes the
 // config-derived surface — the tool registry (so [tools].autoload /
 // enabled / disabled changes take effect on the next turn), the system
-// prompt template, the persona, the thinking display, and the context /
-// budget thresholds — without restarting the session.
+// prompt template, the persona, the verification gate, the thinking display,
+// and the context / budget thresholds — without restarting the session.
 //
 // Deliberately NOT touched (decision 2026-06-10-config-reload): the
 // provider/model (use /model), the sandbox ceiling (a security boundary
@@ -1247,6 +1261,9 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	})
 
 	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
+	m.verifyConfig = runtime.VerifyConfigFrom(newCfg)
+	m.verifyEnabled = m.verifyConfig.Enabled()
+	m.verifyRounds = 0
 	m.initPersona(newCfg)
 	m.applyConfiguredThinkingDisplay(newCfg)
 	m.applyConfiguredToolDisplay(newCfg)
@@ -1263,7 +1280,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	if tools >= 0 {
 		body += fmt.Sprintf(" — %d tools registered (autoload applies next turn)", tools)
 	}
-	body += ".\nRefreshed: tools, system prompt, persona, thinking display, context + budget thresholds." +
+	body += ".\nRefreshed: tools, system prompt, persona, verify gate, thinking display, context + budget thresholds." +
 		"\nUnchanged (by design): provider/model (use /model), sandbox (needs a restart), session."
 	m.appendBlock(block{kind: "system", body: body})
 	m.layout()

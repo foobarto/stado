@@ -23,7 +23,7 @@ Given `--prompt "..."`:
 Exit codes:
 - `0` success
 - `1` provider / IO error
-- `2` max-turns reached OR `[budget]` hard cap exceeded (USD or tokens)
+- `2` max-turns, budget cap, or `verify_exhausted`
 
 ## Why it exists
 
@@ -133,6 +133,8 @@ See [features/skills.md](../features/skills.md) for the full surface.
 | `--skill <name>` | Load `.stado/skills/<name>.md` as (part of) the prompt |
 | `--tools <globs>` | Whitelist a comma-separated subset of tools (default: all enabled) |
 | `--no-tools` | Disable tools — pure-chat mode (no session, no audit) |
+| `--verify <command>` | Run a sandboxed command gate before accepting completion; repeat for ordered gates. Overrides `[verify].commands` |
+| `--no-verify` | Disable configured command gates for this invocation |
 | `--tools-autoload <globs>` | Comma-separated globs always sent to the model every turn (default: `[tools.autoload]` from config) |
 | `--tools-disable <globs>` | Comma-separated globs removed from the surface entirely (wins over enable + autoload) |
 | `--mode <general\|security>` | Harness mode: `general` (default) or `security` (recon discipline + abusability filters) |
@@ -162,6 +164,8 @@ Relevant `config.toml` sections:
   hard cap exits 2. See [features/budget.md](../features/budget.md).
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
+- `[verify]` — ordered completion gates, bounded by `max_rounds`; see
+  [features/verify.md](../features/verify.md).
 - `[hooks].post_turn` — lifecycle shell hook fired after each completed
   turn in `stado run` too. Disabled when `bash` is removed from the
   active tool set.

@@ -40,7 +40,11 @@ func (m *Model) renderStatus(width int) string {
 	state := "idle"
 	switch m.state {
 	case stateStreaming:
-		state = "streaming"
+		if m.verifying {
+			state = "verifying"
+		} else {
+			state = "streaming"
+		}
 	case stateApproval:
 		state = "approval"
 	case stateError:

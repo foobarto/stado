@@ -304,6 +304,7 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/help` — overlay with every keybind + slash command
 - `/clear` — wipe conversation; cancels any in-flight stream
 - `/compact` — summarise and replace conversation (y/n confirm)
+- `/verify [on|off|status]` — toggle the configured completion command gate
 - `/retry` — regenerate the last assistant turn
 - `/model` — model picker (`Ctrl+X M`); marks the current model and
   surfaces favorites/recents first. Press `Ctrl+F` in the picker to

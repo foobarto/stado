@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -16,11 +17,31 @@ func TestCollectTurnRejectsOversizedAssistantText(t *testing.T) {
 	}
 	close(ch)
 
-	_, _, _, err := collectTurn(ch, nil)
+	_, _, _, err := collectTurn(ch, nil, nil)
 	if err == nil {
 		t.Fatal("expected oversized assistant text to fail")
 	}
 	if !strings.Contains(err.Error(), "assistant text exceeds") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollectTurnStopsAggregatingAfterCallbackError(t *testing.T) {
+	wantErr := errors.New("candidate budget exceeded")
+	ch := make(chan agent.Event, 1025)
+	ch <- agent.Event{Kind: agent.EvTextDelta, Text: "rejected"}
+	for i := 0; i < 1024; i++ {
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+			ID: "flood", Name: "tool", Input: []byte(strings.Repeat("x", 1024)),
+		}}
+	}
+	close(ch)
+	cancelled := false
+	text, calls, _, err := collectTurn(ch, func(agent.Event) error { return wantErr }, func() { cancelled = true })
+	if !errors.Is(err, wantErr) || !cancelled {
+		t.Fatalf("error=%v cancelled=%v", err, cancelled)
+	}
+	if text != "" || len(calls) != 0 {
+		t.Fatalf("post-error aggregation text=%q calls=%d", text, len(calls))
 	}
 }

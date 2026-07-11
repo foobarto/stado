@@ -227,6 +227,19 @@ const defaultConfigTemplate = `# stado — config.toml
 # hard_usd = 5.00
 
 # ---------------------------------------------------------------------------
+# [verify] — opt-in command gates at the agent loop's natural completion.
+# Commands run in order through the same audited, sandboxed shell tool the
+# model uses. A failure is fed back to the model; max_rounds bounds retries.
+# Infrastructure errors fail open by default; strict=true makes them fatal.
+# SECURITY: [verify] is user/global config only and is stripped from project
+# .stado/config.toml so opening a repo cannot schedule host commands.
+# ---------------------------------------------------------------------------
+# [verify]
+# max_rounds = 3
+# strict = false
+# commands = ["go vet ./...", "go test ./..."]
+
+# ---------------------------------------------------------------------------
 # [hooks] — two kinds of hooks across the TUI, stado run, and headless
 #           session.prompt:
 #

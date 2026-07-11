@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-extended-by: [17]
-see-also: [5, 7, 8, 11, 17]
+extended-by: [17, 51]
+see-also: [5, 7, 8, 11, 17, 51]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -27,7 +27,7 @@ history:
       `[hooks].post_turn` surface still exists as described; it is no longer
       the whole story. See the Revision below and
       docs/features/lifecycle-hooks.md. A dedicated superseding EP for the
-      lifecycle-hook contract is tracked as a follow-up.
+      lifecycle-hook contract is EP-51.
 ---
 
 # EP-9: Session Guardrails and Hooks
@@ -148,6 +148,7 @@ and budget acknowledgements stay easy to reset.
 - [EP-8: Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md)
 - [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
 - [EP-17: Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md)
+- [EP-51: Lua Lifecycle Hook Contract](./0051-lua-lifecycle-hook-contract.md)
 - [docs/features/budget.md](../features/budget.md)
 - [docs/features/hooks.md](../features/hooks.md)
 - [docs/features/lifecycle-hooks.md](../features/lifecycle-hooks.md)
@@ -171,6 +172,6 @@ system shipped in the 2026-06-11 feature batch and is now live:
   `session.prompt`.
 - User-facing docs: `docs/features/lifecycle-hooks.md`.
 
-This Revision is a corrective pointer only. The deny/mutate lifecycle-hook
-contract deserves its own Standards EP that supersedes the relevant parts of
-this one; that EP is a tracked follow-up, not yet written.
+This Revision is a corrective pointer only. EP-51 is the canonical Standards
+contract and supersedes D3 for Lua lifecycle hooks; the shell `post_turn`
+surface and the rest of this EP remain current.

@@ -73,7 +73,7 @@ func (p Policy) Merge(other Policy) Policy {
 	out := p
 	out.FSRead = intersect(p.FSRead, other.FSRead)
 	out.FSWrite = intersect(p.FSWrite, other.FSWrite)
-	out.Exec = intersect(p.Exec, other.Exec)
+	out.Exec = intersectExec(p.Exec, other.Exec)
 	out.Env = intersect(p.Env, other.Env)
 	// Mask is a restriction: hide everything either side wants hidden
 	// (union, more-restrictive combine). Sockets is an allow: only
@@ -165,8 +165,8 @@ func ReadOnlyFS(readGlobs ...string) Policy {
 
 // WorktreeWrite returns a Policy that allows reading anywhere on the
 // filesystem but only writing inside `worktree` (and /tmp, which many tools
-// need for scratch files). Typical use: narrow stado's own process when
-// running `stado run --sandbox`.
+// need for scratch files). Callers that maintain runtime-owned audit state
+// must add its exact paths before applying this process-wide policy.
 //
 // Net left unset — callers layer NetPolicy themselves.
 func WorktreeWrite(worktree string) Policy {
@@ -214,4 +214,30 @@ func intersect(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+// intersectExec combines optional executable allowlists. Exec=nil is the
+// unrestricted top value, while a non-nil empty slice is deny-all.
+func intersectExec(a, b []string) []string {
+	if a == nil {
+		return cloneOptionalStrings(b)
+	}
+	if b == nil {
+		return cloneOptionalStrings(a)
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return []string{}
+	}
+	out := intersect(a, b)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func cloneOptionalStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append([]string{}, values...)
 }

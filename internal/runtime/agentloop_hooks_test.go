@@ -5,7 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	otel "go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -82,6 +88,43 @@ func TestAgentLoop_PreLLMMutate_RewritesSystem(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_PreLLMMutateUpdatesTurnSpanModel(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	oldProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(oldProvider) })
+
+	runner := hooks.NewLifecycleRunner(hooks.BuiltinHook{
+		HookName: "route-model", Subscribed: []hooks.Point{hooks.PointPreLLM},
+		Fn: func(_ context.Context, _ hooks.Point, payload hooks.Payload) (hooks.HookResult, error) {
+			mutated := *payload.(*hooks.PreLLMPayload)
+			mutated.Model = "routed-model"
+			return hooks.Mutate(&mutated), nil
+		},
+	})
+	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: &textProvider{text: "done"}, Hooks: runner, Model: "configured-model",
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, span := range sr.Ended() {
+		if span.Name() != telemetry.SpanTurn {
+			continue
+		}
+		for _, attr := range span.Attributes() {
+			if string(attr.Key) == "provider.model" && attr.Value.AsString() == "routed-model" {
+				return
+			}
+		}
+		t.Fatalf("turn span attributes = %v, want provider.model=routed-model", span.Attributes())
+	}
+	t.Fatal("turn span not recorded")
+}
+
 // TestAgentLoop_PostLLMMutate_RewritesText: a post_llm hook that mutates
 // the assistant text changes the finalText AgentLoop returns.
 func TestAgentLoop_PostLLMMutate_RewritesText(t *testing.T) {
@@ -107,6 +150,41 @@ func TestAgentLoop_PostLLMMutate_RewritesText(t *testing.T) {
 	}
 	if final != "original answer [reviewed]" {
 		t.Fatalf("post_llm mutate did not rewrite the final text, got %q", final)
+	}
+}
+
+func TestAgentLoop_VerificationPublishesPostLLMMutatedText(t *testing.T) {
+	prov := &textProvider{text: "original answer"}
+	runner := hooks.NewLifecycleRunner(hooks.BuiltinHook{
+		HookName: "tag", Subscribed: []hooks.Point{hooks.PointPostLLM},
+		Fn: func(_ context.Context, _ hooks.Point, p hooks.Payload) (hooks.HookResult, error) {
+			clone := *p.(*hooks.PostLLMPayload)
+			clone.Text = "reviewed answer"
+			return hooks.Mutate(&clone), nil
+		},
+	})
+	reg := tools.NewRegistry()
+	reg.Register(&scriptedVerifyTool{})
+	var published string
+	final, msgs, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: prov, Executor: &tools.Executor{Registry: reg}, Hooks: runner,
+		Model: "m", Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 1,
+		Verify: VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1},
+		OnEvent: func(event agent.Event) {
+			if event.Kind == agent.EvTextDelta {
+				published += event.Text
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final != "reviewed answer" || published != final {
+		t.Fatalf("final=%q published=%q", final, published)
+	}
+	last := msgs[len(msgs)-1]
+	if last.Content[0].Text == nil || last.Content[0].Text.Text != final {
+		t.Fatalf("persisted assistant=%+v, want %q", last, final)
 	}
 }
 

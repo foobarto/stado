@@ -17,6 +17,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // procHandle holds the state for a long-lived spawned process.
@@ -25,6 +26,40 @@ type procHandle struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 }
+
+// cappedOutput retains at most limit bytes while reporting full writes to the
+// child process, so stdout/stderr continue to drain without unbounded memory.
+type cappedOutput struct {
+	buf      bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+const maxProcCaptureBytes = 1 << 20
+
+func procCaptureLimit(claimed uint32) int {
+	if claimed > maxProcCaptureBytes {
+		return maxProcCaptureBytes
+	}
+	return int(claimed)
+}
+
+func (w *cappedOutput) Write(p []byte) (int, error) {
+	written := len(p)
+	remaining := w.limit - w.buf.Len()
+	if remaining > 0 {
+		if remaining > len(p) {
+			remaining = len(p)
+		}
+		_, _ = w.buf.Write(p[:remaining])
+	}
+	if remaining < len(p) {
+		w.overflow = true
+	}
+	return written, nil
+}
+
+func (w *cappedOutput) String() string { return w.buf.String() }
 
 // procAllowed checks exec:proc / exec:proc:<glob> capability.
 //
@@ -181,7 +216,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			if req.Stdin != "" {
 				cmd.Stdin = strings.NewReader(req.Stdin)
 			}
-			var out bytes.Buffer
+			out := cappedOutput{limit: procCaptureLimit(resCap)}
 			cmd.Stdout = &out
 			cmd.Stderr = &out
 
@@ -204,6 +239,30 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 				ExitCode: exitCode,
 				Error:    runErr,
 			})
+			if out.overflow || byteLenExceedsCap(payload, resCap) {
+				msg := fmt.Sprintf("exec: response exceeds %d-byte result limit", resCap)
+				if exitCode != 0 {
+					msg = fmt.Sprintf("command exited with code %d\n%s", exitCode, msg)
+					failureCode := exitCode
+					structured, _ := json.Marshal(tool.ErrorEnvelopeV1{
+						Schema: tool.ErrorEnvelopeSchemaV1, Kind: tool.FailureExit,
+						Message: msg, ExitCode: &failureCode,
+					})
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, structured))
+					return
+				} else if runErr != "" {
+					msg = runErr + "\n" + msg
+				} else {
+					// The command succeeded; bound its output instead of converting
+					// success into a launch failure. Verification can then continue
+					// to later gates rather than fail-open on infrastructure posture.
+					bounded, _ := json.Marshal(result{Stdout: "[output omitted: " + msg + "]"})
+					stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, bounded))
+					return
+				}
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(msg)))
+				return
+			}
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
 			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},

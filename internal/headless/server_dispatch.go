@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 // Serve runs the loop on r/w until the peer disconnects. Loads
@@ -15,7 +16,23 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	s.conn = acp.NewConn(r, w)
 	s.loadBackgroundPlugins(ctx)
 	defer s.closeBackgroundPlugins(context.Background())
+	defer s.closeSessionBrokers()
 	return s.conn.Serve(ctx, s.dispatch)
+}
+
+func (s *Server) closeSessionBrokers() {
+	s.mu.Lock()
+	controllers := make([]runtime.BrokerController, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		if sess.broker != nil {
+			controllers = append(controllers, sess.broker)
+			sess.broker = nil
+		}
+	}
+	s.mu.Unlock()
+	for _, controller := range controllers {
+		_ = controller.Close()
+	}
 }
 
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {

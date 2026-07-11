@@ -110,6 +110,9 @@ func TestTUI_PreLLM_MutateRewritesRequest(t *testing.T) {
 	if prov.last.Model != "rewritten-model" {
 		t.Fatalf("model not rewritten by pre_llm mutate: %q", prov.last.Model)
 	}
+	if m.turnModel != "rewritten-model" {
+		t.Fatalf("turn model snapshot = %q, want rewritten-model", m.turnModel)
+	}
 	// History is immutable at this seam.
 	if len(m.msgs) != 1 || m.msgs[0].Role != agent.RoleUser {
 		t.Fatalf("pre_llm mutate must not touch message history: %+v", m.msgs)

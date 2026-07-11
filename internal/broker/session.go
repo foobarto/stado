@@ -5,11 +5,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // ErrSessionNotFound is returned by Terminate when the supplied
@@ -92,15 +95,17 @@ func (s *Service) loadedPolicy() *Policy {
 // Evaluate runs the loaded policy against req. Convenience wrapper
 // around Policy.Evaluate that adds decision logging.
 func (s *Service) Evaluate(req CapabilityRequest) Decision {
-	p := s.loadedPolicy()
-	if p == nil {
-		d := Decision{Admit: false, Rule: "no-policy", Reason: ErrPolicyNotLoaded.Error()}
-		s.logDecision(req, d)
-		return d
-	}
-	d := p.Evaluate(req)
+	d := s.evaluate(req)
 	s.logDecision(req, d)
 	return d
+}
+
+func (s *Service) evaluate(req CapabilityRequest) Decision {
+	p := s.loadedPolicy()
+	if p == nil {
+		return Decision{Admit: false, Rule: "no-policy", Reason: ErrPolicyNotLoaded.Error()}
+	}
+	return p.Evaluate(req)
 }
 
 // CreateSession admits or denies a session-creation request and, on
@@ -114,6 +119,9 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	if !req.Profile.Valid() {
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: invalid profile %q", req.Profile)
 	}
+	if req.Purpose == PurposeSubagent {
+		return s.createSubagentSession(req)
+	}
 	d := s.Evaluate(req)
 	if !d.Admit {
 		return SessionHandle{}, d, nil
@@ -125,10 +133,15 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	}
 
 	now := s.now()
-	ceiling := projectCeiling(req)
+	ceiling, cwd, err := s.sessionCeiling(req, id)
+	if err != nil {
+		return SessionHandle{}, d, err
+	}
 	handle := SessionHandle{
 		SessionID: id,
 		Purpose:   req.Purpose,
+		Profile:   req.Profile,
+		CWD:       cwd,
 		Ceiling:   ceiling,
 		Effective: ceiling, // phase 4: initialize equal; narrows via NarrowEffective.
 		TraceRef:  traceRefFor(req, id),
@@ -141,6 +154,143 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	s.sessionsMu.Unlock()
 
 	return handle, d, nil
+}
+
+func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, Decision, error) {
+	if req.SessionID == "" {
+		return SessionHandle{}, Decision{}, errors.New("broker: subagent parent session required")
+	}
+	id, err := mintSessionID()
+	if err != nil {
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: mint session id: %w", err)
+	}
+	base := s.evaluate(req)
+	if !base.Admit {
+		s.logDecision(req, base)
+		return SessionHandle{}, base, nil
+	}
+
+	s.sessionsMu.Lock()
+	parentState, ok := s.sessions[req.SessionID]
+	if !ok {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", ErrSessionNotFound)
+	}
+	if parentState.terminated {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", ErrSessionTerminated)
+	}
+	parent := parentState.handle
+	if req.Profile != parent.Profile {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent profile %q differs from parent profile %q", req.Profile, parent.Profile)
+	}
+	d := decisionWithTaint(req, base, parentState.taint)
+	if !d.Admit {
+		s.sessionsMu.Unlock()
+		s.logDecision(req, d)
+		return SessionHandle{}, d, nil
+	}
+
+	childCWD, err := reserveManagedWorktree(id)
+	if err != nil {
+		s.sessionsMu.Unlock()
+		s.logDecision(req, d)
+		return SessionHandle{}, d, err
+	}
+	parentCWD := parent.Effective.CWD
+	writes := resolveRelativeScope(req.WriteScope, parentCWD)
+	projected, _ := SubagentCeiling(parent.Effective, req.Role, req.Mode, writes)
+	ceiling := rebasePolicyRoot(projected, parentCWD, childCWD)
+	handle := SessionHandle{
+		SessionID: id,
+		Purpose:   req.Purpose,
+		Profile:   req.Profile,
+		CWD:       childCWD,
+		Ceiling:   ceiling,
+		Effective: ceiling,
+		TraceRef:  traceRefFor(req, id),
+		ExpiresAt: time.Time{},
+		CreatedAt: s.now(),
+	}
+	s.sessions[id] = &sessionState{handle: handle}
+	s.sessionsMu.Unlock()
+	s.logDecision(req, d)
+	return handle, d, nil
+}
+
+// sessionCeiling projects a broker-created child from the requesting
+// parent's current effective set. The only path translation permitted is from
+// the parent's checkout root to a validated stado-managed child worktree.
+func (s *Service) sessionCeiling(req CapabilityRequest, sessionID string) (sandbox.Policy, string, error) {
+	return projectCeiling(req), req.CWD, nil
+}
+
+func managedWorktreeRoot() (string, error) {
+	root := os.Getenv("XDG_STATE_HOME")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("broker: subagent worktree root: %w", err)
+		}
+		root = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(root, "stado", "worktrees"), nil
+}
+
+func reserveManagedWorktree(sessionID string) (string, error) {
+	root, err := managedWorktreeRoot()
+	if err != nil {
+		return "", err
+	}
+	resolver := workdirpath.NewUserConfigResolver()
+	if err := resolver.MkdirAll(root, 0o700); err != nil {
+		return "", fmt.Errorf("broker: reserve subagent worktree root: %w", err)
+	}
+	rootHandle, err := resolver.OpenRoot(root)
+	if err != nil {
+		return "", fmt.Errorf("broker: open subagent worktree root: %w", err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	if err := rootHandle.Mkdir(sessionID, 0o700); err != nil {
+		return "", fmt.Errorf("broker: reserve subagent worktree: %w", err)
+	}
+	return filepath.Join(root, sessionID), nil
+}
+
+func rebasePolicyRoot(p sandbox.Policy, from, to string) sandbox.Policy {
+	p.FSRead = rebasePaths(p.FSRead, from, to)
+	p.FSWrite = rebasePaths(p.FSWrite, from, to)
+	p.Mask = rebasePaths(p.Mask, from, to)
+	p.CWD = to
+	return p
+}
+
+func rebasePaths(paths []string, from, to string) []string {
+	out := append([]string(nil), paths...)
+	for i, path := range out {
+		if path == from || isSubpath(from, path) {
+			out[i] = rebasePath(path, from, to)
+		}
+	}
+	return out
+}
+
+func rebasePath(path, from, to string) string {
+	rel, err := filepath.Rel(from, path)
+	if err != nil || rel == "." {
+		return to
+	}
+	return filepath.Join(to, rel)
+}
+
+func isSubpath(parent, child string) bool {
+	if parent == "" || child == "" {
+		return false
+	}
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // TerminateSession marks the named session terminated. Returns
@@ -212,18 +362,14 @@ func mintSessionID() (string, error) {
 // has still admitted the request via Service.Evaluate, so the
 // decision is captured in the broker-decision log.
 //
-// PurposeSubagent: the projection uses SubagentCeiling against a
-// parent-ceiling baseline derived from the same profile's mount
-// table. Phase 4 doesn't yet thread the actual parent session's
-// ceiling through the IPC (the spawn_agent runner today bypasses
-// the broker — wiring that is a follow-up); when it does, the
-// parent's effective set should be passed here instead of the
-// mount-table baseline.
+// Direct callers use the profile baseline. Broker-created subagents go through
+// Service.sessionCeiling, which projects from the actual parent effective set.
 func projectCeiling(req CapabilityRequest) sandbox.Policy {
 	if req.Profile == ProfileNoSandbox {
-		return sandbox.Policy{}
+		return sandbox.Policy{CWD: req.CWD}
 	}
 	base := MountTableFor(req.Profile, req.CWD).ToPolicy()
+	base.CWD = req.CWD
 	if req.Purpose == PurposeSubagent {
 		// Resolve write_scope entries against req.CWD before
 		// projecting. The spawn_agent contract makes write_scope

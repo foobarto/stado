@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,9 +16,18 @@ import (
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/plugins/userbundled"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/telemetry"
 )
 
 var version = "0.0.0-dev"
+
+type exitCodeError struct {
+	Code int
+	Err  error
+}
+
+func (e *exitCodeError) Error() string { return e.Err.Error() }
+func (e *exitCodeError) Unwrap() error { return e.Err }
 
 // formatVersion builds the version string shown by `stado version` and
 // `stado --version`. When a user-bundled payload is loaded, it appends a
@@ -78,13 +88,13 @@ var rootCmd = &cobra.Command{
 		// printing it — the alt-screen TUI clears pre-launch stderr — and
 		// hand it to tui.Run to render in-band as a system block.
 		startupNotices := sandbox.HostUnsandboxedLines(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
-		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 			// Broker attach + ceiling enforcement (credential-dir mask +
 			// ssh-agent forwarding) is shared with `session resume` via
 			// launchInlineTUI so both inline-TUI launches behave identically.
 			// The sandbox banner is folded into startupNotices because the
 			// alt-screen clears pre-launch stderr.
-			return launchInlineTUI(ctx, cfg, startupNotices)
+			return launchInlineTUI(ctx, cfg, startupNotices, rt.M())
 		})
 	},
 }
@@ -188,6 +198,10 @@ func main() {
 	rootCmd.InitDefaultCompletionCmd()
 	enforceSubcommandRequired(rootCmd)
 	if err := rootCmd.Execute(); err != nil {
+		var coded *exitCodeError
+		if errors.As(err, &coded) && coded.Code > 0 {
+			os.Exit(coded.Code)
+		}
 		os.Exit(1)
 	}
 }

@@ -506,7 +506,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.renderBlocks()
 		return nil
 	}
-	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "auto-recovery: executor: " + err.Error()})
 		m.renderBlocks()
@@ -514,6 +514,8 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	}
 
 	prompt := m.recoveryPrompt
+	queued := m.queuedPrompt
+	draft := m.input.Value()
 	m.recoveryPrompt = ""
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false
@@ -558,15 +560,50 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		body += "\nsummary: " + trimSeed(seed, 120)
 	}
 	if prompt == "" {
+		m.input.SetValue(mergeRecoveryInput("", queued, draft))
 		m.appendBlock(block{kind: "system", body: body})
 		m.renderBlocks()
 		return nil
 	}
 	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.input.SetValue(mergeRecoveryInput(prompt, queued, draft))
+		m.appendBlock(block{kind: "system", body: "broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
 	m.appendUser(prompt)
-	m.input.Reset()
+	retainedDraft := draft
+	if retainedDraft == prompt {
+		retainedDraft = ""
+	}
+	if retained := mergeRecoveryInput("", queued, retainedDraft); retained != "" {
+		m.input.SetValue(retained)
+	} else {
+		m.input.Reset()
+	}
 	m.renderBlocks()
 	return m.startStream()
+}
+
+func mergeRecoveryInput(prompt, queued, draft string) string {
+	values := make([]string, 0, 3)
+	for _, value := range []string{prompt, queued, draft} {
+		if value == "" {
+			continue
+		}
+		duplicate := false
+		for _, existing := range values {
+			if value == existing {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			values = append(values, value)
+		}
+	}
+	return strings.Join(values, "\n")
 }
 
 // pluginForkAt returns a ForkFn closure that drives the same

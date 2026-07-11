@@ -16,6 +16,14 @@ import (
 // head. The parent remains untouched. If the parent has no tree ref yet,
 // the child starts as a fresh empty session.
 func ForkSession(cfg *config.Config, parent *stadogit.Session) (*stadogit.Session, error) {
+	return ForkSessionWithID(cfg, parent, uuid.New().String())
+}
+
+// ForkSessionWithID creates the same tip fork as ForkSession using an
+// externally reserved session id. Broker-mediated subagents use the broker's
+// opaque id so the broker can reserve and bind the child worktree before the
+// orchestrator materializes any session state there.
+func ForkSessionWithID(cfg *config.Config, parent *stadogit.Session, childID string) (*stadogit.Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("session fork: config required")
 	}
@@ -31,7 +39,7 @@ func ForkSession(cfg *config.Config, parent *stadogit.Session) (*stadogit.Sessio
 	}
 
 	worktreeRoot := filepath.Dir(parent.WorktreePath)
-	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, uuid.New().String(), rootCommit)
+	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, childID, rootCommit)
 	if err != nil {
 		return nil, fmt.Errorf("session fork: create child: %w", err)
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -64,8 +65,11 @@ const ProtocolVersion = 1
 
 // Server is the stado ACP server — stdin/stdout JSON-RPC, one connection.
 type Server struct {
-	Cfg      *config.Config
-	Provider agent.Provider
+	Cfg           *config.Config
+	Provider      agent.Provider
+	Metrics       telemetry.Metrics
+	Broker        runtime.BrokerController
+	BrokerFactory func(context.Context, string) (runtime.BrokerController, error)
 
 	// ExecutorSandbox is derived once by the CLI from the broker session and
 	// applied to every per-session executor this long-lived server creates.
@@ -118,6 +122,7 @@ type acpSession struct {
 	gitSess          *stadogit.Session
 	persistedViewLen int
 	busy             bool
+	broker           runtime.BrokerController
 
 	// maxTurns is the per-session cap chosen by the caller via
 	// `session/new`. Zero means "use the server-level default"
@@ -158,7 +163,23 @@ func (s *Server) peerDone() <-chan struct{} {
 
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	s.conn = NewConn(r, w)
+	defer s.closeSessionBrokers()
 	return s.conn.Serve(ctx, s.dispatch)
+}
+
+func (s *Server) closeSessionBrokers() {
+	s.mu.Lock()
+	controllers := make([]runtime.BrokerController, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		if sess.broker != nil {
+			controllers = append(controllers, sess.broker)
+			sess.broker = nil
+		}
+	}
+	s.mu.Unlock()
+	for _, controller := range controllers {
+		_ = controller.Close()
+	}
 }
 
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
@@ -304,12 +325,28 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 				Message: "session already active in this server: " + resumeID,
 			}
 		}
+		if s.BrokerFactory != nil {
+			controller, brokerErr := s.BrokerFactory(context.Background(), sess.workdir)
+			if brokerErr != nil {
+				s.mu.Unlock()
+				return nil, &RPCError{Code: CodeInternalError, Message: "broker session: " + brokerErr.Error()}
+			}
+			sess.broker = controller
+		}
 		s.sessions[resumeID] = sess
 		s.mu.Unlock()
 		return sessionNewResult{SessionID: resumeID}, nil
 	}
 
 	cwd, _ := os.Getwd()
+	var sessionBroker runtime.BrokerController
+	if s.BrokerFactory != nil {
+		var brokerErr error
+		sessionBroker, brokerErr = s.BrokerFactory(context.Background(), cwd)
+		if brokerErr != nil {
+			return nil, &RPCError{Code: CodeInternalError, Message: "broker session: " + brokerErr.Error()}
+		}
+	}
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("acp-%d", s.nextID)
@@ -318,6 +355,7 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 		workdir:  cwd,
 		maxTurns: p.MaxTurns,
 		persona:  persona,
+		broker:   sessionBroker,
 	}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
@@ -470,6 +508,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	if sess == nil {
 		return nil, &RPCError{Code: CodeInvalidParams, Message: "unknown sessionId"}
 	}
+	if runtime.VerifyConfigFrom(s.Cfg).Enabled() && !s.EnableTools {
+		return nil, &RPCError{Code: CodeInvalidParams, Message: "verification commands require stado acp --tools"}
+	}
 
 	// Lazy provider init.
 	prov := s.Provider
@@ -525,6 +566,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 
 	opts := runtime.AgentLoopOptions{
 		Provider:             prov,
+		Config:               s.Cfg,
+		Metrics:              s.Metrics,
+		Broker:               sess.broker,
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
 		MaxTurns:             s.resolveMaxTurns(sess),
@@ -538,6 +582,15 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		OnSubagentEvent: func(ev runtime.SubagentEvent) {
 			s.emitSubagentUpdate(p.SessionID, ev)
 		},
+		OnVerifyEvent: func(ev runtime.VerifyEvent) {
+			_ = s.conn.Notify("session/update", map[string]any{
+				"sessionId": p.SessionID, "kind": "verify", "status": ev.Status,
+				"round": ev.Round, "command": ev.Command, "output": ev.Output,
+			})
+		},
+	}
+	if opts.Broker == nil {
+		opts.Broker = s.Broker
 	}
 	// Counters for the end-of-turn tool_summary signal. Tool-only
 	// turns (zero text deltas, ≥1 tool calls) produce a session/prompt
@@ -576,7 +629,8 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		gitSess := sess.gitSess
 		sess.mu.Unlock()
 		if gitSess != nil {
-			exec, err := s.buildExecutor(gitSess)
+			executorSandbox := s.executorSandboxFor(sess)
+			exec, err := s.buildExecutorWithSandbox(gitSess, executorSandbox)
 			if err != nil {
 				return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 			}
@@ -587,7 +641,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 				workdir:         workdir,
 				readLog:         exec.ReadLog,
 				runner:          exec.Runner,
-				executorSandbox: s.ExecutorSandbox,
+				executorSandbox: executorSandbox,
 			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
@@ -615,9 +669,6 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		s.emitToolSummary(p.SessionID, toolEventCount, lastToolName, lastToolErrorIn(newMsgs))
 	}
 
-	if loopErr != nil {
-		return nil, &RPCError{Code: CodeInternalError, Message: loopErr.Error()}
-	}
 	sess.mu.Lock()
 	gitSess := sess.gitSess
 	persistedViewLen := sess.persistedViewLen
@@ -634,6 +685,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	sess.mu.Lock()
 	sess.messages = msgs
 	sess.mu.Unlock()
+	if loopErr != nil {
+		return nil, &RPCError{Code: CodeInternalError, Message: loopErr.Error()}
+	}
 	return sessionPromptResult{Text: text}, nil
 }
 

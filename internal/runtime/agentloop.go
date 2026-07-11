@@ -35,8 +35,14 @@ type AgentLoopOptions struct {
 	Provider agent.Provider
 	Executor *tools.Executor
 	Config   *config.Config
-	Model    string
-	Messages []agent.Message
+	Metrics  telemetry.Metrics
+	Broker   BrokerController
+	// InitialTaint is the provenance state of the seed messages. Empty means a
+	// trusted top-level operator prompt (clean); model-derived child prompts set
+	// this to ContextTainted.
+	InitialTaint ContextTaint
+	Model        string
+	Messages     []agent.Message
 
 	// Hooks is the lifecycle-hook runner for the LLM-side points:
 	// pre_llm (deny -> abort the turn; mutate -> rewrite system prompt /
@@ -63,6 +69,13 @@ type AgentLoopOptions struct {
 	// session. It is best-effort user/client visibility; audit remains in
 	// the parent and child trace refs.
 	OnSubagentEvent func(SubagentEvent)
+
+	// Verify runs deterministic command gates when the model reaches its
+	// natural no-tool exit. Failures feed a user-role critique back into the
+	// same bounded loop; OnVerifyEvent exposes the phase to outer surfaces.
+	Verify        VerifyConfig
+	DisableVerify bool
+	OnVerifyEvent func(VerifyEvent)
 
 	// Host implements tool.Host during tool execution. Defaults to an
 	// auto-approve host using Workdir below (or Session.WorktreePath
@@ -173,6 +186,10 @@ var ErrCostCapExceeded = errors.New("runtime: cost cap exceeded")
 // ErrCostCapExceeded for the dollars-zero local-runner case.
 var ErrTokenCapExceeded = errors.New("runtime: token cap exceeded")
 
+// ErrMaxTurnsExceeded is returned when the provider keeps requesting tool
+// continuations through the configured turn limit.
+var ErrMaxTurnsExceeded = errors.New("runtime: max turns exceeded")
+
 // AgentLoop runs the headless multi-turn loop. Returns the final assistant
 // text (concatenated across turns) and the final accumulated message
 // history. Error is returned unchanged from the provider or executor.
@@ -182,6 +199,24 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	}
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = 20
+	}
+	if opts.Broker != nil {
+		initialTaint := opts.InitialTaint
+		if initialTaint == "" {
+			initialTaint = ContextClean
+		}
+		if err := opts.Broker.SetTaint(ctx, initialTaint); err != nil {
+			return "", opts.Messages, fmt.Errorf("runtime: set initial broker taint: %w", err)
+		}
+	}
+	if opts.Metrics.ToolLatency == nil && opts.Metrics.TokensTotal == nil &&
+		opts.Metrics.CacheHitRatio == nil && opts.Executor != nil {
+		opts.Metrics = opts.Executor.Metrics
+	}
+	if opts.DisableVerify {
+		opts.Verify = VerifyConfig{}
+	} else if !opts.Verify.Enabled() {
+		opts.Verify = VerifyConfigFrom(opts.Config)
 	}
 	if opts.Host == nil {
 		workdir := opts.Workdir
@@ -206,6 +241,8 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			AgentName:                "stado-subagent",
 			OnEvent:                  opts.OnSubagentEvent,
 			QuietRegistryDiagnostics: opts.QuietRegistryDiagnostics,
+			Metrics:                  opts.Metrics,
+			Broker:                   opts.Broker,
 		}
 		spawnFn := buildLoopSubagentSpawner(loopRunner)
 		var fb *FleetBridgeAdapter
@@ -244,6 +281,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	var finalText string
 	var totalCostUSD float64
 	var totalTokens, totalInputTokens, totalOutputTokens int
+	verifyRounds := 0
 
 	// Append-only guardrail (DESIGN §"Context management" → "Append-only
 	// history"). Prior messages are the cached prefix; any in-place mutation
@@ -262,6 +300,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	activatedNames := map[string]bool{}
 
 	for turn := 0; turn < opts.MaxTurns; turn++ {
+		finalTextBeforeTurn := len(finalText)
 		if turn > 0 {
 			got := hashMessagesPrefix(msgs, priorLen)
 			if got != priorHash {
@@ -309,6 +348,17 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		)
 		turnCtx = WithSkillCatalog(turnCtx, opts.Skills)
 		turnStart := time.Now()
+		if opts.Verify.Enabled() {
+			emitVerify(opts.OnVerifyEvent, VerifyEvent{
+				Status: VerifyPending, Round: verifyRounds + 1,
+				Output: "provider output is buffered until verification accepts the candidate",
+			})
+		}
+		closeVerifyPending := func(err error) {
+			if opts.Verify.Enabled() {
+				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
+			}
+		}
 
 		req := agent.TurnRequest{
 			Model:    opts.Model,
@@ -376,9 +426,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			decision, out := opts.Hooks.Fire(turnCtx, hooks.PointPreLLM, pre)
 			switch decision.Decision {
 			case hooks.DecisionDeny:
+				err := fmt.Errorf("runtime: turn denied by pre_llm hook: %s", decision.Reason)
+				closeVerifyPending(err)
 				turnSpan.SetStatus(codes.Error, decision.Reason)
 				turnSpan.End()
-				return finalText, msgs, fmt.Errorf("runtime: turn denied by pre_llm hook: %s", decision.Reason)
+				return finalText, msgs, err
 			case hooks.DecisionMutate:
 				if mp, ok := out.(*hooks.PreLLMPayload); ok {
 					req.System = mp.System
@@ -386,26 +438,58 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				}
 			}
 		}
+		turnSpan.SetAttributes(attribute.String("provider.model", req.Model))
 
-		ch, err := opts.Provider.StreamTurn(turnCtx, req)
+		providerCtx, cancelProvider := context.WithCancel(turnCtx)
+		ch, err := opts.Provider.StreamTurn(providerCtx, req)
 		if err != nil {
+			cancelProvider()
+			closeVerifyPending(err)
 			turnSpan.RecordError(err)
 			turnSpan.SetStatus(codes.Error, err.Error())
 			turnSpan.End()
 			return finalText, msgs, fmt.Errorf("stream: %w", err)
 		}
 
-		text, calls, usage, err := collectTurn(ch, opts.OnEvent)
+		turnEvents := make([]agent.Event, 0, 8)
+		turnEventBytes := 0
+		var turnEventErr error
+		var onEvent func(agent.Event) error
+		if opts.Verify.Enabled() && opts.OnEvent != nil {
+			onEvent = func(event agent.Event) error {
+				if turnEventErr == nil {
+					turnEventErr = bufferVerifyEvent(&turnEvents, &turnEventBytes, event)
+				}
+				return turnEventErr
+			}
+		} else if opts.OnEvent != nil {
+			onEvent = func(event agent.Event) error {
+				opts.OnEvent(event)
+				return nil
+			}
+		}
+		text, calls, usage, err := collectTurn(ch, onEvent, cancelProvider)
+		cancelProvider()
 		if err != nil {
+			closeVerifyPending(err)
 			turnSpan.RecordError(err)
 			turnSpan.SetStatus(codes.Error, err.Error())
 			turnSpan.End()
 			return finalText, msgs, err
 		}
+		if turnEventErr != nil {
+			closeVerifyPending(turnEventErr)
+			turnSpan.RecordError(turnEventErr)
+			turnSpan.SetStatus(codes.Error, turnEventErr.Error())
+			turnSpan.End()
+			return finalText, msgs, turnEventErr
+		}
 		totalCostUSD += usage.CostUSD
 		totalTokens += usage.InputTokens + usage.OutputTokens
 		totalInputTokens += usage.InputTokens
 		totalOutputTokens += usage.OutputTokens
+		opts.Metrics.RecordTurnUsage(turnCtx, opts.Provider.Name(), req.Model,
+			usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		turnSpan.SetAttributes(
 			attribute.Int("turn.text_bytes", len(text)),
 			attribute.Int("turn.tool_calls", len(calls)),
@@ -418,6 +502,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			attribute.Int("loop.cumulative_tokens_in", totalInputTokens),
 			attribute.Int("loop.cumulative_tokens_out", totalOutputTokens),
 		)
+		providerText := text
 		// post_llm hook seam (F1). Fires after the turn streams back,
 		// before the assistant text is flushed into history:
 		//   - Mutate → rewrite the assistant text the model history
@@ -437,6 +522,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 					text = mp.Text
 				}
 			}
+		}
+		if opts.Verify.Enabled() && opts.OnEvent != nil && text != providerText {
+			turnEvents = coalesceVerifyEvents(text, calls, usage)
 		}
 
 		if opts.OnTurnComplete != nil {
@@ -468,26 +556,127 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		finalText += text
 
 		if opts.CostCapUSD > 0 && totalCostUSD >= opts.CostCapUSD {
+			err := fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
+			if opts.Verify.Enabled() {
+				finalText = finalText[:finalTextBeforeTurn]
+				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
+			}
 			turnSpan.End()
-			return finalText, msgs,
-				fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
+			return finalText, msgs, err
 		}
 		if opts.TokenCap > 0 && totalTokens >= opts.TokenCap {
+			err := fmt.Errorf("%w: used %d of %d cap", ErrTokenCapExceeded, totalTokens, opts.TokenCap)
+			if opts.Verify.Enabled() {
+				finalText = finalText[:finalTextBeforeTurn]
+				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
+			}
 			turnSpan.End()
-			return finalText, msgs,
-				fmt.Errorf("%w: used %d of %d cap", ErrTokenCapExceeded, totalTokens, opts.TokenCap)
+			return finalText, msgs, err
 		}
 		if opts.InputTokenCap > 0 && totalInputTokens >= opts.InputTokenCap {
+			err := fmt.Errorf("%w (input): used %d of %d cap", ErrTokenCapExceeded, totalInputTokens, opts.InputTokenCap)
+			if opts.Verify.Enabled() {
+				finalText = finalText[:finalTextBeforeTurn]
+				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
+			}
 			turnSpan.End()
-			return finalText, msgs,
-				fmt.Errorf("%w (input): used %d of %d cap", ErrTokenCapExceeded, totalInputTokens, opts.InputTokenCap)
+			return finalText, msgs, err
 		}
 		if opts.OutputTokenCap > 0 && totalOutputTokens >= opts.OutputTokenCap {
+			err := fmt.Errorf("%w (output): used %d of %d cap", ErrTokenCapExceeded, totalOutputTokens, opts.OutputTokenCap)
+			if opts.Verify.Enabled() {
+				finalText = finalText[:finalTextBeforeTurn]
+				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
+			}
 			turnSpan.End()
-			return finalText, msgs,
-				fmt.Errorf("%w (output): used %d of %d cap", ErrTokenCapExceeded, totalOutputTokens, opts.OutputTokenCap)
+			return finalText, msgs, err
 		}
 		if len(calls) == 0 {
+			var passedEvents []VerifyEvent
+			if opts.Verify.Enabled() {
+				verifyRounds++
+				onVerifyEvent := func(event VerifyEvent) {
+					if event.Status == VerifyPassed {
+						passedEvents = append(passedEvents, event)
+						return
+					}
+					for _, passed := range passedEvents {
+						emitVerify(opts.OnVerifyEvent, passed)
+					}
+					passedEvents = nil
+					emitVerify(opts.OnVerifyEvent, event)
+				}
+				outcome := RunVerificationRound(turnCtx, opts.Executor, opts.Host,
+					opts.Verify, verifyRounds, onVerifyEvent)
+				switch outcome.Status {
+				case VerifyCancelled:
+					finalText = finalText[:finalTextBeforeTurn]
+					if opts.Executor != nil && opts.Executor.Session != nil {
+						if err := opts.Executor.Session.NextTurn(); err != nil {
+							turnSpan.End()
+							return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+						}
+					}
+					turnSpan.End()
+					if outcome.Err != nil {
+						return finalText, msgs, outcome.Err
+					}
+					return finalText, msgs, context.Canceled
+				case VerifyInfrastructure:
+					if opts.Verify.Strict {
+						finalText = finalText[:finalTextBeforeTurn]
+						if opts.Executor != nil && opts.Executor.Session != nil {
+							if err := opts.Executor.Session.NextTurn(); err != nil {
+								turnSpan.End()
+								return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+							}
+						}
+						turnSpan.End()
+						if outcome.Err != nil {
+							return finalText, msgs, fmt.Errorf("runtime: verification infrastructure: %w", outcome.Err)
+						}
+						return finalText, msgs, fmt.Errorf("runtime: verification infrastructure: %s", outcome.Output)
+					}
+					// Default fail-open: the warning event is visible to the
+					// caller, and the candidate completion is accepted.
+				case VerifyFailed:
+					// This completion candidate was rejected. Keep it in message
+					// history so the verifier feedback has context, but never expose
+					// it as accepted output to programmatic callers.
+					finalText = finalText[:finalTextBeforeTurn]
+					if opts.Broker != nil {
+						if err := opts.Broker.SetTaint(turnCtx, ContextTainted); err != nil {
+							turnSpan.End()
+							return finalText, msgs, fmt.Errorf("runtime: mark verification feedback tainted: %w", err)
+						}
+					}
+					msgs = append(msgs, agent.Text(agent.RoleUser, outcome.Feedback))
+					if verifyRounds >= opts.Verify.MaxRounds {
+						emitVerify(opts.OnVerifyEvent, VerifyEvent{
+							Status: VerifyExhausted, Round: verifyRounds,
+							Command: outcome.Command, Output: outcome.Feedback,
+						})
+						if opts.Executor != nil && opts.Executor.Session != nil {
+							if err := opts.Executor.Session.NextTurn(); err != nil {
+								turnSpan.End()
+								return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+							}
+						}
+						turnSpan.End()
+						return finalText, msgs, &VerifyExhaustedError{
+							Round: verifyRounds, Command: outcome.Command, Feedback: outcome.Feedback,
+						}
+					}
+					priorLen = len(msgs)
+					priorHash = hashMessagesPrefix(msgs, priorLen)
+					turnSpan.End()
+					continue
+				}
+			}
+			emitAgentEvents(opts.OnEvent, turnEvents)
+			for _, passed := range passedEvents {
+				emitVerify(opts.OnVerifyEvent, passed)
+			}
 			if opts.Executor != nil && opts.Executor.Session != nil {
 				if err := opts.Executor.Session.NextTurn(); err != nil {
 					turnSpan.RecordError(err)
@@ -499,6 +688,13 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			turnSpan.End()
 			return finalText, msgs, nil
 		}
+		if opts.Verify.Enabled() {
+			emitVerify(opts.OnVerifyEvent, VerifyEvent{
+				Status: VerifyDeferred, Round: verifyRounds + 1,
+				Output: "turn requested tools; candidate verification deferred",
+			})
+		}
+		emitAgentEvents(opts.OnEvent, turnEvents)
 		needsExecutor := false
 		for _, c := range calls {
 			if toolAllowed(allowedTools, c.Name) {
@@ -554,6 +750,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			}})
 		}
 		msgs = append(msgs, agent.Message{Role: agent.RoleTool, Content: results})
+		if opts.Broker != nil {
+			if err := opts.Broker.SetTaint(turnCtx, ContextTainted); err != nil {
+				turnSpan.RecordError(err)
+				turnSpan.SetStatus(codes.Error, err.Error())
+				turnSpan.End()
+				return finalText, msgs, fmt.Errorf("runtime: mark broker tainted: %w", err)
+			}
+		}
 		for _, body := range skillInjections {
 			msgs = append(msgs, agent.Text(agent.RoleUser, body))
 		}
@@ -562,7 +766,29 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		priorHash = hashMessagesPrefix(msgs, priorLen)
 		turnSpan.End()
 	}
-	return finalText, msgs, fmt.Errorf("runtime: exceeded %d turns", opts.MaxTurns)
+	return finalText, msgs, fmt.Errorf("%w: limit %d", ErrMaxTurnsExceeded, opts.MaxTurns)
+}
+
+func emitAgentEvents(fn func(agent.Event), events []agent.Event) {
+	if fn == nil {
+		return
+	}
+	for _, event := range events {
+		fn(event)
+	}
+}
+
+func coalesceVerifyEvents(text string, calls []agent.ToolUseBlock, usage agent.Usage) []agent.Event {
+	events := make([]agent.Event, 0, len(calls)+2)
+	if text != "" {
+		events = append(events, agent.Event{Kind: agent.EvTextDelta, Text: text})
+	}
+	for i := range calls {
+		call := calls[i]
+		events = append(events, agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &call})
+	}
+	events = append(events, agent.Event{Kind: agent.EvDone, Usage: &usage})
+	return events
 }
 
 // buildTurnSystem assembles the system prompt for a turn. When a

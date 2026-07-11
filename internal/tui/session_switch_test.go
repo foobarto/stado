@@ -55,7 +55,7 @@ func newSessionSwitchModel(t *testing.T) (*Model, *config.Config, *runtimeSessio
 	m := NewModel(repo, "m", "p", func() (agent.Provider, error) { return nil, nil }, rnd, reg)
 	m.cfg = cfg
 	m.session = first
-	m.executor, err = runtime.BuildExecutor(first, cfg, "stado-tui")
+	m.executor, err = runtime.BuildExecutor(first, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		t.Fatal(err)
 	}

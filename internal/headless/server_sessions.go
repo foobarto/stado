@@ -43,10 +43,18 @@ func (s *Server) sessionNew(raw json.RawMessage) (any, error) {
 		return nil, perr
 	}
 	cwd, _ := os.Getwd()
+	var sessionBroker runtime.BrokerController
+	if s.BrokerFactory != nil {
+		var err error
+		sessionBroker, err = s.BrokerFactory(context.Background(), cwd)
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "broker session: " + err.Error()}
+		}
+	}
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("h-%d", s.nextID)
-	s.sessions[id] = &hSession{id: id, workdir: cwd, persona: persona}
+	s.sessions[id] = &hSession{id: id, workdir: cwd, persona: persona, broker: sessionBroker}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id, Workdir: cwd}, nil
 }
@@ -114,6 +122,28 @@ type sessionIDParam struct {
 	SessionID string `json:"sessionId"`
 }
 
+// lockSessionForOperation atomically looks up a session and marks it busy.
+// The returned session mutex remains locked for the caller to initialize the
+// operation. Holding s.mu through the busy transition prevents session.delete
+// from removing and closing the broker between lookup and startup.
+func (s *Server) lockSessionForOperation(sessionID string) (*hSession, *acp.RPCError) {
+	s.mu.Lock()
+	sess := s.sessions[sessionID]
+	if sess == nil {
+		s.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	}
+	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		s.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
+	}
+	sess.busy = true
+	s.mu.Unlock()
+	return sess, nil
+}
+
 // sessionCancel interrupts an in-flight session.prompt. No-op (success)
 // when the session has no active stream — the cancel func is nil until
 // a prompt is running.
@@ -148,11 +178,23 @@ func (s *Server) sessionDelete(raw json.RawMessage) (any, error) {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.sessions[p.SessionID]; !ok {
+	sess, ok := s.sessions[p.SessionID]
+	if !ok {
+		s.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
 	}
+	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		s.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
+	}
+	sess.mu.Unlock()
 	delete(s.sessions, p.SessionID)
+	s.mu.Unlock()
+	if sess.broker != nil {
+		_ = sess.broker.Close()
+	}
 	return struct{}{}, nil
 }
 
@@ -173,25 +215,20 @@ func (s *Server) sessionCompact(ctx context.Context, raw json.RawMessage) (any, 
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
 	}
-	s.mu.Lock()
-	sess := s.sessions[p.SessionID]
-	s.mu.Unlock()
-	if sess == nil {
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	sess, startErr := s.lockSessionForOperation(p.SessionID)
+	if startErr != nil {
+		return nil, startErr
 	}
 	if s.Provider == nil {
+		sess.busy = false
+		sess.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
 	}
-	sess.mu.Lock()
-	if sess.busy {
-		sess.mu.Unlock()
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
-	}
 	if len(sess.messages) == 0 {
+		sess.busy = false
 		sess.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session has no messages to compact"}
 	}
-	sess.busy = true
 	// Copy snapshot and release lock before the slow provider call so
 	// concurrent session.cancel / session.prompt aren't blocked.
 	msgs := append(make([]agent.Message, 0, len(sess.messages)), sess.messages...)

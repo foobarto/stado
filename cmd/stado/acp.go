@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/personas"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -156,7 +157,7 @@ var acpCmd = &cobra.Command{
 			}
 			defaultPersona = p
 		}
-		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 			// Broker attachment is default-on; STADO_BROKER_ATTACH=0 is the
 			// development opt-out for mediation, not for local sandboxing.
 			cwd, _ := os.Getwd()
@@ -185,6 +186,8 @@ var acpCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=%v%s)\n", acpTools, personaTag)
 			}
 			s := acp.NewServer(cfg, prov)
+			s.Metrics = rt.M()
+			s.BrokerFactory = brokerSession.CreatePeer
 			s.EnableTools = acpTools
 			s.ResumeSessionID = resumeID
 			s.DefaultPersona = defaultPersona

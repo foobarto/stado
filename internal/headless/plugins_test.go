@@ -68,6 +68,16 @@ func TestHeadless_PluginRun_UnknownSession(t *testing.T) {
 	client.Close()
 }
 
+func TestHeadlessPluginRunRejectsBusySession(t *testing.T) {
+	srv := NewServer(&config.Config{}, nil)
+	srv.sessions["h-1"] = &hSession{id: "h-1", busy: true}
+	_, err := srv.pluginRun(context.Background(), json.RawMessage(
+		`{"sessionId":"h-1","id":"missing-0.0.0","tool":"run"}`))
+	if err == nil || !strings.Contains(err.Error(), "active operation") {
+		t.Fatalf("plugin.run busy error = %v", err)
+	}
+}
+
 // TestHeadless_PluginRun_UnknownPlugin: sessionId resolves but plugin
 // isn't installed → invalid-params, no panic.
 func TestHeadless_PluginRun_UnknownPlugin(t *testing.T) {

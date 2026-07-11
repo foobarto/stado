@@ -1,8 +1,10 @@
 package telemetry
 
 import (
+	"context"
 	"fmt"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -12,15 +14,15 @@ import (
 //
 // See PLAN.md §6.3 for the baseline metric set.
 type Metrics struct {
-	ToolLatency    metric.Float64Histogram // ms; attrs: tool, outcome
-	TokensTotal    metric.Int64Counter     // attrs: provider, model, direction (in|out)
-	CacheHitRatio  metric.Float64Histogram // fraction 0..1; attrs: provider, model
-	ApprovalRate   metric.Int64Counter     // attrs: tool, decision (allow|deny)
-	SandboxDenials metric.Int64Counter     // attrs: tool, reason
-	SessionsActive metric.Int64UpDownCounter
+	ToolLatency   metric.Float64Histogram // ms; attrs: tool, outcome
+	TokensTotal   metric.Int64Counter     // attrs: provider, model, direction (in|out)
+	CacheHitRatio metric.Float64Histogram // fraction 0..1; attrs: provider, model
 }
 
-func newMetrics(m metric.Meter) (Metrics, error) {
+// NewMetrics constructs the supported stado metric set for a meter. Keeping
+// construction public lets integration tests use an in-memory SDK reader while
+// production continues to obtain the same instruments from Start.
+func NewMetrics(m metric.Meter) (Metrics, error) {
 	var out Metrics
 	var err error
 
@@ -40,22 +42,30 @@ func newMetrics(m metric.Meter) (Metrics, error) {
 	if err != nil {
 		return out, fmt.Errorf("metric cache_hit_ratio: %w", err)
 	}
-	out.ApprovalRate, err = m.Int64Counter("stado_approval_rate",
-		metric.WithDescription("Approval decisions by tool."))
-	if err != nil {
-		return out, fmt.Errorf("metric approval_rate: %w", err)
-	}
-	out.SandboxDenials, err = m.Int64Counter("stado_sandbox_denials_total",
-		metric.WithDescription("Sandbox policy denials by tool + reason."))
-	if err != nil {
-		return out, fmt.Errorf("metric sandbox_denials: %w", err)
-	}
-	out.SessionsActive, err = m.Int64UpDownCounter("stado_sessions_active",
-		metric.WithDescription("Active stado sessions."))
-	if err != nil {
-		return out, fmt.Errorf("metric sessions_active: %w", err)
-	}
 	return out, nil
+}
+
+// RecordTurnUsage records the provider usage instruments at the shared turn
+// boundary. Cache hit ratio follows the TUI definition: cache-read tokens over
+// cache-read plus uncached input tokens.
+func (m Metrics) RecordTurnUsage(ctx context.Context, provider, model string, input, output, cacheRead int) {
+	base := []attribute.KeyValue{
+		attribute.String("provider", provider),
+		attribute.String("model", model),
+	}
+	if m.TokensTotal != nil {
+		m.TokensTotal.Add(ctx, int64(input), metric.WithAttributes(append(base,
+			attribute.String("direction", "in"))...))
+		m.TokensTotal.Add(ctx, int64(output), metric.WithAttributes(append(base,
+			attribute.String("direction", "out"))...))
+	}
+	if m.CacheHitRatio != nil {
+		denominator := cacheRead + input
+		if denominator > 0 {
+			m.CacheHitRatio.Record(ctx, float64(cacheRead)/float64(denominator),
+				metric.WithAttributes(base...))
+		}
+	}
 }
 
 // Span name constants for the PLAN §6.2 hierarchy. Keep these stable so

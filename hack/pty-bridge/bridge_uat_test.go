@@ -948,6 +948,76 @@ func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
 //     stable.
 //
 // Spec: AC5 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+// TestBridgeE2E_Stado_VerifyCommand exercises the v0.77 completion-gate
+// control through the real PTY and xterm.js rendering path. It verifies that
+// user configuration reaches the TUI and that status, disable, and re-enable
+// commands all produce visible state transitions.
+func TestBridgeE2E_Stado_VerifyCommand(t *testing.T) {
+	requireBridgeE2E(t)
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "stado")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	config := `[verify]
+commands = ["true"]
+max_rounds = 2
+strict = true
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge && window.bridge.snapshot && window.bridge.snapshot().indexOf('Type a message') >= 0`,
+			10*time.Second); err != nil {
+			return fmt.Errorf("verify input never became ready: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+		time.Sleep(1500 * time.Millisecond)
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('/verify status\r')`, nil)); err != nil {
+			return fmt.Errorf("send /verify status: %w", err)
+		}
+		statusPredicate := `(function(){
+			var s = window.bridge.snapshot();
+			return s.indexOf('verify: on') >= 0 && s.indexOf('1 command(s)') >= 0 &&
+				s.indexOf('max 2 round(s)') >= 0 && s.indexOf('strict=true') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, statusPredicate, 10*time.Second); err != nil {
+			return fmt.Errorf("configured verify status not rendered: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('/verify off\r')`, nil)); err != nil {
+			return fmt.Errorf("send /verify off: %w", err)
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge.snapshot().indexOf('verify: off') >= 0`, 10*time.Second); err != nil {
+			return fmt.Errorf("verify off state not rendered: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('/verify on\r')`, nil)); err != nil {
+			return fmt.Errorf("send /verify on: %w", err)
+		}
+		onAgainPredicate := `(function(){
+			var s = window.bridge.snapshot();
+			return s.split('verify: on').length - 1 >= 2;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, onAgainPredicate, 10*time.Second); err != nil {
+			return fmt.Errorf("verify on state not rendered after re-enable: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+		return nil
+	})
+}
+
 func TestBridgeE2E_Stado_SlashFilter(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)

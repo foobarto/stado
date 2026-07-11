@@ -160,9 +160,17 @@ func TestLuaHook_RuntimeError_Surfaces(t *testing.T) {
 	}
 }
 
-// A Lua hook with no os/io libraries can't escape the sandbox.
-func TestLuaHook_SandboxedNoOS(t *testing.T) {
-	h, err := NewLuaHook("escape", `function pre_tool(p) if os ~= nil then return { deny = "os available" } end end`)
+// A Lua hook with no os/io libraries or base-library loaders can't escape the
+// sandbox through dofile/loadfile/require either.
+func TestLuaHook_SandboxedNoFileOrModuleLoaders(t *testing.T) {
+	h, err := NewLuaHook("escape", `
+		function pre_tool(p)
+		  if os ~= nil or io ~= nil or package ~= nil or
+		     dofile ~= nil or loadfile ~= nil or require ~= nil or module ~= nil then
+		    return { deny = "unsafe loader available" }
+		  end
+		end
+	`)
 	if err != nil {
 		t.Fatalf("NewLuaHook: %v", err)
 	}
@@ -172,7 +180,7 @@ func TestLuaHook_SandboxedNoOS(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if res.Decision == DecisionDeny {
-		t.Fatalf("os library leaked into the hook sandbox: %q", res.Reason)
+		t.Fatalf("unsafe library or loader leaked into the hook sandbox: %q", res.Reason)
 	}
 }
 

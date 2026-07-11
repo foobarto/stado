@@ -166,7 +166,7 @@ func (m *Model) switchToSession(id string) error {
 	if err != nil {
 		return fmt.Errorf("session switch: %w", err)
 	}
-	exec, err := runtime.BuildExecutorQuiet(sess, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(sess, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		return fmt.Errorf("session switch tools: %w", err)
 	}
@@ -186,7 +186,7 @@ func (m *Model) createAndSwitchSession() error {
 	if err != nil {
 		return fmt.Errorf("new session: %w", err)
 	}
-	exec, err := runtime.BuildExecutorQuiet(sess, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(sess, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		return fmt.Errorf("new session tools: %w", err)
 	}
@@ -261,7 +261,7 @@ func (m *Model) forkAndSwitchSession(id string) error {
 	if err != nil {
 		return err
 	}
-	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		return fmt.Errorf("session fork tools: %w", err)
 	}
@@ -297,7 +297,7 @@ func (m *Model) forkAndSwitchSessionAtTurn(id string, atCommit plumbing.Hash) er
 	if err != nil {
 		return err
 	}
-	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		return fmt.Errorf("session fork at turn tools: %w", err)
 	}

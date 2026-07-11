@@ -83,6 +83,12 @@ func NewLuaHook(name, src string) (*LuaHook, error) {
 			return nil, fmt.Errorf("hooks: load lua lib %q: %w", lib.name, err)
 		}
 	}
+	// gopher-lua's "base" library also registers file/module loaders. They
+	// are not policy primitives and would bypass the no-filesystem contract
+	// even though os/io/package were never opened.
+	for _, name := range unsafeBaseGlobals {
+		L.SetGlobal(name, lua.LNil)
+	}
 
 	if err := L.DoString(src); err != nil {
 		L.Close()
@@ -115,6 +121,8 @@ var safeLuaLibs = []struct {
 	{lua.StringLibName, lua.OpenString},
 	{lua.MathLibName, lua.OpenMath},
 }
+
+var unsafeBaseGlobals = []string{"dofile", "loadfile", "module", "require"}
 
 // orderedPoints is the canonical Point iteration order for discovery /
 // docs.

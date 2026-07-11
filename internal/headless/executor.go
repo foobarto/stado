@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Server) buildExecutor(sess *stadogit.Session) (*tools.Executor, error) {
-	exec, err := runtime.BuildExecutor(sess, s.Cfg, "stado-headless")
+	exec, err := runtime.BuildExecutor(sess, s.Cfg, "stado-headless", s.Metrics)
 	if err != nil {
 		return nil, err
 	}

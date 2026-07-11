@@ -25,8 +25,10 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 func main() {}
@@ -92,24 +94,76 @@ func runOneShot(argv []string, stdin string, timeoutMs int) (string, error) {
 	defer sdk.Free(resBuf, cap)
 	n := stadoExec(uint32(reqPtr), uint32(len(req)), uint32(resBuf), cap)
 	if n < 0 {
-		return "", &execErr{msg: "exec failed"}
+		errLen := -n
+		if errLen > cap {
+			errLen = cap
+		}
+		message := string(sdk.Bytes(resBuf, errLen))
+		var envelope tool.ErrorEnvelopeV1
+		if json.Unmarshal([]byte(message), &envelope) == nil &&
+			envelope.Schema == tool.ErrorEnvelopeSchemaV1 && envelope.Message != "" {
+			return "", &execErr{msg: envelope.Message, kind: envelope.Kind, exitCode: envelope.ExitCode}
+		}
+		return "", &execErr{msg: message, kind: tool.FailureLaunch}
 	}
 	var er struct {
-		Stdout string `json:"stdout"`
-		Error  string `json:"error,omitempty"`
+		Stdout   string `json:"stdout"`
+		ExitCode int    `json:"exit_code"`
+		Error    string `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(sdk.Bytes(resBuf, n), &er); err != nil {
-		return string(sdk.Bytes(resBuf, n)), nil
+		return "", &execErr{msg: "exec: invalid host response: " + err.Error(), kind: tool.FailureLaunch}
 	}
 	if er.Error != "" {
-		return "", &execErr{msg: er.Error}
+		return "", &execErr{msg: er.Error, kind: tool.FailureLaunch}
+	}
+	if er.ExitCode != 0 {
+		msg := fmt.Sprintf("command exited with code %d", er.ExitCode)
+		if er.Stdout != "" {
+			msg += "\n" + er.Stdout
+		}
+		code := er.ExitCode
+		return "", &execErr{msg: msg, kind: tool.FailureExit, exitCode: &code}
 	}
 	return er.Stdout, nil
 }
 
-type execErr struct{ msg string }
+type execErr struct {
+	msg      string
+	kind     tool.FailureKind
+	exitCode *int
+}
 
 func (e *execErr) Error() string { return e.msg }
+
+func (e *execErr) envelope(maxBytes int32) string {
+	marshal := func(message string) []byte {
+		payload, _ := json.Marshal(tool.ErrorEnvelopeV1{
+			Schema: tool.ErrorEnvelopeSchemaV1, Kind: e.kind,
+			Message: message, ExitCode: e.exitCode,
+		})
+		return payload
+	}
+	if payload := marshal(e.msg); int32(len(payload)) <= maxBytes {
+		return string(payload)
+	}
+
+	const suffix = "\n[output truncated to preserve error metadata]"
+	runes := []rune(e.msg)
+	low, high := 0, len(runes)
+	best := marshal(suffix)
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate := marshal(string(runes[:mid]) + suffix)
+		if int32(len(candidate)) <= maxBytes {
+			best = candidate
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(best)
+}
 
 func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int) int32 {
 	if command != "" {
@@ -117,6 +171,9 @@ func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int
 	}
 	out, err := runOneShot(argv, "", timeoutMs)
 	if err != nil {
+		if structured, ok := err.(*execErr); ok {
+			return writeErr(resPtr, resCap, structured.envelope(resCap))
+		}
 		return writeErr(resPtr, resCap, err.Error())
 	}
 	return writeRaw(resPtr, resCap, []byte(out))
@@ -472,11 +529,18 @@ func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 func writeErr(resPtr, resCap int32, msg string) int32 {
-	b, _ := json.Marshal(map[string]string{"error": msg})
+	b := []byte(msg)
 	if int32(len(b)) > resCap {
+		b = b[:resCap]
+	}
+	if len(b) == 0 {
 		return -1
 	}
-	return sdk.Write(resPtr, b)
+	n := sdk.Write(resPtr, b)
+	if n <= 0 {
+		return -1
+	}
+	return -n
 }
 
 func writeRaw(resPtr, resCap int32, data []byte) int32 {

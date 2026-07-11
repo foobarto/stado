@@ -141,8 +141,8 @@ All payloads carry a common header: `event` (the point name), `timestamp`
 | `args`  | string |   yes   | Raw JSON args as a string. |
 
 - **Deny** → the tool is skipped entirely; the reason is returned to the
-  model as an errored tool result. Nothing ran, nothing is recorded to the
-  audit ref.
+  model as an errored tool result. Nothing ran; when the executor owns a git
+  session, a denial trace commit records the deciding hook and reason.
 - **Mutate** (`args`) → the tool runs with the rewritten JSON; the audit
   trailers record the mutated args.
 
@@ -236,7 +236,7 @@ Each hook VM is opened with **only the safe standard libraries**:
 
 | Loaded | Excluded |
 |--------|----------|
-| `base`, `string`, `table`, `math` | `os`, `io`, `debug`, `package`/loaders |
+| `base`, `string`, `table`, `math` | `os`, `io`, `debug`, `package`, `dofile`, `loadfile`, `module`, `require` |
 
 That is enough for policy logic — string matching, table manipulation,
 arithmetic — and nothing for filesystem or process escape. There is no

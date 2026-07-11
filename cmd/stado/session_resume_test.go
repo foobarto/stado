@@ -11,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 )
 
 // TestSessionResume_MissingWorktreeErrors asserts the pre-launch
@@ -141,7 +142,7 @@ func TestSessionResume_AttachesBrokerAndEnforcesCeiling(t *testing.T) {
 	var called bool
 	var gotSandbox runtime.ExecutorSandbox
 	var gotNotices []string
-	inlineTUIRunner = func(_ *config.Config, notices []string, executorSandbox runtime.ExecutorSandbox) error {
+	inlineTUIRunner = func(_ *config.Config, notices []string, executorSandbox runtime.ExecutorSandbox, _ telemetry.Metrics, _ runtime.BrokerController) error {
 		called = true
 		gotNotices = notices
 		gotSandbox = executorSandbox

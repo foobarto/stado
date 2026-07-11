@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -169,10 +170,16 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("daemon: load config: %w", err)
 	}
+	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
+		return serveDaemon(ctx, cfg, socketPath, stdout, logger, rt.M())
+	})
+}
+
+func serveDaemon(ctx context.Context, cfg *config.Config, socketPath string, stdout, logger io.Writer, metrics telemetry.Metrics) error {
 	state, err := newDaemonState(cfg, pty.ManagerOpts{
 		IdleTimeout:     daemonStartPTYIdle,
 		ClosedReapGrace: daemonStartPTYClosedReap,
-	})
+	}, metrics)
 	if err != nil {
 		return fmt.Errorf("daemon: build state: %w", err)
 	}
@@ -199,7 +206,7 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 		Reload:           state.reload,
 	})
 
-	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	if !daemonStartQuiet {
@@ -345,7 +352,7 @@ type projectScope struct {
 	pty *pty.Manager
 }
 
-func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts) (*daemonState, error) {
+func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts, metrics telemetry.Metrics) (*daemonState, error) {
 	reg, err := runtime.BuildRegistryWithPlugins(cfg)
 	if err != nil {
 		return nil, err
@@ -362,7 +369,7 @@ func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts) (*daemonState, 
 		Registry: reg,
 		Session:  nil, // daemon dispatch isn't bound to a stadogit session.
 		Runner:   runner,
-		Metrics:  telemetry.Metrics{},
+		Metrics:  metrics,
 		Agent:    "stado-daemon",
 		Model:    cfg.Defaults.Model,
 		ReadLog:  nil,
