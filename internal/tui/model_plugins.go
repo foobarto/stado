@@ -564,6 +564,13 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	}
 	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
 	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		draft := m.input.Value()
+		switch {
+		case draft == "":
+			m.input.SetValue(prompt)
+		case draft != prompt:
+			m.input.SetValue(prompt + "\n" + draft)
+		}
 		m.appendBlock(block{kind: "system", body: "broker taint reset failed: " + err.Error()})
 		m.renderBlocks()
 		return nil

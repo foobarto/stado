@@ -29,24 +29,20 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
 	}
-	s.mu.Lock()
-	sess := s.sessions[p.SessionID]
-	s.mu.Unlock()
-	if sess == nil {
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	sess, startErr := s.lockSessionForOperation(p.SessionID)
+	if startErr != nil {
+		return nil, startErr
 	}
 	if runtime.VerifyConfigFrom(s.Cfg).Enabled() && !p.Tools {
+		sess.busy = false
+		sess.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "verification commands require tools=true"}
 	}
 	if s.Provider == nil {
+		sess.busy = false
+		sess.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
 	}
-	sess.mu.Lock()
-	if sess.busy {
-		sess.mu.Unlock()
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
-	}
-	sess.busy = true
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
 	workdir := sess.workdir
 

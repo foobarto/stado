@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,6 +216,42 @@ func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 		t.Fatalf("state = %v, want streaming after replay", m.state)
 	}
 	_ = cmd
+}
+
+func TestPluginForkMsg_RestoresRecoveryPromptWhenBrokerResetFails(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	m := newForkTestModel(t)
+	m.provider = forkRecoveryProvider{}
+	m.buildProvider = func() (agent.Provider, error) { return m.provider, nil }
+	m.broker = failingTaintBroker{err: fmt.Errorf("broker unavailable")}
+	m.recoveryPrompt = "retry this in the child"
+	m.recoveryPluginName = "auto-compact"
+	m.recoveryPluginActive = true
+	m.input.SetValue("unsent draft")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := runtime.ForkPluginSession(cfg, m.session, "", "condensed conversation", "auto-compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, cmd := m.Update(pluginForkMsg{
+		plugin: "auto-compact", childID: child.ID, seed: "condensed conversation",
+	})
+	if cmd != nil {
+		t.Fatal("failed broker reset returned a stream command")
+	}
+	if got := m.input.Value(); got != "retry this in the child\nunsent draft" {
+		t.Fatalf("restored input = %q", got)
+	}
+	if m.session == nil || m.session.ID != child.ID {
+		t.Fatalf("child session was not adopted: %+v", m.session)
+	}
 }
 
 // TestTrimSeed_PreservesShort — round-trip stability for the fork

@@ -234,6 +234,67 @@ func TestHeadless_RejectsOverlappingSessionPrompt(t *testing.T) {
 	}
 }
 
+func TestHeadlessDeleteCannotRacePromptStartup(t *testing.T) {
+	provider := &blockingPromptProvider{started: make(chan struct{}), release: make(chan struct{})}
+	srv := NewServer(&config.Config{}, provider)
+	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
+	sess := &hSession{id: "h-1"}
+	srv.sessions[sess.id] = sess
+
+	// Hold the session lock so prompt startup stops after acquiring the server
+	// map lock. Deletion must then wait until startup marks the session busy.
+	sess.mu.Lock()
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := srv.sessionPrompt(context.Background(), json.RawMessage(
+			`{"sessionId":"h-1","prompt":"first"}`))
+		promptDone <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.mu.TryLock() {
+		srv.mu.Unlock()
+		if time.Now().After(deadline) {
+			sess.mu.Unlock()
+			t.Fatal("prompt did not acquire server lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := srv.sessionDelete(json.RawMessage(`{"sessionId":"h-1"}`))
+		deleteDone <- err
+	}()
+	sess.mu.Unlock()
+
+	select {
+	case <-provider.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt did not start")
+	}
+	select {
+	case err := <-deleteDone:
+		if err == nil || !strings.Contains(err.Error(), "active operation") {
+			t.Fatalf("delete error = %v, want active operation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("delete remained blocked after prompt startup")
+	}
+	if srv.sessions["h-1"] == nil {
+		t.Fatal("delete removed the starting session")
+	}
+
+	close(provider.release)
+	select {
+	case err := <-promptDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt did not finish")
+	}
+}
+
 type blockingPromptProvider struct {
 	started chan struct{}
 	release chan struct{}
