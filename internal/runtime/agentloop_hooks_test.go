@@ -5,7 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	otel "go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -81,6 +86,43 @@ func TestAgentLoop_PreLLMMutate_RewritesSystem(t *testing.T) {
 	if prov.system != "REWRITTEN SYSTEM PROMPT" {
 		t.Fatalf("pre_llm mutate did not rewrite the system prompt, got %q", prov.system)
 	}
+}
+
+func TestAgentLoop_PreLLMMutateUpdatesTurnSpanModel(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	oldProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(oldProvider) })
+
+	runner := hooks.NewLifecycleRunner(hooks.BuiltinHook{
+		HookName: "route-model", Subscribed: []hooks.Point{hooks.PointPreLLM},
+		Fn: func(_ context.Context, _ hooks.Point, payload hooks.Payload) (hooks.HookResult, error) {
+			mutated := *payload.(*hooks.PreLLMPayload)
+			mutated.Model = "routed-model"
+			return hooks.Mutate(&mutated), nil
+		},
+	})
+	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: &textProvider{text: "done"}, Hooks: runner, Model: "configured-model",
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, span := range sr.Ended() {
+		if span.Name() != telemetry.SpanTurn {
+			continue
+		}
+		for _, attr := range span.Attributes() {
+			if string(attr.Key) == "provider.model" && attr.Value.AsString() == "routed-model" {
+				return
+			}
+		}
+		t.Fatalf("turn span attributes = %v, want provider.model=routed-model", span.Attributes())
+	}
+	t.Fatal("turn span not recorded")
 }
 
 // TestAgentLoop_PostLLMMutate_RewritesText: a post_llm hook that mutates

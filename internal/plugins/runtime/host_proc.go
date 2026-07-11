@@ -218,6 +218,13 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 					return
 				} else if runErr != "" {
 					msg = runErr + "\n" + msg
+				} else {
+					// The command succeeded; bound its output instead of converting
+					// success into a launch failure. Verification can then continue
+					// to later gates rather than fail-open on infrastructure posture.
+					bounded, _ := json.Marshal(result{Stdout: "[output omitted: " + msg + "]"})
+					stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, bounded))
+					return
 				}
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(msg)))
 				return

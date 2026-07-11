@@ -27,10 +27,12 @@ At a candidate completion:
 4. The model gets another normal turn. `max_rounds` bounds this cycle.
 5. A final failure ends as `verify_exhausted` with the last critique.
 
-Command-not-found and executor/sandbox setup failures are infrastructure
-errors. The default is fail-open with a visible warning so broken local
-tooling does not wedge every session. Set `strict = true` to make those errors
-fatal. A normal non-zero test/build exit is a failed gate, not infrastructure.
+Failure to launch the verification shell or set up its executor/sandbox is an
+infrastructure error. Once the shell launches, every non-zero command result is
+a failed gate, including exit 126 or 127 from a command inside that shell. The
+default is fail-open with a visible warning for infrastructure errors so broken
+local tooling does not wedge every session. Set `strict = true` to make those
+errors fatal.
 
 Use repeatable `stado run --verify '<command>'` flags for per-run commands, or
 `--no-verify` to disable user config. In the TUI, `/verify` toggles the phase

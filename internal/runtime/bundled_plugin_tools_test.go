@@ -173,6 +173,37 @@ func TestBundledShellOneShotRejectsTruncatedHostResponse(t *testing.T) {
 		!strings.Contains(out.Output, "response exceeds") {
 		t.Fatalf("oversized non-zero verification outcome = %+v", out)
 	}
+
+	shell, ok := reg.Get("shell__exec")
+	if !ok {
+		t.Fatal("shell__exec missing")
+	}
+	nearCap, err := shell.Run(context.Background(), json.RawMessage(
+		`{"command":"head -c 1048500 /dev/zero | tr '\\0' a; exit 7"}`),
+		bundledToolHost{workdir: t.TempDir(), runner: sandbox.NoneRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nearCap.FailureKind != tool.FailureExit || nearCap.ExitCode == nil || *nearCap.ExitCode != 7 ||
+		!strings.Contains(nearCap.Error, "command exited with code 7") ||
+		!strings.Contains(nearCap.Error, "truncated") || strings.HasPrefix(nearCap.Error, `{"schema"`) {
+		t.Fatalf("near-cap non-zero shell result = %+v", nearCap)
+	}
+}
+
+func TestBundledShellSuccessfulOverflowContinuesVerification(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
+	out := RunVerificationRound(context.Background(), exec,
+		bundledToolHost{workdir: t.TempDir(), runner: sandbox.NoneRunner{}},
+		VerifyConfig{Commands: []string{
+			"head -c 1100000 /dev/zero | tr '\\0' a",
+			"printf later-gate-failed; exit 9",
+		}, MaxRounds: 1}, 1, nil)
+	if out.Status != VerifyFailed || out.Command != "printf later-gate-failed; exit 9" ||
+		!strings.Contains(out.Output, "later-gate-failed") {
+		t.Fatalf("post-overflow verification outcome = %+v", out)
+	}
 }
 
 func TestBundledShellExecRunsUnderBrokerCeiling(t *testing.T) {

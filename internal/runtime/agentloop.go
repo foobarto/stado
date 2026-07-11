@@ -438,6 +438,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				}
 			}
 		}
+		turnSpan.SetAttributes(attribute.String("provider.model", req.Model))
 
 		ch, err := opts.Provider.StreamTurn(turnCtx, req)
 		if err != nil {

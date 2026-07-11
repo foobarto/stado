@@ -247,8 +247,10 @@ and shell injection — one trust story, not a second.
 
 ## Failure modes
 
-- **Verifier infrastructure error** (command not found, judge API
-  fails) — distinguished from a check *failing*. Default: surface loudly
+- **Verifier infrastructure error** (the verification shell/executor cannot
+  launch, or a judge API fails) — distinguished from a check *failing*. A
+  command inside a launched shell returning 126 or 127 is a failed check, not
+  infrastructure. Default: surface loudly
   and **fail-open** (exit the loop with a warning) so a broken verifier
   can't wedge the session; a `[verify] strict = true` flips this to
   fail-closed for operators who want verification to be load-bearing.

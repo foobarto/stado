@@ -136,15 +136,33 @@ type execErr struct {
 
 func (e *execErr) Error() string { return e.msg }
 
-func (e *execErr) envelope() string {
-	payload, err := json.Marshal(tool.ErrorEnvelopeV1{
-		Schema: tool.ErrorEnvelopeSchemaV1, Kind: e.kind,
-		Message: e.msg, ExitCode: e.exitCode,
-	})
-	if err != nil {
-		return e.msg
+func (e *execErr) envelope(maxBytes int32) string {
+	marshal := func(message string) []byte {
+		payload, _ := json.Marshal(tool.ErrorEnvelopeV1{
+			Schema: tool.ErrorEnvelopeSchemaV1, Kind: e.kind,
+			Message: message, ExitCode: e.exitCode,
+		})
+		return payload
 	}
-	return string(payload)
+	if payload := marshal(e.msg); int32(len(payload)) <= maxBytes {
+		return string(payload)
+	}
+
+	const suffix = "\n[output truncated to preserve error metadata]"
+	runes := []rune(e.msg)
+	low, high := 0, len(runes)
+	best := marshal(suffix)
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate := marshal(string(runes[:mid]) + suffix)
+		if int32(len(candidate)) <= maxBytes {
+			best = candidate
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(best)
 }
 
 func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int) int32 {
@@ -154,7 +172,7 @@ func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int
 	out, err := runOneShot(argv, "", timeoutMs)
 	if err != nil {
 		if structured, ok := err.(*execErr); ok {
-			return writeErr(resPtr, resCap, structured.envelope())
+			return writeErr(resPtr, resCap, structured.envelope(resCap))
 		}
 		return writeErr(resPtr, resCap, err.Error())
 	}
