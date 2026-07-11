@@ -168,8 +168,18 @@ stado is pre-1.0, but release numbers still communicate impact:
 - Cut a patch release (`v0.N.P`) for smaller fixes, docs/process
   updates, dependency bumps, and contained internal changes.
 
-Do not reuse an existing tag. Update `CHANGELOG.md` before tagging so
-the release note exists at the tagged commit.
+Do not reuse an existing tag. Before opening the release PR, update
+`CHANGELOG.md` and prepare the homepage markers with the intended tag and
+tagging date:
+
+```sh
+python3 hack/update-homepage-version.py v0.N.P YYYY-MM-DD
+```
+
+Commit both updates in the signed release PR. After it merges and the full
+`main` CI run passes, create the signed annotated tag on that merge commit.
+The tag-triggered homepage workflow validates the immutable tagged tree; it
+does not attempt an unsigned post-release repair.
 
 ## Submitting a PR
 

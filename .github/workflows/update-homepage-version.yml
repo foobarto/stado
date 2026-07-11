@@ -1,27 +1,17 @@
-name: Update homepage version
+name: Validate homepage version
 
-# After a non-prerelease tag is pushed, bump the three version anchors
-# in docs/index.html (nav, footer brand, release receipt date) so the
-# landing page on stado.foobarto.me reflects the latest release without
-# a manual edit. Opens a PR (main is PR-only); enables squash auto-merge
-# so it lands as soon as CI passes.
-#
-# Trigger note: we listen on `push: tags`, NOT `release: published`.
-# GoReleaser creates the GitHub Release using GITHUB_TOKEN, and GitHub
-# explicitly suppresses downstream workflow runs for events emitted by
-# GITHUB_TOKEN — so a `release.published` trigger would never fire on
-# the normal automated path. Tag pushes are operator-emitted, so they
-# do start new runs.
+# The homepage is updated in the signed release PR. A post-tag workflow cannot
+# safely create that commit: GITHUB_TOKEN-created PRs do not trigger the
+# required pull_request checks, and their git commits are unsigned. Validate
+# the immutable tagged tree instead of trying to repair it after publication.
 on:
   push:
     tags:
       - "v*"
-  # Manual re-run for the most recent stable release (useful if the
-  # tag-push run failed mid-flight or the page drifted).
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to sync the page to (e.g. v0.52.8). Leave blank to use the latest non-prerelease."
+        description: "Release tag to validate (e.g. v0.77.0). Leave blank to use the latest stable release."
         required: false
         default: ""
 
@@ -29,177 +19,63 @@ permissions:
   contents: read
 
 jobs:
-  bump:
-    name: bump docs/index.html
+  validate:
+    name: validate docs/index.html
     runs-on: ubuntu-latest
-    permissions:
-      contents: write       # push the version-bump branch
-      pull-requests: write  # open the PR + enable auto-merge
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: main
-          # Need tag history to resolve the committer date of a specific
-          # tag in resolve-meta (the tag may not be on main).
           fetch-depth: 0
           fetch-tags: true
 
-      # All GitHub-event values arrive via env to avoid shell injection
-      # through the ${{ ... }} expansion (the dispatch `tag` input is
-      # operator-controllable; push.ref is git-derived but the
-      # discipline is uniform).
       - name: Resolve target tag + date
         id: meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
-          PUSH_REF: ${{ github.ref }}            # refs/tags/vX.Y.Z on push:tags
+          PUSH_REF: ${{ github.ref }}
           DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "push" ]]; then
             tag="${PUSH_REF#refs/tags/}"
+          elif [[ -n "$DISPATCH_TAG" ]]; then
+            tag="$DISPATCH_TAG"
           else
-            if [[ -n "$DISPATCH_TAG" ]]; then
-              tag="$DISPATCH_TAG"
-            else
-              # Page enough recent releases to find the newest stable.
-              # If none qualify, fail with a clear message rather than
-              # passing an empty string downstream.
-              tag="$(gh release list --limit 100 \
-                       --json tagName,isPrerelease,isDraft \
-                       --jq 'map(select(.isPrerelease==false and .isDraft==false))[0].tagName // ""')"
-              if [[ -z "$tag" ]]; then
-                echo "::error::no stable, non-draft release found in the last 100 entries (workflow_dispatch with default empty tag)"
-                exit 1
-              fi
-            fi
+            tag="$(gh release list --limit 100 \
+              --json tagName,isPrerelease,isDraft \
+              --jq 'map(select(.isPrerelease==false and .isDraft==false))[0].tagName // ""')"
           fi
-          # Strict-semver validation. Anything with a -suffix is treated
-          # as a prerelease (rc/beta/etc.) and skipped — the landing
-          # page tracks the latest stable, never a prerelease.
+
           if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            :  # stable
+            :
           elif [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
-            echo "::notice::tag $tag looks like a prerelease (has -suffix); skipping bump"
+            echo "::notice::tag $tag is a prerelease; homepage validation skipped"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           else
-            echo "::error::bad tag: $tag"
+            echo "::error::invalid or missing stable release tag: $tag"
             exit 1
           fi
-          # Committer date of the tagged commit (ISO 8601 short form),
-          # stable across reruns. Doesn't depend on the GH Release object
-          # which may not exist yet when push:tags fires.
-          # NB: no `--` separator here — `$tag` is a revision, not a path.
-          # The tag itself is regex-validated above, so `$tag` is safe to pass.
-          date="$(git log -1 --format=%cs "$tag" 2>/dev/null || true)"
+
+          date="$(git for-each-ref --format='%(taggerdate:short)' \
+            "refs/tags/$tag" 2>/dev/null || true)"
           if [[ ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-            # Fallback: ask gh for the Release object if it exists.
-            published_at="$(gh release view -- "$tag" --json publishedAt --jq .publishedAt 2>/dev/null || true)"
-            date="${published_at%%T*}"
-          fi
-          if [[ ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-            echo "::error::could not resolve a YYYY-MM-DD date for $tag (got: $date)"
+            echo "::error::$tag must be an annotated tag with a release date"
             exit 1
           fi
-          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "date=$date" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "Resolved: tag=$tag date=$date"
 
-      - name: Patch docs/index.html
-        id: patch
+      - name: Validate tagged homepage
         if: steps.meta.outputs.skip != 'true'
         env:
           NEW_TAG: ${{ steps.meta.outputs.tag }}
           NEW_DATE: ${{ steps.meta.outputs.date }}
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          import os, re, pathlib, sys
-          tag  = os.environ["NEW_TAG"]
-          date = os.environ["NEW_DATE"]
-          # Belt-and-suspenders: re-validate after env crossing.
-          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
-              sys.exit(f"refusing bad tag at patch step: {tag!r}")
-          if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date):
-              sys.exit(f"refusing bad date at patch step: {date!r}")
-          path = pathlib.Path("docs/index.html")
-          html = path.read_text()
-          orig = html
-
-          # Nav + footer brand: <span class="ver">vX.Y.Z[-suffix]</span>
-          # Expect exactly 2 anchors. Fewer = HTML drifted (partial bump
-          # = visible inconsistency); more = the marker became overloaded
-          # and is no longer specific enough. Either case: hard-fail.
-          html, n_ver = re.subn(
-              r'(<span class="ver">)v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(</span>)',
-              rf'\g<1>{tag}\g<2>',
-              html,
-          )
-          # Release receipt row: <span class="v">vX.Y.Z · YYYY-MM-DD</span>
-          # Expect exactly 1.
-          html, n_receipt = re.subn(
-              r'(<span class="v">)v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?'
-              r' · [0-9]{4}-[0-9]{2}-[0-9]{2}(</span>)',
-              rf'\g<1>{tag} · {date}\g<2>',
-              html,
-          )
-          print(f"replacements: ver={n_ver} (expected 2), receipt={n_receipt} (expected 1)")
-          if n_ver != 2 or n_receipt != 1:
-              sys.exit(
-                  f"::error::anchor mismatch in docs/index.html — expected 2 ver + 1 receipt, "
-                  f"got ver={n_ver} receipt={n_receipt}; HTML structure changed?"
-              )
-
-          if html == orig:
-              # Already at {tag} / {date} — re-run on same tag is a no-op.
-              # Don't open an empty PR.
-              print(f"no-op: page already matches {tag} {date}")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-                  fh.write("changed=false\n")
-              sys.exit(0)
-
-          path.write_text(html)
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write("changed=true\n")
-          print(f"patched docs/index.html -> {tag} {date}")
-          PY
-
-      - name: Open auto-merge PR
-        if: steps.meta.outputs.skip != 'true' && steps.patch.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_TAG: ${{ steps.meta.outputs.tag }}
-          NEW_DATE: ${{ steps.meta.outputs.date }}
-        run: |
-          set -euo pipefail
-          branch="chore/bump-homepage-${NEW_TAG}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # If a prior failed run left this branch behind, reuse it
-          # by force-resetting from main; otherwise create fresh.
-          git checkout -B "$branch"
-          git add docs/index.html
-          git commit -m "docs: bump homepage to ${NEW_TAG} (${NEW_DATE})"
-          git push --force-with-lease origin "$branch"
-
-          # Open a PR if one isn't already open for this branch.
-          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
-          if [[ -z "$existing" ]]; then
-            body="Automated landing-page version sync. Bumps the three \`<span class=\"ver\">\` / receipt anchors in \`docs/index.html\` to **${NEW_TAG}** (released ${NEW_DATE}). Generated by \`.github/workflows/update-homepage-version.yml\`."
-            gh pr create \
-              --head "$branch" \
-              --base main \
-              --title "docs: bump homepage to ${NEW_TAG}" \
-              --body "$body"
-            existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
-          fi
-
-          # Enable squash auto-merge. Requires repo-level auto-merge
-          # to be enabled in Settings → General; if disabled this step
-          # logs a warning but the PR still sits open for manual merge.
-          gh pr merge "$existing" --auto --squash || \
-            echo "::warning::auto-merge could not be enabled (repo setting?); PR $existing left open for manual merge"
+          tagged_page="${RUNNER_TEMP}/tagged-index.html"
+          git show "${NEW_TAG}:docs/index.html" > "$tagged_page"
+          python3 hack/update-homepage-version.py \
+            --check --file "$tagged_page" "$NEW_TAG" "$NEW_DATE"
