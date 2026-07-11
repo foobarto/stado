@@ -180,6 +180,54 @@ func TestNarrowEffective_AllowsNarrowing(t *testing.T) {
 	}
 }
 
+func TestNarrowEffective_PreservesOmittedExecRestriction(t *testing.T) {
+	svc := NewService(DefaultPolicy(), nil)
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+
+	handle, _, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat,
+		Profile: ProfileDefault,
+		CWD:     "/work",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	allowGit := handle.Effective
+	allowGit.Exec = []string{"git"}
+	if err := svc.NarrowEffective(handle.SessionID, allowGit); err != nil {
+		t.Fatalf("NarrowEffective allow git: %v", err)
+	}
+	narrowed := sandbox.Policy{FSRead: handle.Effective.FSRead}
+	if err := svc.NarrowEffective(handle.SessionID, narrowed); err != nil {
+		t.Fatalf("NarrowEffective: %v", err)
+	}
+	got, _, err := svc.LookupSession(handle.SessionID)
+	if err != nil {
+		t.Fatalf("LookupSession: %v", err)
+	}
+	if len(got.Effective.Exec) != 1 || got.Effective.Exec[0] != "git" {
+		t.Fatalf("Effective.Exec = %#v, want preserved [git]", got.Effective.Exec)
+	}
+
+	explicitDenyAll := sandbox.Policy{
+		FSRead: got.Effective.FSRead,
+		Exec:   []string{},
+	}
+	if err := svc.NarrowEffective(handle.SessionID, explicitDenyAll); err != nil {
+		t.Fatalf("NarrowEffective deny-all: %v", err)
+	}
+	got, _, err = svc.LookupSession(handle.SessionID)
+	if err != nil {
+		t.Fatalf("LookupSession deny-all: %v", err)
+	}
+	if got.Effective.Exec == nil || len(got.Effective.Exec) != 0 {
+		t.Fatalf("Effective.Exec = %#v, want non-nil empty deny-all", got.Effective.Exec)
+	}
+}
+
 func TestNarrowEffective_RejectsWidening(t *testing.T) {
 	svc := NewService(DefaultPolicy(), nil)
 	t.Setenv("HOME", "/home/test")

@@ -51,7 +51,7 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 		// can only read what the parent could read.
 		FSRead:  append([]string(nil), parent.FSRead...),
 		Net:     parent.Net,
-		Exec:    append([]string(nil), parent.Exec...),
+		Exec:    cloneOptionalStrings(parent.Exec),
 		Env:     withoutString(parent.Env, "SSH_AUTH_SOCK"),
 		CWD:     parent.CWD,
 		Timeout: parent.Timeout,
@@ -162,7 +162,7 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 	if !fsSubset(candidate.FSWrite, reference.FSWrite) {
 		return false
 	}
-	if !exactSubset(candidate.Exec, reference.Exec) {
+	if !execSubset(candidate.Exec, reference.Exec) {
 		return false
 	}
 	if !exactSubset(candidate.Env, reference.Env) {
@@ -182,6 +182,18 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 		return false
 	}
 	return true
+}
+
+// execSubset preserves Policy.Exec's nil-vs-empty contract: nil means
+// unrestricted execution, while a non-nil empty slice denies every binary.
+func execSubset(candidate, reference []string) bool {
+	if reference == nil {
+		return true
+	}
+	if candidate == nil {
+		return false
+	}
+	return exactSubset(candidate, reference)
 }
 
 // fsSubset reports whether every path in candidate is the same as,
@@ -268,6 +280,12 @@ func (s *Service) NarrowEffective(sessionID string, narrowed sandbox.Policy) err
 	if narrowed.Timeout == 0 {
 		narrowed.Timeout = st.handle.Effective.Timeout
 	}
+	// Exec=nil means unrestricted execution, not an empty allowlist. Treat an
+	// omitted field as a partial update and preserve the current restriction;
+	// a caller-supplied non-nil empty slice remains an explicit deny-all.
+	if narrowed.Exec == nil {
+		narrowed.Exec = cloneOptionalStrings(st.handle.Effective.Exec)
+	}
 	// CWD is session identity, not an attenuable capability. Partial narrow
 	// requests commonly omit it; accepting that omission would make later child
 	// path rebasing resolve against an empty or attacker-selected root.
@@ -277,6 +295,13 @@ func (s *Service) NarrowEffective(sessionID string, narrowed sandbox.Policy) err
 	}
 	st.handle.Effective = narrowed
 	return nil
+}
+
+func cloneOptionalStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append([]string{}, values...)
 }
 
 func appendMissing(dst, required []string) []string {

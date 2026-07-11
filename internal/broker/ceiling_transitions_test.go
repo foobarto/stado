@@ -166,6 +166,17 @@ func TestSubagentCeiling_ReadNetExecEnvAttenuate_CeilTr(t *testing.T) {
 	}
 }
 
+func TestSubagentCeiling_PreservesExecDenyAll(t *testing.T) {
+	parent := sandbox.Policy{Exec: []string{}}
+	child, _ := SubagentCeiling(parent, "explorer", "read_only", nil)
+	if child.Exec == nil {
+		t.Fatal("child.Exec is nil, want inherited non-nil empty deny-all")
+	}
+	if !IsSubsetOf(child, parent) {
+		t.Fatal("deny-all child must remain a subset of deny-all parent")
+	}
+}
+
 // -------------------------------------------------------------------
 // 2. IsSubsetOf — the predicate that defines "<=".
 // -------------------------------------------------------------------
@@ -240,6 +251,18 @@ func TestIsSubsetOf_WideningRejected_CeilTr(t *testing.T) {
 				t.Errorf("IsSubsetOf(%+v, ref) = %v, want %v", tc.candidate, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIsSubsetOf_ExecNilEmptySemantics(t *testing.T) {
+	if IsSubsetOf(sandbox.Policy{Exec: nil}, sandbox.Policy{Exec: []string{"git"}}) {
+		t.Fatal("unrestricted nil Exec must not be a subset of an allowlist")
+	}
+	if !IsSubsetOf(sandbox.Policy{Exec: []string{}}, sandbox.Policy{Exec: []string{"git"}}) {
+		t.Fatal("non-nil empty deny-all Exec must be a subset of an allowlist")
+	}
+	if !IsSubsetOf(sandbox.Policy{Exec: []string{"git"}}, sandbox.Policy{Exec: nil}) {
+		t.Fatal("an Exec allowlist must be a subset of unrestricted nil Exec")
 	}
 }
 
