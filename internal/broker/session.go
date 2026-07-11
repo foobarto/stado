@@ -119,25 +119,10 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	if !req.Profile.Valid() {
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: invalid profile %q", req.Profile)
 	}
-	var d Decision
 	if req.Purpose == PurposeSubagent {
-		if req.SessionID == "" {
-			return SessionHandle{}, Decision{}, errors.New("broker: subagent parent session required")
-		}
-		parent, terminated, err := s.LookupSession(req.SessionID)
-		if err != nil {
-			return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", err)
-		}
-		if terminated {
-			return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", ErrSessionTerminated)
-		}
-		if req.Profile != parent.Profile {
-			return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent profile %q differs from parent profile %q", req.Profile, parent.Profile)
-		}
-		d = s.EvaluateWithTaint(req)
-	} else {
-		d = s.Evaluate(req)
+		return s.createSubagentSession(req)
 	}
+	d := s.Evaluate(req)
 	if !d.Admit {
 		return SessionHandle{}, d, nil
 	}
@@ -171,28 +156,74 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	return handle, d, nil
 }
 
-// sessionCeiling projects a broker-created child from the requesting
-// parent's current effective set. The only path translation permitted is from
-// the parent's checkout root to a validated stado-managed child worktree.
-func (s *Service) sessionCeiling(req CapabilityRequest, sessionID string) (sandbox.Policy, string, error) {
-	if req.Purpose != PurposeSubagent {
-		return projectCeiling(req), req.CWD, nil
+func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, Decision, error) {
+	if req.SessionID == "" {
+		return SessionHandle{}, Decision{}, errors.New("broker: subagent parent session required")
 	}
-	parent, terminated, err := s.LookupSession(req.SessionID)
+	id, err := mintSessionID()
 	if err != nil {
-		return sandbox.Policy{}, "", fmt.Errorf("broker: subagent parent: %w", err)
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: mint session id: %w", err)
 	}
-	if terminated {
-		return sandbox.Policy{}, "", fmt.Errorf("broker: subagent parent: %w", ErrSessionTerminated)
+	base := s.evaluate(req)
+	if !base.Admit {
+		s.logDecision(req, base)
+		return SessionHandle{}, base, nil
 	}
-	childCWD, err := reserveManagedWorktree(sessionID)
+
+	s.sessionsMu.Lock()
+	parentState, ok := s.sessions[req.SessionID]
+	if !ok {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", ErrSessionNotFound)
+	}
+	if parentState.terminated {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent parent: %w", ErrSessionTerminated)
+	}
+	parent := parentState.handle
+	if req.Profile != parent.Profile {
+		s.sessionsMu.Unlock()
+		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent profile %q differs from parent profile %q", req.Profile, parent.Profile)
+	}
+	d := decisionWithTaint(req, base, parentState.taint)
+	if !d.Admit {
+		s.sessionsMu.Unlock()
+		s.logDecision(req, d)
+		return SessionHandle{}, d, nil
+	}
+
+	childCWD, err := reserveManagedWorktree(id)
 	if err != nil {
-		return sandbox.Policy{}, "", err
+		s.sessionsMu.Unlock()
+		s.logDecision(req, d)
+		return SessionHandle{}, d, err
 	}
 	parentCWD := parent.Effective.CWD
 	writes := resolveRelativeScope(req.WriteScope, parentCWD)
 	projected, _ := SubagentCeiling(parent.Effective, req.Role, req.Mode, writes)
-	return rebasePolicyRoot(projected, parentCWD, childCWD), childCWD, nil
+	ceiling := rebasePolicyRoot(projected, parentCWD, childCWD)
+	handle := SessionHandle{
+		SessionID: id,
+		Purpose:   req.Purpose,
+		Profile:   req.Profile,
+		CWD:       childCWD,
+		Ceiling:   ceiling,
+		Effective: ceiling,
+		TraceRef:  traceRefFor(req, id),
+		ExpiresAt: time.Time{},
+		CreatedAt: s.now(),
+	}
+	s.sessions[id] = &sessionState{handle: handle}
+	s.sessionsMu.Unlock()
+	s.logDecision(req, d)
+	return handle, d, nil
+}
+
+// sessionCeiling projects a broker-created child from the requesting
+// parent's current effective set. The only path translation permitted is from
+// the parent's checkout root to a validated stado-managed child worktree.
+func (s *Service) sessionCeiling(req CapabilityRequest, sessionID string) (sandbox.Policy, string, error) {
+	return projectCeiling(req), req.CWD, nil
 }
 
 func managedWorktreeRoot() (string, error) {

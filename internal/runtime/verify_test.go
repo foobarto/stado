@@ -254,14 +254,33 @@ func TestRunVerificationRoundUsesStructuredLaunchFailure(t *testing.T) {
 	}
 }
 
-type fixedVerifyTool struct{ result tool.Result }
+func TestRunVerificationRoundPreservesFailedResultOverExecutorError(t *testing.T) {
+	reg := tools.NewRegistry()
+	code := 9
+	reg.Register(fixedVerifyTool{
+		result: tool.Result{
+			Error: "command exited with code 9", FailureKind: tool.FailureExit, ExitCode: &code,
+		},
+		err: errors.New("audit commit failed"),
+	})
+	out := RunVerificationRound(context.Background(), &tools.Executor{Registry: reg}, nil,
+		VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1}, 1, nil)
+	if out.Status != VerifyFailed || out.Err != nil || !strings.Contains(out.Feedback, "code 9") {
+		t.Fatalf("combined result/error outcome = %+v", out)
+	}
+}
+
+type fixedVerifyTool struct {
+	result tool.Result
+	err    error
+}
 
 func (fixedVerifyTool) Name() string           { return verifyToolName }
 func (fixedVerifyTool) Description() string    { return "fixed verify result" }
 func (fixedVerifyTool) Schema() map[string]any { return map[string]any{"type": "object"} }
 func (fixedVerifyTool) Class() tool.Class      { return tool.ClassExec }
 func (t fixedVerifyTool) Run(context.Context, json.RawMessage, tool.Host) (tool.Result, error) {
-	return t.result, nil
+	return t.result, t.err
 }
 
 type scriptedVerifyTool struct {

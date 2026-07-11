@@ -130,9 +130,6 @@ func RunVerificationRound(ctx context.Context, executor *tools.Executor, host to
 			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: out.Output})
 			return out
 		}
-		if err != nil {
-			return verifyInfrastructure(round, command, err.Error(), err, onEvent)
-		}
 		if res.Error != "" {
 			if res.FailureKind == tool.FailureLaunch {
 				return verifyInfrastructure(round, command, res.Error, errors.New(res.Error), onEvent)
@@ -144,6 +141,9 @@ func RunVerificationRound(ctx context.Context, executor *tools.Executor, host to
 			}
 			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: res.Error})
 			return out
+		}
+		if err != nil {
+			return verifyInfrastructure(round, command, err.Error(), err, onEvent)
 		}
 		emitVerify(onEvent, VerifyEvent{Status: VerifyPassed, Round: round, Command: command, Output: res.Content})
 	}

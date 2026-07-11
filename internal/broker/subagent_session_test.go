@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestCreateSession_SubagentProjectsParentEffectiveIntoManagedWorktree(t *testing.T) {
@@ -40,6 +42,60 @@ func TestCreateSession_SubagentProjectsParentEffectiveIntoManagedWorktree(t *tes
 	}
 	if len(child.Ceiling.Sockets) != 0 {
 		t.Fatalf("ordinary child inherited privileged sockets: %v", child.Ceiling.Sockets)
+	}
+}
+
+func TestCreateSessionSubagentRegistrationIsAtomicWithParentMutation(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	svc := NewService(DefaultPolicy(), nil)
+	parent, _, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat, Profile: ProfileDefault, CWD: "/work",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var nowCalls atomic.Int32
+	svc.now = func() time.Time {
+		if nowCalls.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return time.Now()
+	}
+	childDone := make(chan error, 1)
+	go func() {
+		_, _, err := svc.CreateSession(CapabilityRequest{
+			Purpose: PurposeSubagent, Profile: ProfileDefault, SessionID: parent.SessionID,
+			Role: "explorer", Mode: "read_only",
+		})
+		childDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("child creation did not reach atomic registration section")
+	}
+
+	terminated := make(chan error, 1)
+	go func() { terminated <- svc.TerminateSession(parent.SessionID) }()
+	select {
+	case err := <-terminated:
+		t.Fatalf("parent mutation interleaved with child registration: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	if err := <-childDone; err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+	if err := <-terminated; err != nil {
+		t.Fatalf("terminate parent: %v", err)
 	}
 }
 

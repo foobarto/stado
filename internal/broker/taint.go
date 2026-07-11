@@ -119,8 +119,17 @@ func (s *Service) EvaluateWithTaint(req CapabilityRequest) Decision {
 		return base
 	}
 	t, err := s.Taint(req.SessionID)
-	if err != nil || t == TaintClean {
+	if err != nil {
 		s.logDecision(req, base)
+		return base
+	}
+	decision := decisionWithTaint(req, base, t)
+	s.logDecision(req, decision)
+	return decision
+}
+
+func decisionWithTaint(req CapabilityRequest, base Decision, t Taint) Decision {
+	if !base.Admit || t == TaintClean {
 		return base
 	}
 	// Tainted context overlay: stricter for sub-agent grants that
@@ -134,10 +143,8 @@ func (s *Service) EvaluateWithTaint(req CapabilityRequest) Decision {
 			Rule:   "tainted-deny:" + req.Role,
 			Reason: fmt.Sprintf("broker: %s sub-agent grant requires a clean (un-tainted) context", req.Role),
 		}
-		s.logDecision(req, denied)
 		return denied
 	}
-	s.logDecision(req, base)
 	return base
 }
 
