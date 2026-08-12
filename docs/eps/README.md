@@ -82,6 +82,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Implemented |
 | 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
 | 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Implemented |
+| 0061 | [Linked EP Relationship Metadata](./0061-linked-ep-relationship-metadata.md) | Process | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
@@ -128,7 +129,7 @@ type: Standards | Informational | Process
 created: YYYY-MM-DD
 ```
 
-Optional, added as relevant (see EP-1 for full semantics):
+Optional, added as relevant (see EP-1 and EP-61 for full semantics):
 
 ```yaml
 updated: YYYY-MM-DD
@@ -153,7 +154,7 @@ When a new EP supersedes an older one, or when a strong extension
 relationship is recorded via `extended-by`, **the same PR must update
 the older EP's frontmatter** so navigation works in both directions.
 Loose `see-also` links do not need reciprocal updates. See EP-1
-§"Updating EPs" for the full rule.
+§"Updating EPs" and EP-61 for the full rule.
 
 ## Conventions
 

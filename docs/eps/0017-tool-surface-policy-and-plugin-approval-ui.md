@@ -6,6 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.1.0
+extends: ["[EP-0009](./0009-session-guardrails-and-hooks.md)"]
 see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 extended-by: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 history:

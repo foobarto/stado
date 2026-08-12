@@ -6,6 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
+extends: ["[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0035](./0035-project-local-stado-dir.md)"]
 extended-by: []
 see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0028](./0028-plugin-run-tool-host.md)", "[EP-0029](./0029-config-introspection-host-imports.md)", "[EP-0031](./0031-fs-cap-path-templates.md)", "[EP-0035](./0035-project-local-stado-dir.md)"]
 history:

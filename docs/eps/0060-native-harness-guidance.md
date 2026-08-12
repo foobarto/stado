@@ -9,11 +9,11 @@ requires: ["[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0053](./0053
 see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0030](./0030-security-research-default-harness.md)", "[EP-0051](./0051-lua-lifecycle-hook-contract.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
 history:
   - date: 2026-08-12
-    status: Implemented
-    note: Shipped native bounded harness guidance across agent surfaces in PR #253, with full tests, signed commits, and documentation synchronized.
-  - date: 2026-08-12
     status: Accepted
     note: Accepted for implementation after the repository-wide documentation audit.
+  - date: 2026-08-12
+    status: Implemented
+    note: Shipped native bounded harness guidance across agent surfaces in PR #253, with full tests, signed commits, and documentation synchronized.
 ---
 
 # EP-0060: Native Bounded Harness Guidance
