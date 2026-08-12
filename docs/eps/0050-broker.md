@@ -5,7 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-05-27
-see-also: [30, 32, 37, 38, 42]
+see-also: ["[EP-0030](./0030-security-research-default-harness.md)", "[EP-0032](./0032-acp-client-wrap-external-agents.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0042](./0042-binaries-out-of-source-tree.md)"]
 history:
   - date: 2026-05-27
     status: Draft

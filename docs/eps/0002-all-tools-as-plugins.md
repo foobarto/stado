@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-22
 implemented-in: v0.33.0
-extended-by: [38]
-see-also: [5, 6, 37, 38]
+extended-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-04-22
     status: Draft

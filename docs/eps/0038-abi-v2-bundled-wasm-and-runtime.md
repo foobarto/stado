@@ -6,9 +6,10 @@ status: Implemented
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
-requires: [37]
-supersedes: [13, 28, 34]
-see-also: [2, 5, 6, 14, 17, 29, 31, 35, 37]
+extends: ["[EP-0002](./0002-all-tools-as-plugins.md)"]
+requires: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
+supersedes: ["[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0028](./0028-plugin-run-tool-host.md)", "[EP-0034](./0034-background-agents-fleet.md)"]
+see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0014](./0014-multi-session-tui.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0029](./0029-config-introspection-host-imports.md)", "[EP-0031](./0031-fs-cap-path-templates.md)", "[EP-0035](./0035-project-local-stado-dir.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 history:
   - date: 2026-05-05
     status: Draft

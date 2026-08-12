@@ -31,7 +31,7 @@ history:
       pointer to the old path also lingers in an internal/acp/client.go
       comment). Phase B is gated by Tools="stado" and ClientCapabilities
       ReadTextFile, as designed.
-see-also: [0005, 0006]
+see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)"]
 ---
 
 # EP-0032: ACP client — wrap external coding-agent CLIs as stado providers

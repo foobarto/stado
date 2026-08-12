@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: [8, 13, 14]
+see-also: ["[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0014](./0014-multi-session-tui.md)"]
 history:
   - date: 2026-04-25
     status: Implemented

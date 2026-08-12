@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-06-14
 implemented-in: v0.74.1
-see-also: [0041, 0038, 0037]
+see-also: ["[EP-0041](./0041-shell-pty-tool-naming.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 history:
   - date: 2026-06-14
     status: Draft

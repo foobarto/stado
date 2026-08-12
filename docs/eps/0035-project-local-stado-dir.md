@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.76.0
 type: Standards
 created: 2026-05-05
-see-also: [27, 28, 6, 9, 37]
-extended-by: [37]
+see-also: ["[EP-0027](./0027-repo-root-discovery.md)", "[EP-0028](./0028-plugin-run-tool-host.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
+extended-by: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

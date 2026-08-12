@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: [11, 13, 19]
+see-also: ["[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0019](./0019-model-provider-picker-ux.md)"]
 history:
   - date: 2026-04-25
     status: Implemented

@@ -5,15 +5,15 @@ author: Bartosz Ptaszynski
 status: Partial
 type: Standards
 created: 2026-05-04
-superseded-by: [38]
-see-also: [0005, 0006, 0027, 38]
+superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0027](./0027-repo-root-discovery.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
   - date: 2026-05-05
     status: Partial
-    superseded-by: [38]
+    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
     note: >
       Partially superseded by EP-0038. The --with-tool-host flag becomes default behaviour (since
       under EP-0038 every tool is a wasm plugin, the bundled-vs-plugin distinction goes away); the

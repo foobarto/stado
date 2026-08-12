@@ -5,6 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Accepted
 type: Process
 created: 2026-04-22
+extended-by: ["[EP-0061](./0061-linked-ep-relationship-metadata.md)"]
 history:
   - date: 2026-04-22
     status: Draft

@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: [52]
-see-also: [2, 6, 9, 11, 15]
+superseded-by: ["[EP-0052](./0052-learn-trajectory-refinement.md)"]
+see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0015](./0015-memory-system-plugin.md)"]
 history:
   - date: 2026-04-24
     status: Placeholder
@@ -53,7 +53,7 @@ history:
       review, and lesson-only export are all shipped.
   - date: 2026-08-12
     status: Superseded
-    superseded-by: [52]
+    superseded-by: ["[EP-0052](./0052-learn-trajectory-refinement.md)"]
     note: >-
       EP-0052 replaces the manual-only `stado learning` lifecycle with the
       canonical evidence-backed `stado learn` and `/learn` trajectory review.

@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-22
 implemented-in: v0.53.0
-see-also: [6, 12, 38, 39]
+see-also: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)"]
 history:
   - date: 2026-05-22
     status: Draft

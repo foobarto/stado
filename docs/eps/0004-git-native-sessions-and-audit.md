@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: [3, 7, 10, 11, 12]
+see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)"]
 history:
   - date: 2026-04-23
     status: Accepted

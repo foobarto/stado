@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-extended-by: [17, 51]
-see-also: [5, 7, 8, 11, 17, 51]
+extended-by: ["[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0051](./0051-lua-lifecycle-hook-contract.md)"]
+see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0051](./0051-lua-lifecycle-hook-contract.md)"]
 history:
   - date: 2026-04-23
     status: Accepted

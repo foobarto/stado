@@ -6,9 +6,9 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-supersedes: [16]
-requires: [15, 21, 46, 53, 57, 59]
-see-also: [7, 9, 44, 47]
+supersedes: ["[EP-0016](./0016-learning-self-improvement-plugin.md)"]
+requires: ["[EP-0015](./0015-memory-system-plugin.md)", "[EP-0021](./0021-assistant-turn-metadata.md)", "[EP-0046](./0046-verify-work-phase.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)", "[EP-0047](./0047-structured-loop-result-and-output.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

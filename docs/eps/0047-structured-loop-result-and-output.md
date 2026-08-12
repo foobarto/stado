@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Draft
 type: Standards
 created: 2026-06-17
-requires: [3, 10]
-see-also: [4, 7, 36, 38, 46]
+requires: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
+see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0046](./0046-verify-work-phase.md)"]
 history:
   - date: 2026-06-17
     status: Draft

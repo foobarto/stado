@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: [52, 53, 54, 57, 59]
-see-also: [7, 11, 15, 16]
+requires: ["[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0054](./0054-addressable-context-and-research-agents.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0015](./0015-memory-system-plugin.md)", "[EP-0016](./0016-learning-self-improvement-plugin.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

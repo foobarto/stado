@@ -6,7 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.1.0
-see-also: [3, 8, 10]
+extends: ["[EP-0008](./0008-repo-local-instructions-and-skills.md)"]
+see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
 history:
   - date: 2026-04-24
     status: Implemented

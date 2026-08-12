@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: [4, 33, 50, 55, 59]
-see-also: [11, 36, 47]
+requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0033](./0033-responsive-supervisor-worker-lanes.md)", "[EP-0050](./0050-broker.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0047](./0047-structured-loop-result-and-output.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

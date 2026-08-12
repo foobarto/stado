@@ -6,9 +6,9 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-supersedes: [15]
-requires: [4, 15, 59]
-see-also: [16, 44, 52, 54, 58]
+supersedes: ["[EP-0015](./0015-memory-system-plugin.md)"]
+requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0015](./0015-memory-system-plugin.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0016](./0016-learning-self-improvement-plugin.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)", "[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0054](./0054-addressable-context-and-research-agents.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
 history:
   - date: 2026-08-12
     status: Implemented
