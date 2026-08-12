@@ -28,7 +28,8 @@ environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
-> context management are shipped. Main remaining gap: Windows sandbox
+> adaptive retrieval, trajectory learning, retained subagents, durable
+> mailboxes, and resumable broker automation are shipped. Main remaining gap: Windows sandbox
 > v2. See
 > [PLAN.md](PLAN.md) for the phased roadmap.
 >
@@ -54,6 +55,24 @@ environment.
   flattening them behind a lossy abstraction.
 - **Releases are verifiable.** Builds are reproducible and shipped with
   cosign + minisign signatures.
+
+## Feature highlights
+
+The newer pieces turn stado from a safe coding loop into a durable agent
+runtime. A few highlights from the latest implemented EPs:
+
+| Capability | What makes it useful |
+| --- | --- |
+| **Isolated research agents** ([EP-0054](docs/eps/0054-addressable-context-and-research-agents.md)) | Delegate repository archaeology and long investigations without flooding the main conversation; address the result later by durable handle. |
+| **Retained subagents + mailboxes** ([EP-0055](docs/eps/0055-retained-resumable-subagents.md), [EP-0056](docs/eps/0056-agent-mailboxes-and-supervision.md)) | Keep useful workers alive across turns, supervise them, and exchange durable messages instead of losing coordination when one prompt ends. |
+| **Adaptive context retrieval** ([EP-0058](docs/eps/0058-measured-adaptive-retrieval.md)) | Retrieve approved memory and relevant context under measured budgets, with feedback signals that refine later retrieval. |
+| **Trajectory learning** ([EP-0052](docs/eps/0052-learn-trajectory-refinement.md)) | Review completed sessions for concrete lesson candidates, approve the useful ones, and feed them back into future work. |
+| **Session journal + deterministic signals** ([EP-0057](docs/eps/0057-session-state-journal-decisions-and-signals.md)) | Project objectives, blockers, decisions, corrections, and mistakes into queryable durable state rather than reconstructing them from chat. |
+| **Durable event and budget substrate** ([EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md)) | Give agents and automations resumable event delivery, explicit budgets, and crash-safe coordination through the broker. |
+
+Together with native bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),
+these capabilities teach the model when to research, delegate, learn, resume,
+and coordinate while stado continues to own tools, policy, audit, and sandboxing.
 
 ---
 

@@ -3,9 +3,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>stado — sandboxed, git-native coding agent for the terminal</title>
-<meta name="description" content="stado — a sandboxed, git-native coding agent for the terminal. Sessions live in a sidecar repo until you explicitly land them. Signed audit log. Capability-gated OS sandbox.">
+<meta name="description" content="stado — a sandboxed, git-native coding agent with retained subagents, isolated research, adaptive retrieval, durable automation, and a signed audit log.">
 <meta property="og:title" content="stado — sandboxed, git-native coding agent for the terminal">
-<meta property="og:description" content="A herd of agents that keep your working tree clean. Sidecar sessions, signed tool-call audit log, capability sandbox, signed wasm plugins.">
+<meta property="og:description" content="A herd of durable agents that keep your working tree clean: retained workers, isolated research, adaptive context, signed audit, and capability sandboxing.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://foobarto.github.io/stado/">
 <meta property="og:image" content="https://foobarto.github.io/stado/assets/img/stado-three-sheep-standing-guard.webp">
@@ -917,7 +917,7 @@
   }
 
   /* ─── section heads ────────────────────────────── */
-  .how, .providers{ padding: 96px 0; }
+  .how, .highlights, .providers{ padding: 96px 0; }
   .section-head{
     display: grid;
     grid-template-columns: 240px 1fr;
@@ -997,6 +997,19 @@
   }
   .feature .extras .k{ color: var(--mute); margin-right: 12px; }
   .feature .extras .v{ color: var(--fg); }
+  .highlights .feature{ min-height: 250px; }
+  .feature .ep-link{
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line-2);
+    color: var(--lime);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+  .feature .ep-link:hover{ color: var(--fg); }
 
   /* diagram for sidecar */
   .diagram{
@@ -1485,6 +1498,7 @@
       <span class="ver">v0.78.0</span>
     </a>
     <ul>
+      <li><a class="link" href="#highlights">highlights</a></li>
       <li><a class="link" href="#how">how it works</a></li>
       <li><a class="link" href="#install">install</a></li>
       <li><a class="link" href="#providers">providers</a></li>
@@ -1624,6 +1638,62 @@
         <h4>No lossy abstraction.</h4>
         <p>Thinking blocks, prompt caching, provider-native features round-trip verbatim.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FEATURE HIGHLIGHTS ─────────────────────────── -->
+<section class="highlights" id="highlights">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <span class="small-caps"><span class="cube"></span>§ latest · implemented</span>
+      </div>
+      <h2>The agent loop grew a <em>memory</em>, a crew, and a nervous system.</h2>
+    </div>
+
+    <div class="features">
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0054</span><span class="sep">/</span> isolated research</div>
+        <h3>Send the archaeology <em>elsewhere</em>.</h3>
+        <p>Launch bounded research agents for long repository investigations, keep their context isolated, and address the result later through a durable handle.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0054-addressable-context-and-research-agents.md">read the design →</a>
+      </article>
+
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0055 · 0056</span><span class="sep">/</span> retained agents</div>
+        <h3>A crew that survives the <em>turn</em>.</h3>
+        <p>Retain useful workers, supervise their lifecycle, and coordinate through durable mailboxes instead of losing every collaboration when a prompt finishes.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0055-retained-resumable-subagents.md">retained agents →</a>
+      </article>
+
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0058</span><span class="sep">/</span> adaptive retrieval</div>
+        <h3>Context with a <em>budget</em>.</h3>
+        <p>Retrieve approved memory and relevant history under measured limits, then use real correction signals to improve what later turns receive.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0058-measured-adaptive-retrieval.md">read the design →</a>
+      </article>
+
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0052</span><span class="sep">/</span> trajectory learning</div>
+        <h3>Turn mistakes into <em>lessons</em>.</h3>
+        <p>Review completed trajectories for concrete lesson candidates, approve the useful ones, and make future work better without silently rewriting memory.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0052-learn-trajectory-refinement.md">read the design →</a>
+      </article>
+
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0057</span><span class="sep">/</span> durable session state</div>
+        <h3>A journal, not just a <em>transcript</em>.</h3>
+        <p>Project objectives, blockers, decisions, corrections, and deterministic mistake signals into durable state that humans and agents can query directly.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0057-session-state-journal-decisions-and-signals.md">read the design →</a>
+      </article>
+
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ EP-0059 · 0060</span><span class="sep">/</span> bounded orchestration</div>
+        <h3>Automations that resume <em>safely</em>.</h3>
+        <p>Crash-safe events, explicit budgets, and native harness guidance coordinate research, learning, and retained agents while stado still owns every tool and policy boundary.</p>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0059-durable-event-and-budget-substrate.md">durable substrate →</a>
+      </article>
     </div>
   </div>
 </section>
