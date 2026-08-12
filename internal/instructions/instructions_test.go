@@ -138,7 +138,7 @@ func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 		"Cairn workflow defaults:",
 		"think before coding, simplicity first, surgical changes, and goal-driven execution",
 		"If the new request is unrelated, use the shared tasks tool when available",
-		"If the tool is unavailable, identify the request explicitly as an unpersisted deferred item",
+		"If the tool is unavailable or the write fails, identify the request explicitly as an unpersisted deferred item",
 		"revisit only task IDs or unpersisted fallback items deferred by this conversation",
 		"Project instructions:\nalways write tests",
 	} {

@@ -40,8 +40,8 @@ become semver guarantees.
   instructions now preserve one active task, capture unrelated prompts in the
   shared task store, and revisit only that conversation's deferred task IDs
   after completion. The `tasks` tool is autoloaded so this policy remains
-  actionable without tool discovery; no-tools and Plan-mode sessions explicitly
-  disclose and retain an unpersisted fallback instead of claiming a write.
+  actionable without tool discovery; unavailable tools and failed writes
+  explicitly retain and disclose an unpersisted fallback instead of losing work.
 
 ### Docs
 
