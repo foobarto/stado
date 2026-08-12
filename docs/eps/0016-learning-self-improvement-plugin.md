@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: ["[EP-0052](./0052-learn-trajectory-refinement.md)"]
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0015](./0015-memory-system-plugin.md)"]
+superseded-by: ["EP-0052"]
+see-also: ["EP-0002", "EP-0006", "EP-0009", "EP-0011", "EP-0015"]
 history:
   - date: 2026-04-24
     status: Placeholder
@@ -58,6 +58,8 @@ history:
       EP-0052 replaces the manual-only `stado learning` lifecycle with the
       canonical evidence-backed `stado learn` and `/learn` trajectory review.
 ---
+
+> **Relationships:** **Superseded by:** [EP-0052](./0052-learn-trajectory-refinement.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0015](./0015-memory-system-plugin.md)
 
 # EP-16: Learning and Self-Improvement Plugin
 

@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)"]
-extended-by: ["[EP-0039](./0039-plugin-distribution-and-trust.md)"]
+see-also: ["EP-0002", "EP-0005", "EP-0010", "EP-0011", "EP-0012", "EP-0039"]
+extended-by: ["EP-0039"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -17,6 +17,8 @@ history:
     version: v0.1.0
     note: Signed manifests, trust pinning, runtime verification, and session-aware plugins are the shipped extension model.
 ---
+
+> **Relationships:** **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0039](./0039-plugin-distribution-and-trust.md) · **Extended by:** [EP-0039](./0039-plugin-distribution-and-trust.md)
 
 # EP-6: Signed WASM Plugin Runtime
 

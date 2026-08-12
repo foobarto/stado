@@ -11,15 +11,17 @@ history:
     note: Initial draft.
 # Optional — add only the fields you need:
 # updated: YYYY-MM-DD
-# requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# extends: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# see-also: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# requires: ["EP-NNNN"]
+# extends: ["EP-NNNN"]
+# supersedes: ["EP-NNNN"]
+# superseded-by: ["EP-NNNN"]
+# extended-by: ["EP-NNNN"]
+# see-also: ["EP-NNNN"]
 # implemented-in: vX.Y.Z
 # discussion-at: <URL>
 ---
+
+> **Relationships:** **Requires:** [EP-NNNN](./NNNN-short-kebab-title.md)
 
 # EP-NNNN: Title
 
@@ -31,7 +33,7 @@ history:
   - Once status flips to Accepted, the document is append-only. Edits
     that change a decision go in a new EP that supersedes this one.
   - If this EP extends or supersedes an existing one, update that
-    EP's frontmatter in the same PR (see EP-1 §"Updating EPs" and EP-61).
+    EP's frontmatter in the same PR (see EP-1 §"Updating EPs" and EP-62).
 -->
 
 ## Problem

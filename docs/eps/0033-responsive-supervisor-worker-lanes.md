@@ -19,8 +19,10 @@ history:
       supervisor steer injects a steering note, supervisor interrupt calls streamCancel.
       /supervisor on|off|status TUI slash commands. Prompt-based classifier deferred as
       [supervisor.classifier_prompt] config knob for a follow-up.
-see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0014](./0014-multi-session-tui.md)", "[EP-0032](./0032-acp-client-wrap-external-agents.md)"]
+see-also: ["EP-0007", "EP-0014", "EP-0032"]
 ---
+
+> **Relationships:** **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0014](./0014-multi-session-tui.md), [EP-0032](./0032-acp-client-wrap-external-agents.md)
 
 # EP-0033: Responsive frontline — supervisor + worker lanes
 

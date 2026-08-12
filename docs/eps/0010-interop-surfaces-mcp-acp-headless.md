@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0011](./0011-observability-and-telemetry.md)"]
+see-also: ["EP-0003", "EP-0004", "EP-0005", "EP-0006", "EP-0008", "EP-0011"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -19,6 +19,8 @@ history:
     status: Implemented
     note: The standalone `stado headless` command was folded into `stado run --headless` (the non-interactive surface); the JSON-RPC daemon, its methods, and the wire protocol are unchanged. Body references below to `stado headless` name the pre-fold command.
 ---
+
+> **Relationships:** **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0008](./0008-repo-local-instructions-and-skills.md), [EP-0011](./0011-observability-and-telemetry.md)
 
 # EP-10: Interop Surfaces: MCP, ACP, and Headless
 

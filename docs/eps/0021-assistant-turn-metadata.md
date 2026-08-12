@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0019](./0019-model-provider-picker-ux.md)"]
+see-also: ["EP-0011", "EP-0013", "EP-0019"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -21,6 +21,8 @@ history:
     status: Partial
     note: Assistant responses now render compact per-turn footers; richer tool/status drilldowns remain future work.
 ---
+
+> **Relationships:** **See also:** [EP-0011](./0011-observability-and-telemetry.md), [EP-0013](./0013-subagent-spawn-tool.md), [EP-0019](./0019-model-provider-picker-ux.md)
 
 # EP-21: Assistant Turn Metadata
 

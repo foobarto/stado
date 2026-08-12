@@ -6,9 +6,9 @@ status: Implemented
 type: Standards
 created: 2026-07-10
 implemented-in: v0.77.0
-requires: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)"]
-extends: ["[EP-0009](./0009-session-guardrails-and-hooks.md)"]
-see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)"]
+requires: ["EP-0009", "EP-0044"]
+extends: ["EP-0009"]
+see-also: ["EP-0004", "EP-0005", "EP-0010", "EP-0017"]
 history:
   - date: 2026-07-10
     status: Implemented
@@ -21,6 +21,8 @@ history:
       module, and require from the Lua base environment so the documented
       no-filesystem boundary is true in code.
 ---
+
+> **Relationships:** **Requires:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0044](./0044-repo-config-trust-boundary.md) · **Extends:** [EP-0009](./0009-session-guardrails-and-hooks.md) · **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)
 
 # EP-51: Lua Lifecycle Hook Contract
 

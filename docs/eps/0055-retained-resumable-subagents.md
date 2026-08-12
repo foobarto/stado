@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0014](./0014-multi-session-tui.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0050](./0050-broker.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
-see-also: ["[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0033](./0033-responsive-supervisor-worker-lanes.md)", "[EP-0034](./0034-background-agents-fleet.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0054](./0054-addressable-context-and-research-agents.md)", "[EP-0056](./0056-agent-mailboxes-and-supervision.md)"]
+requires: ["EP-0004", "EP-0014", "EP-0038", "EP-0050", "EP-0059"]
+see-also: ["EP-0013", "EP-0033", "EP-0034", "EP-0036", "EP-0038", "EP-0054", "EP-0056"]
 history:
   - date: 2026-08-12
     status: Implemented
@@ -20,6 +20,8 @@ history:
     status: Draft
     note: Initial draft consolidating the superseded spawn/fleet designs.
 ---
+
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0014](./0014-multi-session-tui.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0050](./0050-broker.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0013](./0013-subagent-spawn-tool.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0034](./0034-background-agents-fleet.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0054](./0054-addressable-context-and-research-agents.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md)
 
 # EP-0055: Retained and Resumable Sub-agent Sessions
 

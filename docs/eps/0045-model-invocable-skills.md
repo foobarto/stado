@@ -5,9 +5,9 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-06-17
-requires: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
-extends: ["[EP-0008](./0008-repo-local-instructions-and-skills.md)"]
-see-also: ["[EP-0018](./0018-configurable-system-prompt-template.md)", "[EP-0030](./0030-security-research-default-harness.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)"]
+requires: ["EP-0037"]
+extends: ["EP-0008"]
+see-also: ["EP-0018", "EP-0030", "EP-0039", "EP-0044"]
 history:
   - date: 2026-06-29
     status: Partial
@@ -60,6 +60,8 @@ history:
       prompts and Claude Code's model-invocable Agent Skills, reusing the
       existing deferred-tool search/activate surface (EP-37).
 ---
+
+> **Relationships:** **Requires:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Extends:** [EP-0008](./0008-repo-local-instructions-and-skills.md) · **See also:** [EP-0018](./0018-configurable-system-prompt-template.md), [EP-0030](./0030-security-research-default-harness.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0044](./0044-repo-config-trust-boundary.md)
 
 # EP-45: Model-Invocable Skills (Agent Skills parity)
 

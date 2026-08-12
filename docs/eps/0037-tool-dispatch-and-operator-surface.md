@@ -6,9 +6,9 @@ status: Implemented
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
-extends: ["[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0035](./0035-project-local-stado-dir.md)"]
+extends: ["EP-0017", "EP-0035"]
 extended-by: []
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0028](./0028-plugin-run-tool-host.md)", "[EP-0029](./0029-config-introspection-host-imports.md)", "[EP-0031](./0031-fs-cap-path-templates.md)", "[EP-0035](./0035-project-local-stado-dir.md)"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035"]
 history:
   - date: 2026-05-05
     status: Draft
@@ -56,6 +56,8 @@ history:
       canonical and wire forms, refuses [tools].disabled tools
       unless --force, and resolves bundled + installed uniformly.
 ---
+
+> **Relationships:** **Extends:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0035](./0035-project-local-stado-dir.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md)
 
 # EP-0037: Tool dispatch, naming, and operator surface
 

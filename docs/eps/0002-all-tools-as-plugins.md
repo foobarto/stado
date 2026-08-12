@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-22
 implemented-in: v0.33.0
-extended-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
-see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+extended-by: ["EP-0038"]
+see-also: ["EP-0005", "EP-0006", "EP-0037", "EP-0038"]
 history:
   - date: 2026-04-22
     status: Draft
@@ -38,6 +38,8 @@ history:
       fs (read/glob) and shell (exec). The native wrapper facade (newBundledPluginTool)
       remains for tools not yet migrated but is no longer the primary path.
 ---
+
+> **Relationships:** **Extended by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-2: All Tools as WASM Plugins
 

@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["EP-0004", "EP-0007", "EP-0010", "EP-0011", "EP-0038"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -40,6 +40,8 @@ history:
     status: Partial
     note: Session overlay now supports switch/resume, new, rename, fork, and confirmed delete.
 ---
+
+> **Relationships:** **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-14: Multi-Session TUI
 

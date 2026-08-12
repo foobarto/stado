@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0019](./0019-model-provider-picker-ux.md)"]
+see-also: ["EP-0019"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -33,6 +33,8 @@ history:
     status: Partial
     note: Bundled dark, light, and contrast themes plus a TUI picker shipped; richer theme authoring remains future work.
 ---
+
+> **Relationships:** **See also:** [EP-0019](./0019-model-provider-picker-ux.md)
 
 # EP-22: Theme Catalog and Picker
 

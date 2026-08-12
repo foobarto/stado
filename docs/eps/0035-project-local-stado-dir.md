@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.76.0
 type: Standards
 created: 2026-05-05
-see-also: ["[EP-0027](./0027-repo-root-discovery.md)", "[EP-0028](./0028-plugin-run-tool-host.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
-extended-by: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
+see-also: ["EP-0027", "EP-0028", "EP-0006", "EP-0009", "EP-0037"]
+extended-by: ["EP-0037"]
 history:
   - date: 2026-08-12
     status: Implemented
@@ -21,6 +21,8 @@ history:
   - date: 2026-07-10
     note: Completed the write path with plugin install --local; dependency and lock-file resolution now reuse Config project discovery
 ---
+
+> **Relationships:** **See also:** [EP-0027](./0027-repo-root-discovery.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Extended by:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md)
 
 ## Summary
 

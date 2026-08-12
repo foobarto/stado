@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0050](./0050-broker.md)"]
-see-also: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0056](./0056-agent-mailboxes-and-supervision.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)"]
+requires: ["EP-0004", "EP-0011", "EP-0050"]
+see-also: ["EP-0053", "EP-0055", "EP-0056", "EP-0057"]
 history:
   - date: 2026-08-12
     status: Implemented
@@ -20,6 +20,8 @@ history:
     status: Draft
     note: Added after adversarial review found no safe durability, ordering, or aggregate-budget base for the adaptive-context EPs.
 ---
+
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0050](./0050-broker.md) · **See also:** [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md)
 
 # EP-0059: Durable Broker Event and Budget Substrate
 

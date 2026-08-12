@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-extended-by: ["[EP-0018](./0018-configurable-system-prompt-template.md)", "[EP-0045](./0045-model-invocable-skills.md)"]
-see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
+extended-by: ["EP-0018", "EP-0045"]
+see-also: ["EP-0009", "EP-0010"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -17,6 +17,8 @@ history:
     version: v0.1.0
     note: Upward-walk instruction and skill discovery is the current repo-local prompt-input contract.
 ---
+
+> **Relationships:** **Extended by:** [EP-0018](./0018-configurable-system-prompt-template.md), [EP-0045](./0045-model-invocable-skills.md) · **See also:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)
 
 # EP-8: Repo-Local Instructions and Skills
 

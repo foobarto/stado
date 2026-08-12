@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-22
 implemented-in: v0.53.0
-see-also: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)"]
+see-also: ["EP-0006", "EP-0012", "EP-0038", "EP-0039"]
 history:
   - date: 2026-05-22
     status: Draft
@@ -28,6 +28,8 @@ history:
       goreleaser) and gitignored, no `.wasm` committed; `go install` dropped in
       favour of clone+make.
 ---
+
+> **Relationships:** **See also:** [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0039](./0039-plugin-distribution-and-trust.md)
 
 # EP-0042: Binaries out of the source tree
 

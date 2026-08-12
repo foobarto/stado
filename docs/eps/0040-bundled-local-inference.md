@@ -5,12 +5,14 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Draft
 type: Standards
 created: 2026-05-07
-see-also: ["[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0019](./0019-model-provider-picker-ux.md)"]
+see-also: ["EP-0012", "EP-0019"]
 history:
   - date: 2026-05-07
     status: Draft
     note: Initial draft.
 ---
+
+> **Relationships:** **See also:** [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0019](./0019-model-provider-picker-ux.md)
 
 ## Problem
 

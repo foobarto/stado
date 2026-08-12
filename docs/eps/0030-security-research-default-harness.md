@@ -32,8 +32,10 @@ history:
       internal/harness/harness.go, prepended when [harness].mode="security".
       The config knob, internal/harness loader, and `stado harness init`
       folder layout are all as described; only the artifact location differs.
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)"]
+see-also: ["EP-0002", "EP-0008", "EP-0013", "EP-0017"]
 ---
+
+> **Relationships:** **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0008](./0008-repo-local-instructions-and-skills.md), [EP-0013](./0013-subagent-spawn-tool.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)
 
 # EP-0030: Security-research default harness — agent / subagent / skills / plugins
 

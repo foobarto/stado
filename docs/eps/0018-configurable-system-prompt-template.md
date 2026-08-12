@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.1.0
-extends: ["[EP-0008](./0008-repo-local-instructions-and-skills.md)"]
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
+extends: ["EP-0008"]
+see-also: ["EP-0003", "EP-0008", "EP-0010"]
 history:
   - date: 2026-04-24
     status: Implemented
@@ -17,6 +17,8 @@ history:
     status: Implemented
     note: Default template now follows foobarto/cairn's governing principles and workflow discipline while still preserving stado identity.
 ---
+
+> **Relationships:** **Extends:** [EP-0008](./0008-repo-local-instructions-and-skills.md) · **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0008](./0008-repo-local-instructions-and-skills.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)
 
 # EP-18: Configurable System Prompt Template
 

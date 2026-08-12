@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)"]
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0011](./0011-observability-and-telemetry.md)"]
+superseded-by: ["EP-0053"]
+see-also: ["EP-0002", "EP-0006", "EP-0007", "EP-0008", "EP-0009", "EP-0011"]
 history:
   - date: 2026-04-24
     status: Placeholder
@@ -67,6 +67,8 @@ history:
       versioned artifact log with immutable scope bindings and a rebuildable
       SQLite index; plugins remain candidate/search adapters.
 ---
+
+> **Relationships:** **Superseded by:** [EP-0053](./0053-versioned-harness-artifacts-and-index.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0008](./0008-repo-local-instructions-and-skills.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0011](./0011-observability-and-telemetry.md)
 
 # EP-15: Memory System Plugin
 

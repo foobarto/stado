@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Draft
 type: Standards
 created: 2026-06-17
-requires: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
-see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0046](./0046-verify-work-phase.md)"]
+requires: ["EP-0003", "EP-0010"]
+see-also: ["EP-0004", "EP-0007", "EP-0036", "EP-0038", "EP-0046"]
 history:
   - date: 2026-06-17
     status: Draft
@@ -15,6 +15,8 @@ history:
       stado's AgentLoop a machine-readable result envelope across all
       programmatic surfaces.
 ---
+
+> **Relationships:** **Requires:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md) · **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0046](./0046-verify-work-phase.md)
 
 # EP-47: Structured Agent-Loop Result Contract and Structured Output Mode
 

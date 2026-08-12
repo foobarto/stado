@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["EP-0006", "EP-0009", "EP-0010", "EP-0012", "EP-0037", "EP-0038"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -16,6 +16,8 @@ history:
     version: v0.1.0
     note: Capability-based policy, Linux/macOS enforcement, and explicit degraded-mode behavior are shipped.
 ---
+
+> **Relationships:** **See also:** [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-5: Capability-Based Sandboxing
 

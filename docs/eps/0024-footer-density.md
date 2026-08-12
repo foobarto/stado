@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0021](./0021-assistant-turn-metadata.md)", "[EP-0023](./0023-status-modal.md)"]
+see-also: ["EP-0021", "EP-0023"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -32,6 +32,8 @@ history:
       the branch segment is silently empty. Re-adding gitdir-following (safely)
       is a small follow-up; until then the EP body over-states the capability.
 ---
+
+> **Relationships:** **See also:** [EP-0021](./0021-assistant-turn-metadata.md), [EP-0023](./0023-status-modal.md)
 
 # EP-24: TUI Footer Density
 

@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md)", "[EP-0019](./0019-model-provider-picker-ux.md)", "[EP-0022](./0022-theme-catalog-and-picker.md)"]
+see-also: ["EP-0011", "EP-0017", "EP-0019", "EP-0022"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -33,6 +33,8 @@ history:
     status: Partial
     note: Added plain-language LSP readiness that lists detected language-server binaries without starting them.
 ---
+
+> **Relationships:** **See also:** [EP-0011](./0011-observability-and-telemetry.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0019](./0019-model-provider-picker-ux.md), [EP-0022](./0022-theme-catalog-and-picker.md)
 
 # EP-23: TUI Status Modal
 

@@ -2,10 +2,11 @@
 ep: 61
 title: Linked EP Relationship Metadata
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Superseded
 type: Process
 created: 2026-08-12
-extends: ["[EP-0001](./0001-ep-purpose-and-guidelines.md)"]
+extends: ["EP-0001"]
+superseded-by: ["EP-0062"]
 history:
   - date: 2026-08-12
     status: Accepted
@@ -13,7 +14,13 @@ history:
   - date: 2026-08-12
     status: Implemented
     note: Migrated the EP catalogue and authoring guidance to canonical links.
+  - date: 2026-08-12
+    status: Superseded
+    superseded-by: ["EP-0062"]
+    note: GitHub renders Markdown syntax in YAML frontmatter literally; EP-0062 separates machine metadata from rendered links.
 ---
+
+> **Relationships:** **Extends:** [EP-0001](./0001-ep-purpose-and-guidelines.md) · **Superseded by:** [EP-0062](./0062-rendered-ep-relationship-links.md)
 
 # EP-0061: Linked EP Relationship Metadata
 

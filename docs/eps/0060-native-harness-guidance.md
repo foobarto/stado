@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-08-12
-requires: ["[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0054](./0054-addressable-context-and-research-agents.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0056](./0056-agent-mailboxes-and-supervision.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
-see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0030](./0030-security-research-default-harness.md)", "[EP-0051](./0051-lua-lifecycle-hook-contract.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
+requires: ["EP-0052", "EP-0053", "EP-0054", "EP-0055", "EP-0056", "EP-0057", "EP-0059"]
+see-also: ["EP-0009", "EP-0030", "EP-0051", "EP-0058"]
 history:
   - date: 2026-08-12
     status: Accepted
@@ -15,6 +15,8 @@ history:
     status: Implemented
     note: Shipped native bounded harness guidance across agent surfaces in PR #253, with full tests, signed commits, and documentation synchronized.
 ---
+
+> **Relationships:** **Requires:** [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0054](./0054-addressable-context-and-research-agents.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0030](./0030-security-research-default-harness.md), [EP-0051](./0051-lua-lifecycle-hook-contract.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
 
 # EP-0060: Native Bounded Harness Guidance
 
