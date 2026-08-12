@@ -2,12 +2,17 @@
 ep: 59
 title: Durable Broker Event and Budget Substrate
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
+implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
 requires: [4, 11, 50]
 see-also: [53, 55, 56, 57]
 history:
+  - date: 2026-08-12
+    status: Implemented
+    version: v0.78.0
+    note: Shipped in v0.78.0 as part of the memory, context, and continual-harness implementation.
   - date: 2026-08-12
     status: Accepted
     note: Accepted after product, security, and distributed-systems adversarial review.

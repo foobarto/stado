@@ -224,6 +224,11 @@ stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
 stado config show                       # resolved effective config (file + env + defaults)
 stado memory list                       # review plugin-proposed/approved memories
+stado learn --session-id <id>           # review a completed trajectory for lesson candidates
+stado learn candidates --session-id <id> # inspect candidates from that session review
+stado session state <id>                # bounded objective/work/blocker projection
+stado session signals <id>              # deterministic mistake/correction signals
+stado session journal <id>              # canonical structured session chronology
 stado run --tools --prompt "create tasks for the release checklist"
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
 stado doctor --json | jq                # newline-delimited JSON, one check per line
@@ -278,6 +283,48 @@ See [docs/README.md](docs/README.md) for the current guide index.
 Editor-specific ACP setup docs are still sparse, but the command
 surface itself is shipped and stable enough to wire into Zed today.
 
+### Learning, memory, and context research
+
+Stado treats useful context as governed state rather than an ever-growing
+prompt. The fast path injects only active, authorized, non-expired memories and
+lessons under hard item and token limits. The slower `memory__research` and
+`session__research` tools delegate a query to an isolated research agent, which
+can search and open a bounded authorized corpus without filling the parent
+agent's context. The parent receives a synthesis with digest-bound citations and
+short supporting excerpts instead of the raw material explored by the child.
+
+Learning is explicit and evidence-backed:
+
+```sh
+stado learn --session-id <id>                 # same as: stado learn run ...
+stado learn candidates --session-id <id>
+stado learn artifact <artifact-id> --session-id <id>
+stado learn retrieval-report                  # shadow-ranking observations
+stado learn migrate                           # idempotent legacy-memory import
+```
+
+Inside the TUI, `/learn [focus]` reviews the just-completed trajectory. The
+reviewer considers deterministic signals such as repeated tool failures,
+argument corrections followed by success, verification fail→pass transitions,
+scope denials, and explicit operator corrections. It proposes versioned lesson
+candidates but cannot activate them. Use `/learn candidates`, `/learn show
+<id>`, and `/learn approve <id>` for the trusted interactive review path;
+ordinary CLI or agent-shell execution cannot mint an operator approval.
+
+Artifacts retain host-bound global, repository, or session scope plus
+provenance, sensitivity, tags, groups, evidence, and version history. Session
+scope flows from the creating session to descendants, never to siblings or
+ancestors. Active memories remain untrusted guidance below operator and repo
+instructions and cannot grant tools or capabilities. See
+[Adaptive context and learning](docs/adaptive-context.md) and the
+[`stado learn` guide](docs/commands/learning.md) for the full contract.
+
+Retained subagents complement this memory system for longer work. They can fork
+an authorized historical session into a new identity with an attenuated tool,
+permission, model, and budget profile; durable handles support messaging,
+cancellation, and bounded supervision across parent restarts. Historical
+context contributes data, never authority.
+
 ---
 
 ## Highlights
@@ -293,6 +340,9 @@ surface itself is shipped and stable enough to wire into Zed today.
   MCP server mode all compose the same core runtime.
 - **Ops.** Strict manifest-based self-update, OpenTelemetry, context
   management, and signed audit export are already shipped.
+- **Learning.** Evidence-backed `stado learn`/`/learn`, scoped versioned
+  memories, isolated memory/session research, bounded state and signals, and
+  shadow adaptive retrieval are shipped.
 - **Recovery.** Bundled `auto-compact` is enabled by default as a
   background plugin; when the TUI hits the hard context threshold it
   forks a compacted child session and replays the blocked prompt there.
