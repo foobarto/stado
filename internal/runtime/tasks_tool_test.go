@@ -28,3 +28,17 @@ func TestBuildExecutorRegistersTasksToolBeforeFiltering(t *testing.T) {
 		t.Fatalf("non-meta tools = %v, want [tasks]", nonMeta)
 	}
 }
+
+func TestBuildExecutorAutoloadsTasksByDefault(t *testing.T) {
+	cfg := &config.Config{}
+	exec, err := BuildExecutor(nil, cfg, "test", telemetry.Metrics{})
+	if err != nil {
+		t.Fatalf("BuildExecutor: %v", err)
+	}
+	for _, tl := range AutoloadedTools(exec.Registry, cfg) {
+		if tl.Name() == "tasks" {
+			return
+		}
+	}
+	t.Fatal("tasks tool is not in the default model-facing surface")
+}
