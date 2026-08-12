@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)"]
+see-also: ["EP-0003", "EP-0004", "EP-0007", "EP-0009", "EP-0010", "EP-0012"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -26,6 +26,8 @@ history:
       session instruments were removed until reliable central event sources
       exist. In-memory SDK-reader coverage pins the live path.
 ---
+
+> **Relationships:** **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0012](./0012-release-integrity-and-distribution.md)
 
 # EP-11: Observability and Telemetry
 

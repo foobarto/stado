@@ -25,8 +25,10 @@ history:
       TestFSCap_CfgPathTemplateSymlinkedStateDir (red-then-green). The
       doctor-as-plugin migration that exercises this on a real consumer
       remains the named out-of-scope follow-up.
-see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0029](./0029-config-introspection-host-imports.md)"]
+see-also: ["EP-0005", "EP-0006", "EP-0029"]
 ---
+
+> **Relationships:** **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0029](./0029-config-introspection-host-imports.md)
 
 # EP-0031: Path-templated fs capabilities — `fs:read:cfg:state_dir/...`
 

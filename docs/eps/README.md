@@ -103,7 +103,7 @@ it for bug fixes, dep bumps, and contained refactors.
   the current runtime contract. Optional
   `implemented-in: vX.Y.Z` in frontmatter points at the release.
 - **Superseded** — replaced by a later EP. Frontmatter points forward
-  via `superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]`.
+  via `superseded-by: ["EP-NNNN"]`; the rendered relationship line links it.
 - **Withdrawn** — author pulled it before acceptance.
 - **Rejected** — maintainers declined it. Kept for historical context.
 
@@ -133,20 +133,21 @@ Optional, added as relevant (see EP-1 and EP-61 for full semantics):
 
 ```yaml
 updated: YYYY-MM-DD
-requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]      # must-read-first dependencies
-extends: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]       # earlier EPs this one extends
-supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]    # this EP replaces these
-superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"] # this EP has been replaced
-extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]   # later EPs build on this one
-see-also: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]      # loosely related
+requires: ["EP-NNNN"]      # must-read-first dependencies
+extends: ["EP-NNNN"]       # earlier EPs this one extends
+supersedes: ["EP-NNNN"]    # this EP replaces these
+superseded-by: ["EP-NNNN"] # this EP has been replaced
+extended-by: ["EP-NNNN"]   # later EPs build on this one
+see-also: ["EP-NNNN"]      # loosely related
 implemented-in: vX.Y.Z
 discussion-at: <URL>
 ```
 
-All EP-reference fields are YAML lists of quoted relative Markdown links, even
-when holding a single value, for tooling consistency and direct navigation.
-Use the canonical four-digit EP label and exact target filename; bare numeric
-IDs are not valid relationship values.
+All EP-reference fields are YAML lists of quoted canonical four-digit labels,
+even when holding a single value. Bare numeric IDs and Markdown embedded in
+YAML values are invalid. Immediately after the frontmatter, mirror the fields
+in a `> **Relationships:**` line using ordinary relative Markdown links; the
+repository test validates the labels, targets, ordering, and rendered mirror.
 
 ## Bidirectional links
 

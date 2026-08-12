@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0011](./0011-observability-and-telemetry.md)"]
+see-also: ["EP-0004", "EP-0005", "EP-0006", "EP-0011"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -31,6 +31,8 @@ history:
       today (audit/embedded.go). No behavior gap — self-update verifies the
       pubkey; the key id is informational.
 ---
+
+> **Relationships:** **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0011](./0011-observability-and-telemetry.md)
 
 # EP-12: Release Integrity and Distribution
 

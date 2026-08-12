@@ -5,15 +5,15 @@ author: Bartosz Ptaszynski
 status: Partial
 type: Standards
 created: 2026-05-04
-superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
-see-also: ["[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0027](./0027-repo-root-discovery.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+superseded-by: ["EP-0038"]
+see-also: ["EP-0005", "EP-0006", "EP-0027", "EP-0038"]
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
   - date: 2026-05-05
     status: Partial
-    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+    superseded-by: ["EP-0038"]
     note: >
       Partially superseded by EP-0038. The --with-tool-host flag becomes default behaviour (since
       under EP-0038 every tool is a wasm plugin, the bundled-vs-plugin distinction goes away); the
@@ -37,6 +37,8 @@ history:
       behaviour change for end users; the trust-anchor walk semantics this EP describes are
       unchanged. CHANGELOG (Unreleased) carries the full migration notes.
 ---
+
+> **Relationships:** **Superseded by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0027](./0027-repo-root-discovery.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll
 

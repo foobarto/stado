@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
+see-also: ["EP-0003", "EP-0010"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -37,6 +37,8 @@ history:
     version: v0.12.0
     note: Model selection gained a direct shortcut and now persists the chosen provider/model as the new config default.
 ---
+
+> **Relationships:** **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)
 
 # EP-19: Model and Provider Picker UX
 

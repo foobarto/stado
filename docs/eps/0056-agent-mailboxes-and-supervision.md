@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0033](./0033-responsive-supervisor-worker-lanes.md)", "[EP-0050](./0050-broker.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
-see-also: ["[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0047](./0047-structured-loop-result-and-output.md)"]
+requires: ["EP-0004", "EP-0033", "EP-0050", "EP-0055", "EP-0059"]
+see-also: ["EP-0011", "EP-0036", "EP-0047"]
 history:
   - date: 2026-08-12
     status: Implemented
@@ -20,6 +20,8 @@ history:
     status: Draft
     note: Initial draft borrowing isolation and supervision ideas from Erlang/OTP.
 ---
+
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0050](./0050-broker.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0011](./0011-observability-and-telemetry.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0047](./0047-structured-loop-result-and-output.md)
 
 # EP-0056: Durable Agent Mailboxes and Supervision
 

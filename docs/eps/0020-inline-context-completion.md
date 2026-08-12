@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: ["[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0014](./0014-multi-session-tui.md)"]
+see-also: ["EP-0008", "EP-0013", "EP-0014"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -50,6 +50,8 @@ history:
     version: v0.21.0
     note: Skill rows now appear after sessions; accepting a skill mention injects that skill's prompt body and removes the mention from the draft.
 ---
+
+> **Relationships:** **See also:** [EP-0008](./0008-repo-local-instructions-and-skills.md), [EP-0013](./0013-subagent-spawn-tool.md), [EP-0014](./0014-multi-session-tui.md)
 
 # EP-20: Inline Context Completion
 

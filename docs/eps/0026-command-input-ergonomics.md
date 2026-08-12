@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.12.0
-see-also: ["[EP-0019](./0019-model-provider-picker-ux.md)", "[EP-0020](./0020-inline-context-completion.md)", "[EP-0024](./0024-footer-density.md)", "[EP-0025](./0025-thinking-display-modes.md)"]
+see-also: ["EP-0019", "EP-0020", "EP-0024", "EP-0025"]
 history:
   - date: 2026-04-25
     status: Implemented
@@ -19,6 +19,8 @@ history:
     version: v0.12.0
     note: Slash suggestions moved inline, Ctrl+P remained the modal command palette, and the input rail now reflects the active mode.
 ---
+
+> **Relationships:** **See also:** [EP-0019](./0019-model-provider-picker-ux.md), [EP-0020](./0020-inline-context-completion.md), [EP-0024](./0024-footer-density.md), [EP-0025](./0025-thinking-display-modes.md)
 
 # EP-26: Command Input Ergonomics
 

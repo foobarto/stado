@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
-extends: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)"]
-see-also: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0035](./0035-project-local-stado-dir.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+extends: ["EP-0006"]
+see-also: ["EP-0006", "EP-0012", "EP-0035", "EP-0037", "EP-0038"]
 history:
   - date: 2026-05-05
     status: Draft
@@ -54,6 +54,8 @@ history:
       `stado plugin update-anchor` remains unshipped — use untrust-anchor +
       reinstall for rotation.
 ---
+
+> **Relationships:** **Extends:** [EP-0006](./0006-signed-wasm-plugin-runtime.md) · **See also:** [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0035](./0035-project-local-stado-dir.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-0039: Plugin distribution and trust — anchor repo, versioned identity, lock file
 

@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
-see-also: ["[EP-0020](./0020-inline-context-completion.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0050](./0050-broker.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
+requires: ["EP-0004", "EP-0007", "EP-0038", "EP-0053", "EP-0057", "EP-0059"]
+see-also: ["EP-0020", "EP-0037", "EP-0050", "EP-0055", "EP-0058"]
 history:
   - date: 2026-08-12
     status: Implemented
@@ -20,6 +20,8 @@ history:
     status: Draft
     note: Initial draft.
 ---
+
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0020](./0020-inline-context-completion.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0050](./0050-broker.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
 
 # EP-0054: Memory and Session Research Agents
 

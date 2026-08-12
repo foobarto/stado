@@ -6,9 +6,9 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.1.0
-extends: ["[EP-0009](./0009-session-guardrails-and-hooks.md)"]
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
-extended-by: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
+extends: ["EP-0009"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0009", "EP-0037"]
+extended-by: ["EP-0037"]
 history:
   - date: 2026-04-24
     status: Implemented
@@ -28,6 +28,8 @@ history:
       of the main repo to the anchor repo at https://github.com/foobarto/stado-plugins.
       Install via `stado plugin install github.com/foobarto/stado-plugins/<plugin>`.
 ---
+
+> **Relationships:** **Extends:** [EP-0009](./0009-session-guardrails-and-hooks.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Extended by:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md)
 
 # EP-17: Tool Surface Policy and Plugin Approval UI
 

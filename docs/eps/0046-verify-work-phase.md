@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-06-17
-requires: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
-see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)", "[EP-0045](./0045-model-invocable-skills.md)"]
+requires: ["EP-0009", "EP-0038"]
+see-also: ["EP-0007", "EP-0036", "EP-0037", "EP-0044", "EP-0045"]
 history:
   - date: 2026-07-10
     status: Partial
@@ -26,6 +26,8 @@ history:
       stado loop lacks today. Builds on EP-9 hooks, EP-38 subagents, and
       the EP-44 trust boundary.
 ---
+
+> **Relationships:** **Requires:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0045](./0045-model-invocable-skills.md)
 
 # EP-46: Verify-Work Phase — command-gate and LLM-judge verification
 

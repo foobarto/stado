@@ -11,15 +11,17 @@ history:
     note: Initial draft.
 # Optional — add only the fields you need:
 # updated: YYYY-MM-DD
-# requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# extends: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
-# see-also: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# requires: ["EP-NNNN"]
+# extends: ["EP-NNNN"]
+# supersedes: ["EP-NNNN"]
+# superseded-by: ["EP-NNNN"]
+# extended-by: ["EP-NNNN"]
+# see-also: ["EP-NNNN"]
 # implemented-in: vX.Y.Z
 # discussion-at: <URL>
 ---
+
+<!-- If relationship fields are enabled above, add their rendered links here. -->
 
 # EP-NNNN: Title
 

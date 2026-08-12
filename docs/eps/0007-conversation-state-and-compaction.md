@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0011](./0011-observability-and-telemetry.md)"]
+see-also: ["EP-0003", "EP-0004", "EP-0009", "EP-0011"]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -16,6 +16,8 @@ history:
     version: v0.1.0
     note: Context thresholds, explicit compaction, and read/output budgeting are shipped behaviors.
 ---
+
+> **Relationships:** **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0011](./0011-observability-and-telemetry.md)
 
 # EP-7: Conversation State and Compaction
 

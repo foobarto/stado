@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-06-14
 implemented-in: v0.74.1
-see-also: ["[EP-0041](./0041-shell-pty-tool-naming.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
+see-also: ["EP-0041", "EP-0038", "EP-0037"]
 history:
   - date: 2026-06-14
     status: Draft
@@ -38,6 +38,8 @@ history:
       map used Unix-only syscall.SIG* constants — fixed by moving them behind a
       //go:build unix file), so the content actually published as v0.74.1.
 ---
+
+> **Relationships:** **See also:** [EP-0041](./0041-shell-pty-tool-naming.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md)
 
 # EP-43: Shell PTY-UX rethink — read modes, no lock, labeled sessions
 

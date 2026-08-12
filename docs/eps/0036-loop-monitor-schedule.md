@@ -6,11 +6,13 @@ status: Implemented
 implemented-in: v0.32.0
 type: Standards
 created: 2026-05-05
-see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0034](./0034-background-agents-fleet.md)", "[EP-0035](./0035-project-local-stado-dir.md)"]
+see-also: ["EP-0009", "EP-0034", "EP-0035"]
 history:
   - date: 2026-05-05
     note: Implemented — /loop (TUI), /monitor (TUI), stado schedule (CLI)
 ---
+
+> **Relationships:** **See also:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0034](./0034-background-agents-fleet.md), [EP-0035](./0035-project-local-stado-dir.md)
 
 ## Summary
 

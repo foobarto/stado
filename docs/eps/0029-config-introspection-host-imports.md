@@ -29,8 +29,10 @@ history:
       over-buffer-→-1 / over-ceiling-→-1 value-flow contract. The
       doctor/gc plugin migration that proves the capability on a real
       consumer remains the named out-of-scope follow-up.
-see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0028](./0028-plugin-run-tool-host.md)"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0028"]
 ---
+
+> **Relationships:** **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0028](./0028-plugin-run-tool-host.md)
 
 # EP-0029: Config-introspection host imports — `cfg:*` capability vocabulary
 

@@ -5,12 +5,12 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+superseded-by: ["EP-0038"]
+see-also: ["EP-0003", "EP-0004", "EP-0006", "EP-0010", "EP-0011", "EP-0038"]
 history:
   - date: 2026-05-05
     status: Superseded
-    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+    superseded-by: ["EP-0038"]
     note: >
       Tool surface superseded by EP-0038's agent.* family (agent.spawn, agent.list,
       agent.read_messages, agent.send_message, agent.cancel). spawn_agent's native-instead-of-wasm
@@ -71,6 +71,8 @@ history:
     status: Partial
     note: Added TUI agent-selection groundwork for Do, Plan, and BTW; spawn tool remains unimplemented.
 ---
+
+> **Relationships:** **Superseded by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-13: Subagent Spawn Tool
 

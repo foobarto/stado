@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-22
 implemented-in: v0.49.0
-see-also: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["EP-0037", "EP-0038"]
 history:
   - date: 2026-05-22
     status: Implemented
@@ -18,6 +18,8 @@ history:
       the implementation plan that previously lived under
       `docs/superpowers/plans/`.
 ---
+
+> **Relationships:** **See also:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-0041: Shell PTY tool naming — read_until and screenshot
 

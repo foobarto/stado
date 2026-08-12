@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-06-14
 implemented-in: v0.75.0
-see-also: ["[EP-0035](./0035-project-local-stado-dir.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)", "[EP-0050](./0050-broker.md)"]
+see-also: ["EP-0035", "EP-0039", "EP-0050"]
 history:
   - date: 2026-06-14
     status: Accepted
@@ -34,6 +34,8 @@ history:
       (config.go:935; config_test.go asserts it is dropped). Phase 2's text is
       authoritative; the Phase-1 note and Test-strategy line predate it.
 ---
+
+> **Relationships:** **See also:** [EP-0035](./0035-project-local-stado-dir.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0050](./0050-broker.md)
 
 # EP-44: Repo-config trust boundary
 

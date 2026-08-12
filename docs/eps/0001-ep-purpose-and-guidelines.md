@@ -5,7 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Accepted
 type: Process
 created: 2026-04-22
-extended-by: ["[EP-0061](./0061-linked-ep-relationship-metadata.md)"]
+extended-by: ["EP-0061"]
 history:
   - date: 2026-04-22
     status: Draft
@@ -14,6 +14,8 @@ history:
     status: Accepted
     note: Accepted as the canonical EP process after the first EPs using it landed.
 ---
+
+> **Relationships:** **Extended by:** [EP-0061](./0061-linked-ep-relationship-metadata.md)
 
 # EP-1: EP Purpose and Guidelines
 

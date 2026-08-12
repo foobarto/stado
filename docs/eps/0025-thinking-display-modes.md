@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.12.0
-see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0021](./0021-assistant-turn-metadata.md)"]
+see-also: ["EP-0003", "EP-0021"]
 history:
   - date: 2026-06-14
     status: Implemented
@@ -21,6 +21,8 @@ history:
     status: Implemented
     note: TUI thinking blocks can be shown fully, hidden, or rendered as a recent tail.
 ---
+
+> **Relationships:** **See also:** [EP-0003](./0003-provider-native-agent-interface.md), [EP-0021](./0021-assistant-turn-metadata.md)
 
 # EP-25: Thinking Display Modes
 

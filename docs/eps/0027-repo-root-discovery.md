@@ -18,8 +18,10 @@ history:
       walk sites delegate to them. Regression tests
       (TestSessionGC_ApplyActuallyDeletes, TestLearningCLI_*) and the
       workdirpath predicate tests pass.
-see-also: ["[EP-0004](./0004-git-native-sessions-and-audit.md)"]
+see-also: ["EP-0004"]
 ---
+
+> **Relationships:** **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md)
 
 # EP-0027: Repo-root discovery — single predicate, single helper
 
