@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var relationshipField = regexp.MustCompile(`^(\s*)(requires|extends|supersedes|superseded-by|extended-by|see-also):\s*\[(.*)\]\s*$`)
+var relationshipField = regexp.MustCompile(`^(\s*)(requires|extends|supersedes|superseded-by|extended-by|see-also):\s*\[(.*?)\]\s*(?:#.*)?$`)
 var relationshipKey = regexp.MustCompile(`^\s*(requires|extends|supersedes|superseded-by|extended-by|see-also):`)
 var relationshipValue = regexp.MustCompile(`^"(EP-[0-9]{4})"$`)
 
@@ -49,6 +49,13 @@ func TestRelationshipLinksMatchFrontmatter(t *testing.T) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			checkRelationshipLinks(t, path, targets)
 		})
+	}
+}
+
+func TestRelationshipFieldAllowsTrailingComment(t *testing.T) {
+	match := relationshipField.FindStringSubmatch(`requires: ["EP-0001"] # dependency`)
+	if match == nil || match[2] != "requires" || match[3] != `"EP-0001"` {
+		t.Fatalf("unexpected match: %#v", match)
 	}
 }
 

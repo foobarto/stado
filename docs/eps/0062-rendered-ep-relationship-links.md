@@ -47,3 +47,10 @@ semantics and catalogue-wide navigability requirement.
 - **Decided:** Keep compact labels in YAML and render links in Markdown.
 - **Why:** GitHub reliably renders ordinary Markdown links, while tooling can
   parse stable identifiers without interpreting Markdown syntax inside YAML.
+
+## Implementation clarification — 2026-08-12
+
+EP-0001's accepted examples retain the numeric representation that was current
+when that process record was adopted. They are historical, not authoring
+templates. For current relationship value syntax and rendered navigation,
+EP-0062 and `docs/eps/README.md` govern.
