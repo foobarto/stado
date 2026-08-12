@@ -355,7 +355,7 @@ context contributes data, never authority.
 
 ---
 
-## Highlights
+## Capability map
 
 - **Providers.** Anthropic, OpenAI, Google, and OpenAI-compatible
   backends with provider-native reasoning/thinking features preserved.
