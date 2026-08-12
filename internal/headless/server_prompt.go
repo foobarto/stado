@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
@@ -190,7 +189,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		}
 	}
 	opts.GuidanceContext = func() string {
-		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: strings.Contains(opts.MemoryContext, "Memory snippets supplied") || strings.Contains(opts.MemoryContext, "Active Stado memories and lessons"), ToolAvailable: func(name string) bool {
+		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
 			if opts.Executor == nil || opts.Executor.Registry == nil {
 				return false
 			}

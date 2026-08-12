@@ -37,7 +37,14 @@ func (s *Server) memoryPromptContext(ctx context.Context, workdir, sessionID, pr
 	if root := memory.RepoRootFor(workdir); root != "" {
 		repoID, _ = stadogit.RepoID(root)
 	}
-	modern, modernErr := artifactprompt.Build(ctx, artifactprompt.Options{StateDir: s.Cfg.StateDir(), RepoID: repoID, SessionID: sessionID, Ancestors: ancestors, Prompt: prompt, MaxItems: s.Cfg.Memory.EffectiveMaxItems(), BudgetTokens: s.Cfg.Memory.EffectiveBudgetTokens()})
+	usedItems, usedTokens := memory.PromptContextUsage(body)
+	remainingItems := s.Cfg.Memory.EffectiveMaxItems() - usedItems
+	remainingTokens := s.Cfg.Memory.EffectiveBudgetTokens() - usedTokens
+	modern := ""
+	var modernErr error
+	if remainingItems > 0 && remainingTokens > 0 {
+		modern, modernErr = artifactprompt.Build(ctx, artifactprompt.Options{StateDir: s.Cfg.StateDir(), RepoID: repoID, SessionID: sessionID, Ancestors: ancestors, Prompt: prompt, MaxItems: remainingItems, BudgetTokens: remainingTokens})
+	}
 	if modernErr != nil {
 		fmt.Fprintf(os.Stderr, "stado artifacts: prompt context: %v\n", modernErr)
 	}

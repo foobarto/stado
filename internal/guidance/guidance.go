@@ -38,8 +38,9 @@ func Build(o Options) string {
 	var nudges []string
 	if o.SessionID != "" && o.StateDir != "" {
 		if store, err := wal.OpenShared(filepath.Join(o.StateDir, "broker", "events")); err == nil {
-			nudges = append(nudges, learningNudge(store, o)...)
-			nudges = append(nudges, coordinationNudge(store, o, available)...)
+			snapshot := &snapshotStore{live: store, records: store.Records()}
+			nudges = append(nudges, learningNudge(snapshot, o)...)
+			nudges = append(nudges, coordinationNudge(snapshot, o, available)...)
 			_ = store.Close()
 		}
 	}
@@ -69,7 +70,22 @@ func Build(o Options) string {
 	return b.String()
 }
 
-func learningNudge(store *wal.Store, o Options) []string {
+// snapshotStore gives all guidance projections one immutable WAL boundary and
+// avoids repeatedly copying the lifetime record slice on every model turn.
+type snapshotStore struct {
+	live    *wal.Store
+	records []wal.Record
+}
+
+func (s *snapshotStore) Append(tx wal.Transaction) (wal.AppendResult, error) {
+	return s.live.Append(tx)
+}
+
+func (s *snapshotStore) Records() []wal.Record { return s.records }
+
+func (s *snapshotStore) Epoch() uint64 { return s.live.Epoch() }
+
+func learningNudge(store *snapshotStore, o Options) []string {
 	svc := sessioncontext.New(store)
 	signals, err := svc.Signals(o.SessionID, false)
 	if err != nil || len(signals) == 0 {
@@ -79,16 +95,23 @@ func learningNudge(store *wal.Store, o Options) []string {
 	if err != nil {
 		return nil
 	}
-	var pending []sessioncontext.Signal
-	for _, sig := range signals {
-		reviewed := false
-		for _, job := range jobs {
-			if job.Status == learn.JobCompleted && !job.UpdatedAt.Before(sig.CreatedAt) {
-				reviewed = true
-				break
+	var latestCompletedAsOf uint64
+	for _, job := range jobs {
+		if job.Status == learn.JobCompleted && job.AsOf > latestCompletedAsOf {
+			latestCompletedAsOf = job.AsOf
+		}
+	}
+	reviewedIDs := map[string]bool{}
+	if latestCompletedAsOf > 0 {
+		if reviewed, reviewedErr := svc.SignalsAt(o.SessionID, false, latestCompletedAsOf); reviewedErr == nil {
+			for _, sig := range reviewed {
+				reviewedIDs[sig.ID] = true
 			}
 		}
-		if !reviewed {
+	}
+	var pending []sessioncontext.Signal
+	for _, sig := range signals {
+		if !reviewedIDs[sig.ID] {
 			pending = append(pending, sig)
 		}
 	}
@@ -114,7 +137,7 @@ func learningNudge(store *wal.Store, o Options) []string {
 	return []string{fmt.Sprintf("%d unreviewed mechanical learning signal shape(s) are active (%s). Preserve reusable tool/workflow corrections as candidate lessons: %s at the natural response boundary. Candidates remain pending review; never run or claim approval.", len(types), strings.Join(types, ", "), action)}
 }
 
-func coordinationNudge(store *wal.Store, o Options, available func(string) bool) []string {
+func coordinationNudge(store *snapshotStore, o Options, available func(string) bool) []string {
 	state, _ := sessioncontext.New(store).State(o.SessionID)
 	active := len(state.ActiveChildren)
 	if admissions, err := retained.New(store).List(); err == nil {
@@ -133,10 +156,20 @@ func coordinationNudge(store *wal.Store, o Options, available func(string) bool)
 	if active == 0 && pending == 0 {
 		return nil
 	}
-	if !available("agent__list") && !available("agent__read_messages") {
+	var actions []string
+	for _, name := range []string{"agent__list", "agent__read_messages"} {
+		if available(name) {
+			actions = append(actions, "`"+name+"`")
+		}
+	}
+	if len(actions) == 0 {
 		return nil
 	}
-	return []string{fmt.Sprintf("Retained coordination needs attention: %d active child handle(s), %d unread data message(s). Check `agent__list`/`agent__read_messages` before duplicating work; use `agent__send_message` for bounded follow-up when available.", active, pending)}
+	followUp := ""
+	if available("agent__send_message") {
+		followUp = "; use `agent__send_message` for bounded follow-up"
+	}
+	return []string{fmt.Sprintf("Retained coordination needs attention: %d active child handle(s), %d unread data message(s). Check %s before duplicating work%s.", active, pending, strings.Join(actions, " and "), followUp)}
 }
 
 func retainedActive(status retained.Status) bool {
@@ -146,7 +179,7 @@ func retainedActive(status retained.Status) bool {
 func researchNudges(o Options, available func(string) bool) []string {
 	q := strings.ToLower(o.Prompt)
 	historical := containsAny(q, "previous session", "older session", "past session", "earlier session", "historical session", "what did we decide", "prior decision")
-	recurring := containsAny(q, "remember", "recurring", "keeps failing", "keep failing", "again", "convention", "previously", "prior approach")
+	recurring := containsAny(q, "remember", "recurring", "keeps failing", "keep failing", "convention", "previously", "prior approach") || containsToken(q, "again")
 	if historical && available("session__research") {
 		return []string{"This request depends on older session evidence. Prefer `session__research` so raw history stays out of the main context; use its precise cited synthesis and treat citation integrity as provenance, not entailment."}
 	}
@@ -180,6 +213,22 @@ func containsAny(s string, shapes ...string) bool {
 		}
 	}
 	return false
+}
+
+func containsToken(s, token string) bool {
+	for _, field := range strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_')
+	}) {
+		if field == token {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRetrievedMemory recognizes every supported fast-context heading.
+func HasRetrievedMemory(body string) bool {
+	return containsAny(body, "Active Stado memories and lessons", "Memory snippets supplied", "Operational lessons from prior approved sessions")
 }
 
 func safeID(id string) string {

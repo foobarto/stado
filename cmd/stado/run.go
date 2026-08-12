@@ -63,7 +63,7 @@ func activeSessionID(sess *stadogit.Session, fallback string) string {
 }
 
 func hasRetrievedMemory(body string) bool {
-	return strings.Contains(body, "Active Stado memories and lessons") || strings.Contains(body, "Memory snippets supplied")
+	return guidance.HasRetrievedMemory(body)
 }
 
 var (

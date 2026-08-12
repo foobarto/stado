@@ -11,6 +11,14 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
+func TestPromptContextUsageCountsRenderedItems(t *testing.T) {
+	body := "heading\n- [repo/memory one] first item\n\nheading two\n- [session/lesson two] second item"
+	items, tokens := PromptContextUsage(body)
+	if items != 2 || tokens <= 0 {
+		t.Fatalf("items=%d tokens=%d", items, tokens)
+	}
+}
+
 // makeFakeRepo creates a minimal .git/ that workdirpath.LooksLikeRepoRoot
 // will accept (empty .git/ no longer counts — see repodisco.go).
 // Tests that need findRepoRoot to stop at workdir use this.

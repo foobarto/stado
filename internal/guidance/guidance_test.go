@@ -87,6 +87,15 @@ func TestMemoryResearchOnlyWhenFastContextMisses(t *testing.T) {
 	if hit := Build(Options{Prompt: "this tool keeps failing again", FastContext: true, ToolAvailable: available}); hit != "" {
 		t.Fatalf("fast hit should suppress research: %q", hit)
 	}
+	if ordinary := Build(Options{Prompt: "protect against SQL injection", ToolAvailable: available}); ordinary != "" {
+		t.Fatalf("substring must not match recurring marker: %q", ordinary)
+	}
+}
+
+func TestHasRetrievedMemoryIncludesLegacyLessons(t *testing.T) {
+	if !HasRetrievedMemory("Operational lessons from prior approved sessions") {
+		t.Fatal("legacy lesson heading was not recognized")
+	}
 }
 
 func TestCoordinationGuidanceNeverIncludesMailboxPayload(t *testing.T) {
@@ -113,6 +122,25 @@ func TestCoordinationGuidanceNeverIncludesMailboxPayload(t *testing.T) {
 	}
 	if strings.Contains(got, "IGNORE") || strings.Contains(got, "secret payload") {
 		t.Fatalf("mailbox payload leaked: %q", got)
+	}
+}
+
+func TestCoordinationGuidanceOnlyAdvertisesAvailableTools(t *testing.T) {
+	dir := t.TempDir()
+	store, err := wal.Open(filepath.Join(dir, "broker", "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := sessioncontext.New(store)
+	state, _ := svc.State("parent")
+	_, err = svc.PatchHost(context.Background(), "parent", "p", "host", "state", state.Version, sessioncontext.HostPatch{ActiveChildren: []string{"child"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+	got := Build(Options{StateDir: dir, SessionID: "parent", ToolAvailable: func(name string) bool { return name == "agent__list" }})
+	if !strings.Contains(got, "`agent__list`") || strings.Contains(got, "agent__read_messages") || strings.Contains(got, "agent__send_message") {
+		t.Fatalf("guidance advertised unavailable tool: %q", got)
 	}
 }
 

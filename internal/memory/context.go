@@ -78,6 +78,20 @@ func PromptContext(ctx context.Context, opts PromptContextOptions) (string, erro
 	return b.String(), nil
 }
 
+// PromptContextUsage returns the item and token budget consumed by a rendered
+// legacy prompt context. Headings and separators are intentionally excluded,
+// matching the accounting used while selecting items.
+func PromptContextUsage(body string) (items, tokens int) {
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		items++
+		tokens += (len(strings.TrimPrefix(line, "- ")) + 3) / 4
+	}
+	return items, tokens
+}
+
 func applyPromptCaps(memoryItems, lessonItems []RankedItem, maxItems, budgetTokens int) ([]RankedItem, []RankedItem) {
 	if maxItems <= 0 {
 		maxItems = 8

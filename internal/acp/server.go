@@ -649,7 +649,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
 	}
 	opts.GuidanceContext = func() string {
-		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: strings.Contains(opts.MemoryContext, "Memory snippets supplied") || strings.Contains(opts.MemoryContext, "Active Stado memories and lessons"), ToolAvailable: func(name string) bool {
+		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
 			if opts.Executor == nil || opts.Executor.Registry == nil {
 				return false
 			}

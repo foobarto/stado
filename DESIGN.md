@@ -1585,7 +1585,7 @@ authority, taint, or capability of stored text.
 
 ### Canonical events and projections
 
-`internal/broker/eventlog` owns the per-user, single-writer WAL. The broker
+`internal/broker/wal` owns the per-user, single-writer WAL. The broker
 holds an OS-backed exclusive store lock, advances a durable broker epoch on
 startup, and commits cross-store transitions as one transaction before derived
 views expose them. Hash chaining, checksums, snapshots, recovery, idempotency
