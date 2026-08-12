@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/headless"
 	"github.com/foobarto/stado/internal/hooks"
@@ -53,6 +54,17 @@ var (
 	runTopP        float64
 	runTopK        int
 )
+
+func activeSessionID(sess *stadogit.Session, fallback string) string {
+	if sess != nil {
+		return sess.ID
+	}
+	return fallback
+}
+
+func hasRetrievedMemory(body string) bool {
+	return guidance.HasRetrievedMemory(body)
+}
 
 var (
 	runLoadConfig    = config.Load
@@ -363,6 +375,15 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				} else {
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
 				}
+			}
+			opts.GuidanceContext = func() string {
+				return guidance.Build(guidance.Options{StateDir: cfg.StateDir(), SessionID: activeSessionID(activeSession, continueSessID), Prompt: runPrompt, FastContext: hasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
+					if opts.Executor == nil || opts.Executor.Registry == nil {
+						return false
+					}
+					_, ok := opts.Executor.Registry.Get(name)
+					return ok
+				}})
 			}
 
 			cwd, _ := os.Getwd()

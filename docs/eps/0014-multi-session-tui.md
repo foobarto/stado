@@ -3,6 +3,7 @@ ep: 14
 title: Multi-Session TUI
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
 see-also: [4, 7, 10, 11, 38]

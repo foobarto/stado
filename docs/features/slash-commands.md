@@ -85,9 +85,11 @@ taking over the screen.
 | `/monitor` | Stream process stdout as session notifications: `/monitor <cmd>` or `/monitor stop` |
 | `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
 | `/tasks` | Open the shared task manager (`Ctrl+X K`); `/tasks add <title>` creates a quick task |
+| `/todo <title>` | Add a todo item without opening the task manager; no title opens the picker |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
-| `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.) |
+| `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.); `--clear` removes it |
 | `/budget` | Show current cost + caps; `/budget ack` continues past the hard cap |
+| `/verify` | Show or toggle completion verification (`/verify on\|off\|status`) |
 | `/skill` | List `.stado/skills/*.md`; `/skill:<name>` injects a skill body as a user prompt |
 | `/retry` | Regenerate the last assistant turn from the same user prompt |
 | `/session` | Print the current session id + worktree (copy for other shells) |
@@ -102,7 +104,6 @@ taking over the screen.
 | `/tool-display` | `Ctrl+X O` | Cycle tool-output display; `/tool-display preview\|auto\|collapsed\|expanded` sets it directly |
 | `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
-| `/todo <title>` | | Add a todo item to the sidebar's Todo list |
 
 ## Behavioural notes
 

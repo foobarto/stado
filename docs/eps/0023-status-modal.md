@@ -3,6 +3,7 @@ ep: 23
 title: TUI Status Modal
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
 see-also: [11, 17, 19, 22]

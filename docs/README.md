@@ -33,7 +33,12 @@ Shorter forms live in:
 | `stado mcp-server` | [commands/mcp-server.md](commands/mcp-server.md) | Expose tools via MCP v1 |
 | `stado verify` | [commands/verify.md](commands/verify.md) | Print build provenance |
 | `stado self-update` | [commands/self-update.md](commands/self-update.md) | Download + install the latest release |
-| `stado version` / `config-path` / `completion` | [commands/misc.md](commands/misc.md) | Small generated or informational commands |
+| `stado version` / `stado config-path` / `stado completion` | [commands/misc.md](commands/misc.md) | Small generated or informational commands |
+| `stado auth` / `stado secrets` | [commands/operations.md](commands/operations.md) | Provider credential references and operator plugin secrets |
+| `stado daemon` / `stado tool` | [commands/operations.md](commands/operations.md) | Stateful tool host, inspection, policy, and direct invocation |
+| `stado harness` / `stado integrations` | [commands/operations.md](commands/operations.md) | Security harness setup and external-agent discovery |
+| `stado schedule` / `stado usage` | [commands/operations.md](commands/operations.md) | Persistent scheduled runs and audit-derived usage reports |
+| `stado install` / `stado uninstall` | [commands/operations.md](commands/operations.md) | User-local binary installation lifecycle |
 
 ## Features
 

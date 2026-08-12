@@ -3,11 +3,19 @@ ep: 35
 title: Project-local .stado/ directory
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.76.0
 type: Standards
 created: 2026-05-05
 see-also: [27, 28, 6, 9, 37]
 extended-by: [37]
 history:
+  - date: 2026-08-12
+    status: Implemented
+    note: >
+      Documentation audit: EP-0044 supersedes this proposal's original trust
+      posture. Repository config is attacker-controlled input; sensitive
+      sections are always stripped and project personas/plugins/LSP require
+      explicit operator opt-in.
   - date: 2026-05-05
     note: Implemented — config overlay + .stado/AGENTS.md + plugin search path
   - date: 2026-07-10
@@ -15,6 +23,12 @@ history:
 ---
 
 ## Summary
+
+> **Security update:** EP-0044 is authoritative for project-local trust.
+> `.stado/config.toml` is repository-controlled input, not operator-trusted
+> configuration: stado strips security-sensitive sections and gates project
+> personas, plugins, and LSP behavior behind user-level opt-ins. The original
+> motivation and design text below is retained as historical context.
 
 A `.stado/` subdirectory at the project root (or any ancestor directory)
 lets teams commit stado configuration alongside their code. Three

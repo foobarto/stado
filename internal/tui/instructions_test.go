@@ -3,14 +3,17 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/memory"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -133,5 +136,47 @@ func TestInstructions_MemoryContextFlowsIntoTurnRequestWhenEnabled(t *testing.T)
 	}
 	if !strings.Contains(prov.last.System, "[repo/preference mem_tui] Prefer focused tests") {
 		t.Fatalf("req.System missing memory context:\n%s", prov.last.System)
+	}
+}
+
+func TestInstructions_NativeLearningGuidanceFlowsIntoTUITurn(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	dir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Memory.Enabled = true
+	store, err := wal.Open(filepath.Join(cfg.StateDir(), "broker", "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := sessioncontext.New(store)
+	for i := 0; i < 2; i++ {
+		_, err = svc.Observe(context.Background(), sessioncontext.Observation{SessionID: "s-guidance", Kind: sessioncontext.ObservationTool, Tool: "x", ArgsDigest: "same", EvidenceRef: fmt.Sprintf("trace:%d", i)}, "p", "host", fmt.Sprintf("obs:%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = store.Close()
+
+	prov := &captureReqProvider{done: make(chan struct{})}
+	rnd, err := render.New(theme.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(dir, "m", "p", func() (agent.Provider, error) { return prov, nil }, rnd, keys.NewRegistry())
+	m.cfg = cfg
+	m.session = &stadogit.Session{ID: "s-guidance"}
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "fix it")}
+	m.startStream()
+	select {
+	case <-prov.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamTurn never called")
+	}
+	if !strings.Contains(prov.last.System, "Stado harness guidance") || !strings.Contains(prov.last.System, "`/learn [focus]`") {
+		t.Fatalf("req.System missing native guidance:\n%s", prov.last.System)
 	}
 }

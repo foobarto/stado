@@ -34,7 +34,33 @@ broker WAL. Agent/plugin shells cannot mint that grant. The former pre-v1
 The first deterministic signal set covers repeated identical tool failures,
 argument changes followed by success, verification fail→pass, recurring policy
 or scope denials, and explicit operator corrections. One-off tool failures do not
-produce a lesson signal.
+produce a lesson signal. Repeated output of the same typed signal shape is
+aggregated during a bounded cooldown, preventing a stuck tool loop from growing
+the WAL and `/learn` corpus without bound while allowing a later recurrence to
+be learned again.
+
+## Native harness guidance
+
+At every model-turn boundary stado evaluates a small host-native guidance
+policy. It uses only typed signal/job state, fixed prompt-shape classifiers,
+active-child counts, mailbox delivery state, and the tools actually available
+to that turn. It emits at most three fixed-template nudges under a separate hard
+byte cap; artifact bodies, tool arguments, signal attributes, and mailbox
+payloads are never interpolated.
+
+When strong mechanical signals have not been reviewed, the agent is prompted to
+preserve the correction as a candidate lesson. In the TUI it proactively asks
+the operator to run `/learn [focus]`; on autonomous surfaces it may run
+`stado learn --session-id <id>` when shell execution is authorized, then reports
+the candidates as pending operator review. It cannot approve them. A completed
+review covering the signal suppresses the nudge.
+
+Historical request shapes can recommend `memory__research` or
+`session__research` when fast context missed and the relevant tool is available.
+Active retained children or unread mailbox data can recommend checking the
+agent list/messages before duplicating work. Guidance is advisory below operator
+and repository instructions and grants no capabilities. Lua lifecycle hooks may
+further narrow policy, but they are not the implementation mechanism.
 
 ## Retrieval speeds
 
@@ -99,3 +125,5 @@ shadow-only. Mandatory or pinned security artifacts cannot be demoted by model
 feedback, and temporal association is not presented as causal evidence. Run
 `stado learn retrieval-report` to inspect accumulated shadow comparisons; shadow
 scores never change the active selection in this phase.
+
+See [EP-0060](eps/0060-native-harness-guidance.md) for the guidance contract.

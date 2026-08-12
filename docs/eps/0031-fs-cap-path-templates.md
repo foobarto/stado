@@ -3,6 +3,7 @@ ep: 0031
 title: Path-templated fs capabilities — `fs:read:cfg:state_dir/...`
 author: Bartosz Ptaszynski
 status: Implemented
+implemented-in: v0.48.8
 type: Standards
 created: 2026-05-04
 history:

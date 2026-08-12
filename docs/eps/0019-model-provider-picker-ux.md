@@ -3,6 +3,7 @@ ep: 19
 title: Model and Provider Picker UX
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
 see-also: [3, 10]

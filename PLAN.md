@@ -31,7 +31,7 @@ deferred work + product gaps + non-goals.
 
 | Rank | Gap | Current state |
 |------|-----|---------------|
-| 0 | **Adaptive context and learning architecture** | SHIPPED in v0.78.0 — EP-0052–0059 were accepted after product, security, and distributed-systems adversarial review. The release includes the durable WAL/grants/budgets, scoped artifacts + FTS/migration, state/signals/learn, isolated research tools, retained orchestration/mailboxes/supervision, and shadow ranking. |
+| 0 | **Adaptive context and learning architecture** | SHIPPED in v0.78.0 — EP-0052–0059 delivered the durable substrate, artifacts, signals/learn, research, retained orchestration/mailboxes, and shadow ranking. EP-0060 native bounded harness guidance is implemented on `main` for the next release so agents use those mechanisms situationally rather than merely discovering them. |
 | 1 | **v1 security architecture rollout** | Largely SHIPPED in v0.57.0 — sandbox-by-default, the privileged broker, session-scoped capabilities with an immutable ceiling, the mount-table CI invariant, and the taint substrate all landed (phase table below + EP-0050). Remaining: phase 6 taint-ingestion wiring and phase 7 ssh-agent + git sub-agent socket bind-mount. Decision record at [`.agent/decisions/2026-05-27-v1-security-architecture.md`](.agent/decisions/2026-05-27-v1-security-architecture.md). |
 | 2 | **Windows sandbox v2** | Windows still runs unsandboxed behind `WinWarnRunner`. Job objects + restricted tokens remain the largest security/runtime gap for that platform. Re-open when someone with a Windows dev environment picks it up. |
 | 3 | **Signed apt/rpm hosted repos** | goreleaser emits `.deb` / `.rpm` artifacts and the Homebrew tap publishes on every release. External repo hosting (apt/rpm) needs an operator with infra. |
@@ -55,6 +55,7 @@ is narrow and evidence-driven:
 | F | EP-0055 retained/historical children | shipped — v0.78.0 |
 | G | EP-0056 mailboxes/supervision | shipped — v0.78.0 |
 | H | EP-0058 shadow evaluation/adaptive retrieval | shipped in shadow mode — v0.78.0 |
+| I | EP-0060 signal/research/mailbox-aware native harness guidance | implemented — next release |
 
 General artifact kinds, retained tool-output blobs, model reranking, and automatic
 non-use demotion remain deferred pending usage evidence. The small

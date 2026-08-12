@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
@@ -186,6 +187,15 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			exec.Hooks = lifecycleHooks
 			opts.Executor = exec
 		}
+	}
+	opts.GuidanceContext = func() string {
+		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
+			if opts.Executor == nil || opts.Executor.Registry == nil {
+				return false
+			}
+			_, ok := opts.Executor.Registry.Get(name)
+			return ok
+		}})
 	}
 
 	text, msgs, err := runtime.AgentLoop(pctx, opts)

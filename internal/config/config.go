@@ -19,9 +19,11 @@ const maxSystemPromptTemplateBytes int64 = 1 << 20
 
 // Config is the top-level stado configuration.
 //
-// Phase 0 scaffold: legacy [providers.*], [context], [embeddings] sections are
-// gone; [inference], [sandbox], [git], [otel], [acp], [plugins] are placeholders
-// that later phases fill in (see PLAN.md).
+// The schema covers provider selection, sandboxing, git/audit behavior,
+// telemetry, interop, plugins, memory/context, agent/session behavior, the TUI,
+// tool policy, budgets, hooks, supervision, harness mode, LSP, and completion
+// verification. Security-sensitive sections are filtered when a project-local
+// overlay is merged; see project_config.go and docs/commands/config.md.
 type Config struct {
 	ConfigPath string `koanf:"-"`
 	// projectStadoDir is the absolute path of the .stado/ directory

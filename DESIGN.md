@@ -1576,6 +1576,92 @@ modal's own Query; arrow keys navigate; Enter executes; Esc closes.
 
 ---
 
+## Adaptive context, learning, and retained orchestration
+
+The v0.78.0 harness adds a broker-owned adaptive-context plane alongside the
+git tree/trace session plane. It is intentionally subordinate to operator and
+repository instructions: activation changes retrieval eligibility, never the
+authority, taint, or capability of stored text.
+
+### Canonical events and projections
+
+`internal/broker/wal` owns the per-user, single-writer WAL. The broker
+holds an OS-backed exclusive store lock, advances a durable broker epoch on
+startup, and commits cross-store transitions as one transaction before derived
+views expose them. Hash chaining, checksums, snapshots, recovery, idempotency
+keys, leases, and recursive budget reservations provide the durability substrate
+for artifacts, review jobs, retained children, mailboxes, and session context.
+SQLite FTS is a disposable projection: queries reject or rebuild a stale index,
+while authoritative point reads fold a verified snapshot plus complete WAL tail.
+
+`internal/artifacts` stores versioned `memory` and `lesson` artifacts with
+host-bound principal/repository/session scope, sensitivity, provenance,
+authority state, evidence, tags, groups, and visibility-checked relations.
+Session scope is anchored to the creating session and inherited only by its
+descendants. Secret/private bodies do not enter ordinary FTS. Legacy JSONL
+memory is archived and migrated idempotently; ambiguous scope is quarantined
+rather than widened.
+
+### Three retrieval speeds
+
+1. Fast retrieval selects a few active, authorized artifacts for the current
+   prompt under hard item/token limits. The resulting system-prompt section is
+   labeled as untrusted reviewable guidance.
+2. `memory__research` runs an isolated researcher with only bounded
+   catalog/search/open access to the caller's authorized artifact corpus.
+3. `session__research` performs the slower equivalent over authorized historical
+   session windows and exact conversation/trace locators.
+
+Research children return bounded synthesis plus immutable version/digest/range
+citations; raw explored corpora do not enter the parent context. Host validation
+proves that cited bytes were authorized and read, not that a claim is
+semantically entailed.
+
+### Learning and session signals
+
+`internal/sessioncontext` projects bounded objective/work/blocker state, a
+canonical journal, and deterministic mistake/correction signals. Host-recorded
+signals currently cover repeated identical tool failures, argument correction
+followed by success, verification fail-to-pass, recurring policy/scope denial,
+and explicit operator correction. Model-authored state remains a hypothesis and
+never becomes an instruction-priority channel.
+
+`stado learn` and TUI `/learn` submit an idempotent review job over an immutable
+session boundary. The isolated reviewer receives typed signals and bounded
+evidence rather than unrestricted authority. It may create evidence-backed
+lesson candidates, but cannot activate them. Activation requires a fresh,
+one-use operator-origin grant through the trusted interactive presentation
+channel, bound to the exact action digest, artifact version/text/scope, actor,
+nonce, and expiry. An agent invoking the CLI through a shell cannot mint that
+grant.
+
+### Retained children and mailboxes
+
+`internal/orchestration` composes durable admissions, immutable historical fork
+points, attenuated capability ceilings, leases, recursive root-budget
+reservations, and bounded restart policy. A historical source contributes data
+only; it never contributes authority. Retained children stay addressable through
+`agent__list`, `agent__send_message`, and `agent__read_messages`, and resumption
+creates a new child generation/identity rather than reviving a terminal process.
+
+Mailbox data and broker lifecycle control use separate lanes. Enqueue is
+idempotent, ordering is per sender generation and receiver, receiver-input commit
+and acknowledgement are atomic, and recovery resumes the unique recorded turn
+instead of injecting the same message as a new input. Arbitrary tool/external
+effects retain their own at-least-once/idempotency contracts. Supervision only
+restarts host-classified transient runtime failures within bounded intensity;
+logical, policy, verification, budget, and cancellation failures are terminal.
+
+Adaptive retrieval scoring is shadow-only in the initial release. Exposure,
+open, citation, and evaluated outcome are separate observations; temporal
+association is not treated as causation, and mandatory/pinned security guidance
+cannot be automatically demoted.
+
+See [Adaptive context and learning](docs/adaptive-context.md) and EP-0052 through
+EP-0059 for the detailed contracts.
+
+---
+
 ## Extension points
 
 ### Configuration trust (EP-0044)
@@ -1598,9 +1684,10 @@ OAI-compat service).
 
 ### New built-in tool
 
-Built-in model-facing tools are WASM-backed bundled plugins
-(EP-0002 / EP-0037-0038) — the native in-process registration path was
-removed.
+Ordinary built-in model-facing tools are WASM-backed bundled plugins
+(EP-0002 / EP-0037-0038). Native registration remains only for the
+non-disableable discovery kernel, conditional skill loading, bounded research
+dispatchers, and the explicitly tracked transitional tasks tool.
 
 1. Add the plugin source under `plugins/bundled/<name>/` and to
    `plugins/bundled/build.sh` (compiled by `make wasm`, `//go:embed`'d).

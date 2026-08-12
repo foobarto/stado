@@ -38,6 +38,18 @@ become semver guarantees.
   GitHub Actions. Notable upgrades include Anthropic SDK 1.62.0, MCP Go 0.57.0,
   OpenTelemetry 1.45.0, go-git 5.19.2, Google API 0.292.0, gRPC 1.83.0,
   checkout 7.0.1, setup-go 7.0.0, CodeQL 4.37.3, and Scorecard 2.4.4.
+- Audited the complete current documentation surface against live CLI/config/tool
+  registrations: added coverage for previously unindexed operator commands,
+  reconciled slash and lean-core guides, documented the v0.78 adaptive-context
+  architecture in `DESIGN.md`, repaired moved example links, and completed
+  `implemented-in` metadata for older implemented EPs.
+- Added native bounded harness guidance across TUI, CLI, headless, ACP, and
+  spawned-agent turns. Strong unreviewed mechanical signals encourage
+  candidate-only `stado learn`/`/learn`; fixed request shapes recommend isolated
+  memory/session research; active children and unread mailboxes trigger
+  coordination reminders. Guidance is capability-aware, payload-free, capped,
+  and repeated signal shapes aggregate during a bounded cooldown to prevent
+  learning bloat without hiding later recurrence.
 
 ## v0.78.0 — adaptive context and durable learning — 2026-08-12
 
@@ -3348,9 +3360,9 @@ bundled tool surface).
 
 - **Demos moved to `plugins/examples/`**. The `approval_demo` static
   bundled tool is removed from the stado binary; its source lives at
-  [`plugins/examples/approval-demo-go/`](plugins/examples/approval-demo-go)
+  [`approval-demo-go`](https://github.com/foobarto/stado-plugins/tree/main/approval-demo-go)
   with the standard build / sign / install layout. A new sibling
-  [`plugins/examples/choose-demo-go/`](plugins/examples/choose-demo-go)
+  [`choose-demo-go`](https://github.com/foobarto/stado-plugins/tree/main/choose-demo-go)
   exercises the `ui:choice` cap + `stado_ui_choose` primitive end-to-end
   (the missing Done-def item from the ui_choose spec). Reasoning: stado
   shouldn't bundle test/demo tools — the model sees the registry and

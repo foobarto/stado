@@ -3,6 +3,7 @@ ep: 0027
 title: Repo-root discovery — single predicate, single helper
 author: Bartosz Ptaszynski
 status: Implemented
+implemented-in: v0.48.8
 type: Standards
 created: 2026-05-04
 history:
