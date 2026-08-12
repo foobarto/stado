@@ -133,6 +133,7 @@ Optional, added as relevant (see EP-1 for full semantics):
 ```yaml
 updated: YYYY-MM-DD
 requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]      # must-read-first dependencies
+extends: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]       # earlier EPs this one extends
 supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]    # this EP replaces these
 superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"] # this EP has been replaced
 extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]   # later EPs build on this one
