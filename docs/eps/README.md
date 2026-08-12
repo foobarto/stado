@@ -38,8 +38,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0012 | [Release Integrity and Distribution](./0012-release-integrity-and-distribution.md) | Standards | Implemented |
 | 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Superseded |
 | 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Implemented |
-| 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Implemented |
-| 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Implemented |
+| 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Superseded |
+| 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Superseded |
 | 0017 | [Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md) | Standards | Implemented |
 | 0018 | [Configurable System Prompt Template](./0018-configurable-system-prompt-template.md) | Standards | Implemented |
 | 0019 | [Model and Provider Picker UX](./0019-model-provider-picker-ux.md) | Standards | Implemented |
@@ -73,6 +73,14 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Partial |
 | 0051 | [Lua Lifecycle Hook Contract](./0051-lua-lifecycle-hook-contract.md) | Standards | Implemented |
+| 0052 | [Learn — Evidence-Backed Trajectory Refinement](./0052-learn-trajectory-refinement.md) | Standards | Accepted |
+| 0053 | [Versioned Harness Artifacts and Rebuildable Index](./0053-versioned-harness-artifacts-and-index.md) | Standards | Accepted |
+| 0054 | [Memory and Session Research Agents](./0054-addressable-context-and-research-agents.md) | Standards | Accepted |
+| 0055 | [Retained and Resumable Sub-agent Sessions](./0055-retained-resumable-subagents.md) | Standards | Accepted |
+| 0056 | [Durable Agent Mailboxes and Supervision](./0056-agent-mailboxes-and-supervision.md) | Standards | Accepted |
+| 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Accepted |
+| 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Accepted |
+| 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Accepted |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

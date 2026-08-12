@@ -43,6 +43,7 @@ var reservedSlashNames = map[string]bool{
 	"/help":         true,
 	"/kill":         true,
 	"/loop":         true,
+	"/learn":        true,
 	"/verify":       true,
 	"/memory":       true,
 	"/model":        true,

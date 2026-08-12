@@ -6,15 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/adaptive"
+	"github.com/foobarto/stado/internal/artifacts"
+	"github.com/foobarto/stado/internal/broker/authority"
+	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/config"
+	learnpkg "github.com/foobarto/stado/internal/learn"
 	"github.com/foobarto/stado/internal/memory"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
@@ -66,6 +75,11 @@ type learningStaleOptions struct {
 	Apply bool
 }
 
+type learnRunOptions struct {
+	SessionID, Focus, Scope string
+	MaxCandidates           int
+}
+
 type staleLesson struct {
 	Item    memory.Item
 	Missing []string
@@ -74,19 +88,30 @@ type staleLesson struct {
 var learningCmd = newLearningCmd()
 
 func newLearningCmd() *cobra.Command {
+	runOpts := &learnRunOptions{Scope: "session", MaxCandidates: 5}
 	cmd := &cobra.Command{
-		Use:   "learning",
-		Short: "Propose and inspect reviewable operational lessons",
-		Long: "Propose and inspect EP-16 learning/self-improvement lessons.\n" +
-			"Lessons are stored as candidate items in the append-only memory\n" +
-			"store and only affect prompts after explicit approval.",
+		Use:   "learn",
+		Short: "Review trajectories and manage operational lessons",
+		Long: "Review trajectories and inspect evidence-backed operational lessons.\n" +
+			"Reviews create versioned candidates in the broker-owned harness artifact\n" +
+			"store. They affect prompts only after a trusted interactive approval.",
+		RunE: func(cmd *cobra.Command, args []string) error { return runLearnReview(cmd, runOpts) },
 	}
+	cmd.Flags().StringVar(&runOpts.SessionID, "session-id", "", "Session trajectory to review")
+	cmd.Flags().StringVar(&runOpts.Focus, "focus", "", "Optional review focus")
+	cmd.Flags().StringVar(&runOpts.Scope, "scope", "session", "Candidate scope: session, repo, or global")
+	cmd.Flags().IntVar(&runOpts.MaxCandidates, "max-candidates", 5, "Maximum candidates (1-8)")
 	cmd.AddCommand(
+		newLearnRunCmd(),
+		newLearnMigrateCmd(),
+		newLearnRetrievalReportCmd(),
+		newLearnCandidatesCmd(),
+		newLearnArtifactCmd(),
 		newLearningProposeCmd(),
 		newLearningListCmd(),
 		newLearningShowCmd(),
 		newLearningEditCmd(),
-		newLearningActionCmd("approve", "Approve a lesson candidate"),
+		newLearningApproveCmd(),
 		newLearningActionCmd("reject", "Reject a candidate or approved lesson"),
 		newLearningActionCmd("delete", "Delete a lesson from the active folded view"),
 		newLearningSupersedeCmd(),
@@ -95,6 +120,226 @@ func newLearningCmd() *cobra.Command {
 		newLearningExportCmd(),
 	)
 	return cmd
+}
+
+func openArtifactService() (*wal.Store, *artifacts.Service, string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+	if err != nil {
+		return nil, nil, "", err
+	}
+	principal := "local"
+	if current, lookupErr := user.Current(); lookupErr == nil && current.Uid != "" {
+		principal = "os-user:" + current.Uid
+	}
+	return store, artifacts.NewService(store, nil), principal, nil
+}
+
+func artifactQueryContext(principal, sessionID string) artifacts.QueryContext {
+	repoID := ""
+	if cwd, err := os.Getwd(); err == nil {
+		repoID = readCurrentRepoPin(cwd)
+	}
+	return artifacts.QueryContext{Principal: principal, CanonicalRepoID: repoID, SessionID: sessionID}
+}
+
+func newLearnCandidatesCmd() *cobra.Command {
+	var sessionID string
+	cmd := &cobra.Command{Use: "candidates", Short: "List versioned lesson candidates visible in this context", RunE: func(cmd *cobra.Command, _ []string) error {
+		store, svc, principal, err := openArtifactService()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		ctx := artifactQueryContext(principal, sessionID)
+		items, err := svc.Query(artifacts.Query{Context: ctx, Kinds: []artifacts.Kind{artifacts.KindLesson}, MaxItems: 200})
+		if err != nil {
+			return err
+		}
+		out := items[:0]
+		for _, item := range items {
+			if item.Authority == artifacts.AuthorityCandidate || item.Authority == artifacts.AuthorityLegacyActive {
+				out = append(out, item)
+			}
+		}
+		return writeJSON(cmd.OutOrStdout(), out)
+	}}
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Current session identity for session-scoped candidates")
+	return cmd
+}
+
+func newLearnArtifactCmd() *cobra.Command {
+	var sessionID string
+	cmd := &cobra.Command{Use: "artifact <id>", Short: "Show one authorized versioned memory or lesson artifact", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		store, svc, principal, err := openArtifactService()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		items, err := svc.Query(artifacts.Query{Context: artifactQueryContext(principal, sessionID), Kinds: []artifacts.Kind{artifacts.KindMemory, artifacts.KindLesson}, MaxItems: 10000})
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			if item.ID == args[0] {
+				return writeJSON(cmd.OutOrStdout(), item)
+			}
+		}
+		return fmt.Errorf("artifact %q not found", args[0])
+	}}
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Current session identity for session-scoped artifacts")
+	return cmd
+}
+
+func newLearnRetrievalReportCmd() *cobra.Command {
+	return &cobra.Command{Use: "retrieval-report", Short: "Report shadow adaptive-retrieval observations", RunE: func(cmd *cobra.Command, _ []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		report, err := adaptive.BuildReport(store.Records())
+		if err != nil {
+			return err
+		}
+		return writeJSON(cmd.OutOrStdout(), report)
+	}}
+}
+
+func newLearnMigrateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "migrate",
+		Short: "Migrate the legacy memory log into versioned harness artifacts",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			legacyPath := filepath.Join(cfg.StateDir(), "memory", "memory.jsonl")
+			raw, err := os.ReadFile(legacyPath)
+			if errors.Is(err, os.ErrNotExist) {
+				raw = nil
+			} else if err != nil {
+				return err
+			}
+			legacy := &memory.Store{Path: legacyPath, Actor: "stado-migration"}
+			items, err := legacy.List(cmd.Context())
+			if err != nil {
+				return err
+			}
+			store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = store.Close() }()
+			principal := "local"
+			if current, lookupErr := user.Current(); lookupErr == nil && current.Uid != "" {
+				principal = "os-user:" + current.Uid
+			}
+			svc := artifacts.NewService(store, nil)
+			result, err := svc.MigrateLegacy(cmd.Context(), artifacts.LegacyMigration{
+				Items: items, RawLog: raw,
+				ArchivePath: filepath.Join(cfg.StateDir(), "memory", "archive", "memory.jsonl"),
+				Principal:   principal, Actor: "operator-cli-migration",
+				ValidateSessionAnchor: func(id string) bool {
+					if stadogit.ValidateSessionID(id) != nil {
+						return false
+					}
+					info, statErr := os.Stat(filepath.Join(cfg.WorktreeDir(), id))
+					return statErr == nil && info.IsDir()
+				},
+			})
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), result)
+		},
+	}
+}
+
+// Approval is deliberately unavailable through an ordinary CLI process: a
+// model with shell access can invoke that same process, so it is not evidence
+// of a fresh operator gesture. The broker-owned interactive presentation path
+// (/learn approve in the TUI) binds a one-use grant to the exact artifact.
+func newLearningApproveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "approve <id>",
+		Short: "Approve a lesson through a trusted interactive Stado surface",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("learn approve: ordinary CLI execution cannot prove operator intent; use /learn approve in the interactive TUI")
+		},
+	}
+}
+
+func newLearnRunCmd() *cobra.Command {
+	opts := &learnRunOptions{Scope: "session", MaxCandidates: 5}
+	cmd := &cobra.Command{Use: "run", Short: "Review a completed session trajectory", RunE: func(cmd *cobra.Command, args []string) error { return runLearnReview(cmd, opts) }}
+	cmd.Flags().StringVar(&opts.SessionID, "session-id", "", "Session trajectory to review")
+	cmd.Flags().StringVar(&opts.Focus, "focus", "", "Optional review focus")
+	cmd.Flags().StringVar(&opts.Scope, "scope", "session", "Candidate scope: session, repo, or global")
+	cmd.Flags().IntVar(&opts.MaxCandidates, "max-candidates", 5, "Maximum candidates (1-8)")
+	return cmd
+}
+
+func runLearnReview(cmd *cobra.Command, opts *learnRunOptions) error {
+	if strings.TrimSpace(opts.SessionID) == "" {
+		return errors.New("learn: --session-id is required")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	applyRootProviderOverrides(cfg)
+	store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+	if err != nil {
+		return fmt.Errorf("learn: broker event store: %w", err)
+	}
+	defer func() { _ = store.Close() }()
+	_, consumer := authority.New(store)
+	artifactSvc := artifacts.NewService(store, consumer)
+	signalSvc := sessioncontext.New(store)
+	provider, err := tui.BuildProvider(cfg)
+	if err != nil {
+		return fmt.Errorf("learn: reviewer provider: %w", err)
+	}
+	principal := "local"
+	if current, lookupErr := user.Current(); lookupErr == nil && current.Uid != "" {
+		principal = "os-user:" + current.Uid
+	}
+	scope := artifacts.Scope(strings.ToLower(strings.TrimSpace(opts.Scope)))
+	binding := artifacts.ScopeBinding{}
+	switch scope {
+	case artifacts.ScopeGlobal:
+	case artifacts.ScopeSession:
+		binding.AnchorSessionID = opts.SessionID
+	case artifacts.ScopeRepo:
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return cwdErr
+		}
+		repo := readCurrentRepoPin(cwd)
+		if repo == "" {
+			return errors.New("learn: repo scope requires a .stado/user-repo binding")
+		}
+		binding.CanonicalRepoID = repo
+	default:
+		return errors.New("learn: --scope must be session, repo, or global")
+	}
+	reviewer := learnpkg.LLMReviewer{Provider: provider, Model: cfg.Defaults.Model}
+	svc := learnpkg.New(store, signalSvc, artifactSvc, reviewer)
+	job, err := svc.Run(cmd.Context(), learnpkg.RunRequest{SessionID: opts.SessionID, Focus: opts.Focus, Principal: principal, Actor: "operator-cli", IdempotencyKey: "learn-cli:" + opts.SessionID + ":" + time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Binding: binding, MaxCandidates: opts.MaxCandidates})
+	if err != nil {
+		return err
+	}
+	return writeJSON(cmd.OutOrStdout(), job)
 }
 
 func newLearningProposeCmd() *cobra.Command {

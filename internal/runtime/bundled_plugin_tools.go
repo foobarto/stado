@@ -297,7 +297,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
 	agentCaps := []string{"agent:fleet"}
 	r.Register(newBundledWasmTool("agent", "stado_tool_spawn", "agent__spawn",
-		"Spawn a sub-agent. Returns {id, session_id, status, final_text?}. Default async=false blocks until child completes; async=true returns immediately. Default model inherits parent's. Default persona inherits parent's. EP-0038 §D.",
+		"Spawn an attenuated sub-agent, optionally from an immutable historical session point. Returns {id, session_id, status, final_text?}. execution=retained creates an addressable child; async controls whether this call waits. Model and persona inherit by default.",
 		tool.ClassExec,
 		schema.Object([]string{"prompt"}, schema.Props{
 			"prompt":          schema.String(),
@@ -308,6 +308,22 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"parent_session":  schema.String(),
 			"sandbox_profile": schema.String(),
 			"allowed_tools":   schema.Array(schema.String()),
+			"role":            schema.String(),
+			"mode":            schema.String(),
+			"ownership":       schema.String(),
+			"write_scope":     schema.Array(schema.String()),
+			"max_turns":       schema.Integer(),
+			"timeout_seconds": schema.Integer(),
+			"source": schema.Object([]string{"session_id"}, schema.Props{
+				"session_id": schema.String(),
+				"at":         schema.String(),
+			}),
+			"tool_profile": schema.String(),
+			"narrow_tools": schema.Array(schema.String()),
+			"token_budget": schema.Integer(),
+			"execution":    schema.String(),
+			"supervision":  schema.String(),
+			"max_restarts": schema.Integer(),
 		}),
 		agentCaps))
 	r.Register(newBundledWasmTool("agent", "stado_tool_list", "agent__list",

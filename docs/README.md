@@ -26,7 +26,7 @@ Shorter forms live in:
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
 | `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, sign, and scaffold WASM plugins |
 | `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
-| `stado learning` | [commands/learning.md](commands/learning.md) | Propose reviewable operational lessons |
+| `stado learn` | [commands/learning.md](commands/learning.md) | Review trajectories and manage evidence-backed lessons |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
 | `stado run --headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
@@ -49,6 +49,7 @@ Shorter forms live in:
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
+| Adaptive context and learning | [adaptive-context.md](adaptive-context.md) | Versioned memory, trajectory learning, isolated research, retained agents, and bounded state |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |
 | Personas | [features/personas.md](features/personas.md) | Operating-manual personas — bundled set, user additions, opt-in project personas (`allow_project_persona`), resolution order, `agent.spawn` delegation |
 | Plugin ABI | [plugins/abi-reference.md](plugins/abi-reference.md) | Systematic ABI reference — memory model, return-code conventions, typed handles, JSON envelope, capability vocabulary, manifest schema, lifecycle |

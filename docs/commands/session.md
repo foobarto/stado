@@ -202,6 +202,21 @@ call feed. `-f` / `--follow` live-tails new commits; `--interval`
 tunes poll frequency (default 500ms). `--limit N` caps. Fills the
 gap between `session show` (summary) and `audit export` (JSONL).
 
+### `session state|signals|journal <id>`
+
+These read-only JSON surfaces expose the bounded context records used by the
+adaptive harness:
+
+- `session state` shows the compact objective, current work, blockers, next
+  action, child status, and verification projection.
+- `session signals` shows active deterministic mistake/correction signals that
+  may be reviewed by `stado learn`.
+- `session journal` shows up to 200 canonical chronology entries.
+
+Host facts and model assertions remain distinct. Model-authored state and
+journal text are quoted context, not instructions or authority, and signals do
+not become durable lessons without a separate review and interactive approval.
+
 ### `session gc [--apply]`
 
 Sweep zero-turn + zero-message sessions older than `--older-than`

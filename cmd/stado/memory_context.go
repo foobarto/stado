@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/foobarto/stado/internal/artifactprompt"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/stateprompt"
 )
 
 func buildMemoryPromptContext(ctx context.Context, cfg *config.Config, workdir, sessionID, prompt string) string {
@@ -29,7 +33,16 @@ func buildMemoryPromptContext(ctx context.Context, cfg *config.Config, workdir, 
 		fmt.Fprintf(os.Stderr, "stado memory: prompt context: %v\n", err)
 		return ""
 	}
-	return body
+	repoID := ""
+	if root := memory.RepoRootFor(workdir); root != "" {
+		repoID, _ = stadogit.RepoID(root)
+	}
+	modern, modernErr := artifactprompt.Build(ctx, artifactprompt.Options{StateDir: cfg.StateDir(), RepoID: repoID, SessionID: sessionID, Ancestors: memorySessionAncestors(cfg, workdir, sessionID), Prompt: prompt, MaxItems: cfg.Memory.EffectiveMaxItems(), BudgetTokens: cfg.Memory.EffectiveBudgetTokens()})
+	if modernErr != nil {
+		fmt.Fprintf(os.Stderr, "stado artifacts: prompt context: %v\n", modernErr)
+	}
+	state, _ := stateprompt.Build(cfg.StateDir(), sessionID)
+	return strings.TrimSpace(strings.Join([]string{body, modern, state}, "\n\n"))
 }
 
 // memorySessionAncestors resolves the querying session's ancestor ids so

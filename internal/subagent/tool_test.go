@@ -26,6 +26,24 @@ func TestDecodeRequestDefaultsAndCaps(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestHistoricalModelAndRetention(t *testing.T) {
+	raw := json.RawMessage(`{"prompt":"continue analysis","source":{"session_id":"old","at":"turns/3"},"model":"configured-model","execution":"retained","token_budget":12000}`)
+	req, err := DecodeRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Source == nil || req.Source.SessionID != "old" || req.Source.At != "turns/3" || req.Model != "configured-model" || req.Execution != "retained" || req.TokenBudget != 12000 {
+		t.Fatalf("req=%+v", req)
+	}
+}
+func TestDecodeRequestRejectsMutableOrAmbiguousSource(t *testing.T) {
+	for _, raw := range []string{`{"prompt":"x","source":{"session_id":"s","at":"tip"}}`, `{"prompt":"x","source":{"at":"turns/1"}}`, `{"prompt":"x","execution":"maybe"}`} {
+		if _, err := DecodeRequest(json.RawMessage(raw)); err == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
 func TestDecodeRequestCapsTimeout(t *testing.T) {
 	req, err := DecodeRequest(json.RawMessage(`{"prompt":"inspect","timeout_seconds":99999}`))
 	if err != nil {

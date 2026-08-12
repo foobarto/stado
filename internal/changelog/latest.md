@@ -1,80 +1,57 @@
-## v0.77.0 — verified completion and brokered subagents — 2026-07-10
+## v0.78.0 — adaptive context and durable learning — 2026-08-12
 
-### TUI / CLI
+### UX / CLI / TUI
 
-- **Command verification can gate model completion.** Configure ordered
-  `[verify].commands` in user config, pass repeatable `stado run --verify`
-  flags, or control the configured gate in the TUI with `/verify`. Failed
-  commands return bounded feedback to the model; passing commands accept the
-  turn; exhaustion exits distinctly as `verify_exhausted`. Headless and ACP
-  clients receive verification status updates. Project config cannot enable
-  this operator-controlled execution surface.
-- **Verification is recoverable and work-preserving.** Partial assistant work
-  and the final verification critique are persisted before strict
-  infrastructure failures or retry exhaustion return. Queued TUI input is
-  restored on failure, and operator cancellation leaves completion explicitly
-  unverified instead of silently accepting it.
+- **`stado learn` and `/learn` close the evidence-backed learning loop.** A
+  bounded reviewer analyzes deterministic mistake and correction signals from a
+  completed trajectory and proposes versioned lesson candidates. Candidate
+  inspection is available from CLI and TUI, while activation requires a fresh,
+  one-use operator-origin grant bound to the exact artifact and scope.
+- **The pre-v1 `stado learning` noun is removed.** Legacy stores remain
+  inspectable through compatibility lifecycle subcommands under `stado learn`
+  and migrate idempotently with `stado learn migrate`.
+- **Session context is directly inspectable.** `stado session state`, `signals`,
+  and `journal` expose bounded structured state, deterministic learning signals,
+  and canonical chronology without promoting model assertions into authority.
 
 ### Runtime
 
-- **Ordinary subagents now receive broker-owned child sessions.** Children are
-  constrained to broker-managed worktrees, inherit the parent's effective
-  profile, and can only narrow masks, timeouts, sockets, filesystem policy,
-  and sandbox capabilities. Ordinary children do not receive SSH agent access;
-  the elevated git-child path is intentionally deferred to issue #238.
-- **Broker context taint now follows tool results.** Prompts begin clean and
-  become tainted after tool output enters model context across autonomous and
-  TUI loops, so subsequent broker policy evaluation can distinguish trusted
-  operator input from derived context.
+- **Memory and session research gain isolated agent paths.** The
+  `memory__research` and `session__research` tools search authorized corpora with
+  bounded catalog/search/open operations. Parents receive a synthesis and
+  precise digest-bound citations rather than the explored raw corpus.
+- **Retained subagents can resume historical work under a new identity.** Durable
+  admissions, immutable fork points, broker epochs, leases, recursive budgets,
+  attenuated capability ceilings, retained handles, messaging, cancellation,
+  and bounded supervision make long-running children recoverable without using
+  historical context as authority.
+- **Retrieval feedback is measurable before it is automatic.** Exposure,
+  opening, citation, and evaluated outcomes feed versioned shadow comparisons;
+  `stado learn retrieval-report` reports them without changing active retrieval
+  or demoting mandatory security guidance.
 
-### Observability
+### Persistence / Security
 
-- **Live telemetry matches the documented instrument set.** Tool latency now
-  covers the full invocation with tool and outcome attributes, including
-  denials and errors. Turn token/cache usage is recorded by provider, model,
-  and direction, and declaration-only metrics were removed rather than
-  advertised without data.
+- **Harness artifacts are versioned, scoped, and searchable.** Memory and lesson
+  records carry immutable host-bound scope, tags, groups, evidence, provenance,
+  sensitivity, expiry, and review state. A disposable SQLite FTS5 projection
+  accelerates lookup while the hash-chained broker event log remains canonical.
+- **The broker now supplies the durability substrate for adaptive context.** An
+  exclusive single-writer lock, broker epochs, atomic WAL transactions,
+  idempotent jobs, operator grants, and reserve/commit/release budget accounting
+  fence restarts and concurrent processes. Private and secret artifact bodies
+  remain outside ordinary full-text indexing and prompt eligibility.
+- **State, journal, mailbox, and lifecycle events share one crash-consistent
+  chronology.** Control events cannot be forged as agent messages, receiver
+  inputs commit exactly once before arbitrary effects, and recovery resumes the
+  recorded turn instead of reinjecting it as a new message.
+- **gRPC is updated to 1.82.1.** This removes the reachable GO-2026-6061 xDS
+  RBAC and HTTP/2 transport vulnerability reported by the release gate.
 
-### Security
+### Documentation
 
-- **Broker ceilings now apply consistently across execution surfaces.** TUI,
-  `stado run`, `stado run --headless`, ACP, and `mcp-server` all derive one
-  executor sandbox decision from the broker session. Long-lived servers apply
-  it to every executor they create, and TUI session switches preserve it.
-  The global `--no-sandbox` flag now selects `NoneRunner` and removes the
-  autonomous host's default sandbox policy on every surface instead of only
-  changing the broker announcement. WASM process imports use that same runner,
-  and execution CWDs are symlink-resolved against the ceiling before
-  bubblewrap mounts them; a CWD is mounted read-only unless `FSWrite` permits
-  it.
-- **Lua lifecycle hooks no longer expose filesystem module loaders.** The safe
-  hook VM removes `dofile`, `loadfile`, `module`, and `require` after loading
-  its limited standard libraries. EP-0051 now defines the supported lifecycle
-  surface, failure posture, audit behavior, and current runtime boundaries.
-
-### Dependencies
-
-- **Go 1.26.5 is now the minimum and release toolchain.** This picks up the
-  standard-library fixes for GO-2026-5856 and GO-2026-4970; both had reachable
-  call paths under the previous 1.26.4 build.
-- Folded in Dependabot's six Go updates: Bubbles 2.1.1, Bubble Tea 2.0.8,
-  Lip Gloss 2.0.5, Anthropic SDK 1.56.0, MCP Go 0.55.1, and Google API
-  0.287.0.
-- Folded in Dependabot's eight pinned GitHub Actions updates, including
-  checkout 7.0.0, setup-go 6.5.0, golangci-lint-action 9.3.0, CodeQL 4.36.2,
-  GoReleaser action 7.2.3, and build provenance attestation 4.1.1.
-
-### Fixes
-
-- **Bundled one-shot shell tools execute again.** `shell.exec`, `shell.sh`,
-  `shell.bash`, and `shell.zsh` now authorize the absolute shell path their
-  wasm wrapper actually launches. The previous basename-only capability was
-  correctly rejected for path-containing argv, leaving every one-shot shell
-  call unusable. The broker mount table also retains `/bin` and `/sbin` when
-  composing its ceiling with the host process policy.
-- **Bundled shell failures now remain failures across the WASM ABI.** Non-zero
-  host exit codes produce tool errors with captured output, and the wrapper's
-  error writer returns the required negative length instead of accidentally
-  turning error JSON into a successful result. Verification commands therefore
-  cannot pass merely because the shell process exited non-zero.
+- Added the adaptive-context guide and accepted EP-0052 through EP-0059 after
+  adversarial product, security, and distributed-systems review. Updated the
+  command guides, slash-command reference, README, roadmap, and homepage for the
+  shipped v0.78.0 behavior.
 

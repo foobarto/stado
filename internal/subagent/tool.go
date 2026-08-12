@@ -22,6 +22,7 @@ const (
 	// from MaxTurns because a single provider/tool call can still hang.
 	DefaultTimeoutSeconds = 180
 	MaxTimeoutSeconds     = 900
+	DefaultTokenBudget    = 100_000
 )
 
 // Request is the JSON shape the parent model passes to spawn_agent.
@@ -44,6 +45,22 @@ type Request struct {
 	// Empty = inherit the parent's active persona; "default" = bundled.
 	// EP-0038i.
 	Persona string `json:"persona,omitempty"`
+	// Source selects immutable historical context. Empty means the active parent.
+	Source *Source `json:"source,omitempty"`
+	// Model is an optional operator-configured model; the host must resolve it
+	// explicitly and never silently substitute another model.
+	Model       string   `json:"model,omitempty"`
+	ToolProfile string   `json:"tool_profile,omitempty"`
+	NarrowTools []string `json:"narrow_tools,omitempty"`
+	TokenBudget int      `json:"token_budget,omitempty"`
+	Execution   string   `json:"execution,omitempty"`
+	// ChildSessionID is host-only admission output; model JSON cannot set it.
+	ChildSessionID string `json:"-"`
+}
+
+type Source struct {
+	SessionID string `json:"session_id"`
+	At        string `json:"at"`
 }
 
 // Result is the structured payload returned to the parent model.
@@ -81,6 +98,9 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	req.Role = strings.TrimSpace(req.Role)
 	req.Mode = strings.TrimSpace(req.Mode)
 	req.Ownership = strings.TrimSpace(req.Ownership)
+	req.Model = strings.TrimSpace(req.Model)
+	req.ToolProfile = strings.TrimSpace(req.ToolProfile)
+	req.Execution = strings.TrimSpace(req.Execution)
 	if req.Prompt == "" {
 		return Request{}, errors.New("spawn_agent: prompt is required")
 	}
@@ -119,6 +139,31 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	}
 	if req.TimeoutSeconds > MaxTimeoutSeconds {
 		req.TimeoutSeconds = MaxTimeoutSeconds
+	}
+	if req.Source != nil {
+		req.Source.SessionID = strings.TrimSpace(req.Source.SessionID)
+		req.Source.At = strings.TrimSpace(req.Source.At)
+		if req.Source.SessionID == "" {
+			return Request{}, errors.New("spawn_agent: source.session_id is required")
+		}
+		if req.Source.At == "" {
+			req.Source.At = "last_committed_turn"
+		}
+		if req.Source.At != "last_committed_turn" && !strings.HasPrefix(req.Source.At, "turns/") {
+			return Request{}, errors.New("spawn_agent: source.at must be last_committed_turn or turns/N")
+		}
+	}
+	if req.Execution == "" {
+		req.Execution = "wait"
+	}
+	if req.Execution != "wait" && req.Execution != "retained" {
+		return Request{}, errors.New("spawn_agent: execution must be wait or retained")
+	}
+	if req.TokenBudget < 0 {
+		return Request{}, errors.New("spawn_agent: token_budget cannot be negative")
+	}
+	if req.TokenBudget == 0 {
+		req.TokenBudget = DefaultTokenBudget
 	}
 	return req, nil
 }

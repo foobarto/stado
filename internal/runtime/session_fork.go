@@ -74,6 +74,11 @@ func ForkSessionWithID(cfg *config.Config, parent *stadogit.Session, childID str
 // The empty-parent / no-tree case is the CLI command's job; this
 // primitive's contract is "fork at a known historical commit".
 func ForkSessionAtTurn(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash) (*stadogit.Session, error) {
+	return ForkSessionAtTurnWithID(cfg, parent, atCommit, uuid.New().String())
+}
+
+// ForkSessionAtTurnWithID is the broker-admitted form of ForkSessionAtTurn.
+func ForkSessionAtTurnWithID(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash, childID string) (*stadogit.Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("session fork at turn: config required")
 	}
@@ -85,7 +90,7 @@ func ForkSessionAtTurn(cfg *config.Config, parent *stadogit.Session, atCommit pl
 	}
 
 	worktreeRoot := filepath.Dir(parent.WorktreePath)
-	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, uuid.New().String(), atCommit)
+	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, childID, atCommit)
 	if err != nil {
 		return nil, fmt.Errorf("session fork at turn: create child: %w", err)
 	}

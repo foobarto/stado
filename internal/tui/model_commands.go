@@ -544,6 +544,11 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
 	case "/memory":
 		m.handleMemorySlash(parts)
+	case "/learn":
+		if len(parts) > 1 && (parts[1] == "candidates" || parts[1] == "list" || parts[1] == "show" || parts[1] == "approve") {
+			return m.manageLearn(parts)
+		}
+		return m.startLearnReview(strings.TrimSpace(strings.TrimPrefix(text, parts[0])))
 	case "/providers":
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/switch":

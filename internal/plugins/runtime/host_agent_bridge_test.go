@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -213,6 +214,17 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		AllowedTools:   []string{"fs_read", "rg__rg"},
 		SandboxProfile: "strict",
 		Persona:        "researcher",
+		Role:           "worker",
+		Mode:           "workspace_write",
+		Ownership:      "implement the parser",
+		WriteScope:     []string{"internal/parser/**"},
+		MaxTurns:       9,
+		TimeoutSeconds: 420,
+		Source:         &AgentSource{SessionID: "source-1", At: "turns/3"},
+		ToolProfile:    "worker-safe",
+		NarrowTools:    []string{"fs__read", "fs__write"},
+		TokenBudget:    12000,
+		Execution:      "retained",
 	}
 	reqBytes, _ := json.Marshal(req)
 	h.memWrite(0, reqBytes)
@@ -225,6 +237,9 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		t.Fatalf("expected positive bytes-written, got %d", n)
 	}
 	got := br.lastSpawnReq
+	if !reflect.DeepEqual(got, req) {
+		t.Errorf("forwarded request = %#v, want %#v", got, req)
+	}
 	if got.Prompt != req.Prompt {
 		t.Errorf("Prompt = %q, want %q", got.Prompt, req.Prompt)
 	}

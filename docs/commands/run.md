@@ -76,6 +76,18 @@ The `tasks` tool stores work items in stado state rather than the
 session worktree. It is audited as state-mutating trace metadata, but it
 does not create a tree commit.
 
+Runs with tools also expose two isolated retrieval tools:
+
+- `memory__research` searches authorized active memories and lessons.
+- `session__research` performs a slower search over the current session and
+  its authorized ancestors.
+
+Each researcher gets only bounded catalog/search/open operations. The parent
+receives a synthesis with digest-bound locators and short supporting excerpts,
+not the researcher's explored corpus. These tools spend an additional model
+call and therefore trade tokens and latency for higher-quality retrieval and a
+smaller parent context.
+
 ### Continue a prior session
 
 ```sh
