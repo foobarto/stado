@@ -25,7 +25,12 @@ import (
 )
 
 const defaultSystemPromptFilename = "system-prompt.md"
-const legacyDefaultSystemPromptTemplateSHA256 = "e712fed3c1f394afa61cb4f078fe3bde7acee8a902e75ab5914753aafcf04188"
+const (
+	// Older default tracked before the v0.79 prompt refresh.
+	legacyDefaultSystemPromptTemplateSHA256 = "e712fed3c1f394afa61cb4f078fe3bde7acee8a902e75ab5914753aafcf04188"
+	// Default immediately before shared-task deferral guidance was added.
+	previousDefaultSystemPromptTemplateSHA256 = "bd33dc6391719d71e5ddf50a874d119395344fe09edeea91576d6061a9bf660c"
+)
 
 func (c *Config) loadSystemPromptTemplate() error {
 	explicitPath := strings.TrimSpace(c.Agent.SystemPromptPath) != ""
@@ -158,5 +163,14 @@ func systemPromptTemplateRoot(path string) (*os.Root, string, error) {
 
 func isLegacyDefaultSystemPromptTemplate(data []byte) bool {
 	sum := sha256.Sum256(data)
-	return fmt.Sprintf("%x", sum[:]) == legacyDefaultSystemPromptTemplateSHA256
+	return isMigratableDefaultSystemPromptTemplateSHA256(fmt.Sprintf("%x", sum[:]))
+}
+
+func isMigratableDefaultSystemPromptTemplateSHA256(sum string) bool {
+	switch sum {
+	case legacyDefaultSystemPromptTemplateSHA256, previousDefaultSystemPromptTemplateSHA256:
+		return true
+	default:
+		return false
+	}
 }

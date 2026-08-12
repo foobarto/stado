@@ -45,6 +45,7 @@ var defaultAutoloadNames = []string{
 	"fs__read", "fs__write", "fs__edit", "fs__glob", "fs__grep", "shell__bash",
 	"fs__ls",
 	"agent__spawn",
+	"tasks",
 }
 
 // DefaultAutoloadNames returns a copy of the runtime's built-in

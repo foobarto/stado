@@ -5,6 +5,13 @@ the user and the agent. The TUI exposes it as a browser/editor, and the
 model sees the same store through the `tasks` tool whenever tools are
 enabled.
 
+The tool is part of the default model-facing tool surface. stado's default
+agent instructions treat the store as a deferred-work inbox: when a user sends
+an unrelated request during active work, the agent records it instead of
+silently replacing the current task, then revisits open tasks after the active
+task finishes. Requests that correct, constrain, or directly extend the active
+work remain part of that work.
+
 ## What It Stores
 
 Each task has:
@@ -58,6 +65,10 @@ commit because the task file is external state, not a repo change.
 
 Plan mode only exposes non-mutating tools, so `tasks` is hidden there.
 Use Do mode when the model should manage tasks.
+
+This is behavioral guidance rather than a scheduler: the store does not yet
+associate tasks with a repository or session, inject the backlog into every
+turn, or dispatch tasks automatically when a model loop ends.
 
 ## Bounds And Safety
 

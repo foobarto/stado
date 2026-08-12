@@ -137,6 +137,8 @@ func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 		"model: qwen/qwen3.6-35b-a3b",
 		"Cairn workflow defaults:",
 		"think before coding, simplicity first, surgical changes, and goal-driven execution",
+		"If the new request is unrelated, use the shared tasks tool to record it",
+		"After completing the active task, inspect deferred open tasks",
 		"Project instructions:\nalways write tests",
 	} {
 		if !strings.Contains(got, want) {
