@@ -5,9 +5,9 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-06-17
-requires: [37]
+requires: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)"]
 extends: [8]
-see-also: [18, 30, 39, 44]
+see-also: ["[EP-0018](./0018-configurable-system-prompt-template.md)", "[EP-0030](./0030-security-research-default-harness.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)"]
 history:
   - date: 2026-06-29
     status: Partial

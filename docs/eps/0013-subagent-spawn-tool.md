@@ -5,12 +5,12 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: [38]
-see-also: [3, 4, 6, 10, 11, 38]
+superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-05-05
     status: Superseded
-    superseded-by: [38]
+    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
     note: >
       Tool surface superseded by EP-0038's agent.* family (agent.spawn, agent.list,
       agent.read_messages, agent.send_message, agent.cancel). spawn_agent's native-instead-of-wasm

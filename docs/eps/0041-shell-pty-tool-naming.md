@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-22
 implemented-in: v0.49.0
-see-also: [37, 38]
+see-also: ["[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-05-22
     status: Implemented

@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: [19]
+see-also: ["[EP-0019](./0019-model-provider-picker-ux.md)"]
 history:
   - date: 2026-04-25
     status: Implemented

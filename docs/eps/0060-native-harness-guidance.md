@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-08-12
-requires: [52, 53, 54, 55, 56, 57, 59]
-see-also: [9, 30, 51, 58]
+requires: ["[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0054](./0054-addressable-context-and-research-agents.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0056](./0056-agent-mailboxes-and-supervision.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0030](./0030-security-research-default-harness.md)", "[EP-0051](./0051-lua-lifecycle-hook-contract.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

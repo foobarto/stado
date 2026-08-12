@@ -6,6 +6,9 @@ status: Accepted
 type: Process
 created: 2026-04-22
 history:
+  - date: 2026-08-12
+    status: Accepted
+    note: Relationship metadata now uses canonical relative Markdown links instead of bare EP numbers.
   - date: 2026-04-22
     status: Draft
     note: Initial draft — bootstraps the EP process itself, modelled after PEP-1.
@@ -239,21 +242,22 @@ audiences.
 Optional fields, added as they become relevant:
 
 - `updated: YYYY-MM-DD` — last substantive edit.
-- `requires: [N, M]` — EPs this one depends on (the reader should
+- `requires` — linked EPs this one depends on (the reader should
   read those first for context).
-- `superseded-by: [N]` — this EP is replaced by another; readers should
+- `superseded-by` — this EP is replaced by another; readers should
   follow the link forward.
-- `supersedes: [N, M]` — this EP replaces prior EPs listed here.
-- `extended-by: [N, M]` — later EPs that build on this one without
+- `supersedes` — this EP replaces the linked prior EPs.
+- `extended-by` — linked later EPs that build on this one without
   replacing it. Useful for forward navigation so a reader of this EP
   discovers follow-up work.
-- `see-also: [N, M]` — loosely related EPs, looser than `extended-by`.
+- `see-also` — loosely related linked EPs, looser than `extended-by`.
 - `implemented-in: vX.Y.Z` — release where this first shipped.
 - `discussion-at: <URL>` — link to issue/PR where debate happened.
 
-All EP-reference fields use YAML lists (`[1, 3, 7]`) even when only
-one value is present (`superseded-by: [4]`) — makes tooling simpler
-and keeps the schema consistent.
+All EP-reference fields use YAML lists of quoted relative Markdown links, even
+when only one value is present. Each link uses the canonical `EP-NNNN` label
+and exact target filename. Bare EP numbers are invalid: relationship metadata
+must be directly navigable while remaining machine-readable.
 
 ### The `history` field
 
@@ -275,7 +279,7 @@ edited or deleted.
 - `note:` — short human-readable context (one sentence). "Initial
   draft," "Approved after architecture review," "Shipped in v0.0.4,"
   "Replaced by EP-42 due to X," etc.
-- `superseded-by: [N]` — when status flips to `Superseded`, record the
+- `superseded-by` — when status flips to `Superseded`, link the
   replacing EP here. Mirrors the top-level `superseded-by:` field
   (they must agree).
 - `pr: <URL>` — link to the PR that landed this transition.
@@ -298,7 +302,7 @@ history:
     pr: https://github.com/example/project/pull/NNN
   - date: 2027-02-01
     status: Superseded
-    superseded-by: [42]
+    superseded-by: ["[EP-0042](./0042-binaries-out-of-source-tree.md)"]
     note: Replaced by EP-42 which extends the design.
 ```
 
@@ -422,8 +426,8 @@ the first few days of the EP process, it's looser.
 - **Withdraw:** the author updates `status: Withdrawn`, appends a
   history entry noting the reason, and adds a short paragraph at the
   top of the document explaining why. The EP stays in the repo.
-- **Supersede:** the replacing EP's frontmatter has `supersedes: [N]`;
-  the replaced EP's frontmatter gains `superseded-by: [M]`,
+- **Supersede:** the replacing EP's frontmatter links through `supersedes`;
+  the replaced EP's frontmatter links back through `superseded-by`,
   `status: Superseded`, and a new history entry. Both stay in the repo.
 - **Reject:** a maintainer updates `status: Rejected` and appends a
   history entry with the reason. Used for:
@@ -445,12 +449,12 @@ Loose `see-also` relationships do not need to be mirrored mechanically.
 
 Examples:
 
-- **Hypothetical supersession.** If EP-M has `supersedes: [N]`, the PR
-  that lands EP-M also updates EP-N to set `superseded-by: [M]` and
+- **Hypothetical supersession.** If EP-M has a `supersedes` link to EP-N, the PR
+  that lands EP-M also updates EP-N with a `superseded-by` link to EP-M and
   `status: Superseded`.
 - **Hypothetical explicit extension.** If EP-Q is intended as a direct
   follow-on to EP-P, the PR can record that strongly with
-  `extended-by: [Q]` on EP-P. If the relationship is only contextual,
+  an `extended-by` link to EP-Q on EP-P. If the relationship is only contextual,
   `see-also` is enough and no reciprocal update is required.
 
 Rationale: explicit supersession and strong extension links rot quickly

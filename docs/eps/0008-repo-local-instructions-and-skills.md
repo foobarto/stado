@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-extended-by: [18, 45]
-see-also: [9, 10]
+extended-by: ["[EP-0018](./0018-configurable-system-prompt-template.md)", "[EP-0045](./0045-model-invocable-skills.md)"]
+see-also: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
 history:
   - date: 2026-04-23
     status: Accepted

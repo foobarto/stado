@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: [4, 7, 38, 53, 57, 59]
-see-also: [20, 37, 50, 55, 58]
+requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0020](./0020-inline-context-completion.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0050](./0050-broker.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0058](./0058-measured-adaptive-retrieval.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

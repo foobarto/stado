@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24
-superseded-by: [53]
-see-also: [2, 6, 7, 8, 9, 11]
+superseded-by: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)"]
+see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0008](./0008-repo-local-instructions-and-skills.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0011](./0011-observability-and-telemetry.md)"]
 history:
   - date: 2026-04-24
     status: Placeholder
@@ -61,7 +61,7 @@ history:
       another session tree's memories.
   - date: 2026-08-12
     status: Superseded
-    superseded-by: [53]
+    superseded-by: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)"]
     note: >-
       EP-0053 moves authoritative memory/lesson persistence into a broker-owned,
       versioned artifact log with immutable scope bindings and a rebuildable

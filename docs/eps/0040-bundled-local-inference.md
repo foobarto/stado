@@ -5,7 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Draft
 type: Standards
 created: 2026-05-07
-see-also: [12, 19]
+see-also: ["[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0019](./0019-model-provider-picker-ux.md)"]
 history:
   - date: 2026-05-07
     status: Draft

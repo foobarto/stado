@@ -11,11 +11,11 @@ history:
     note: Initial draft.
 # Optional — add only the fields you need:
 # updated: YYYY-MM-DD
-# requires: [N]
-# supersedes: [N]
-# superseded-by: [N]
-# extended-by: [N, M]
-# see-also: [N, M]
+# requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
+# see-also: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]
 # implemented-in: vX.Y.Z
 # discussion-at: <URL>
 ---

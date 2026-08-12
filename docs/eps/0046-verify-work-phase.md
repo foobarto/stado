@@ -5,8 +5,8 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-06-17
-requires: [9, 38]
-see-also: [7, 36, 37, 44, 45]
+requires: ["[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0036](./0036-loop-monitor-schedule.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0044](./0044-repo-config-trust-boundary.md)", "[EP-0045](./0045-model-invocable-skills.md)"]
 history:
   - date: 2026-07-10
     status: Partial

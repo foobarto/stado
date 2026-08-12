@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-24
 implemented-in: v0.12.0
-see-also: [19, 20, 24, 25]
+see-also: ["[EP-0019](./0019-model-provider-picker-ux.md)", "[EP-0020](./0020-inline-context-completion.md)", "[EP-0024](./0024-footer-density.md)", "[EP-0025](./0025-thinking-display-modes.md)"]
 history:
   - date: 2026-04-25
     status: Implemented

@@ -6,8 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: [2, 5, 10, 11, 12, 39]
-extended-by: [39]
+see-also: ["[EP-0002](./0002-all-tools-as-plugins.md)", "[EP-0005](./0005-capability-based-sandboxing.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)"]
+extended-by: ["[EP-0039](./0039-plugin-distribution-and-trust.md)"]
 history:
   - date: 2026-04-23
     status: Accepted

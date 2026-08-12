@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: [4, 11, 21, 59]
-see-also: [7, 9, 47, 52, 53]
+requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0021](./0021-assistant-turn-metadata.md)", "[EP-0059](./0059-durable-event-and-budget-substrate.md)"]
+see-also: ["[EP-0007](./0007-conversation-state-and-compaction.md)", "[EP-0009](./0009-session-guardrails-and-hooks.md)", "[EP-0047](./0047-structured-loop-result-and-output.md)", "[EP-0052](./0052-learn-trajectory-refinement.md)", "[EP-0053](./0053-versioned-harness-artifacts-and-index.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
-see-also: [6, 12, 35, 37, 38]
+see-also: ["[EP-0006](./0006-signed-wasm-plugin-runtime.md)", "[EP-0012](./0012-release-integrity-and-distribution.md)", "[EP-0035](./0035-project-local-stado-dir.md)", "[EP-0037](./0037-tool-dispatch-and-operator-surface.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-05-05
     status: Draft

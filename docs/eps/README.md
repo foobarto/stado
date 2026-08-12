@@ -132,17 +132,19 @@ Optional, added as relevant (see EP-1 for full semantics):
 
 ```yaml
 updated: YYYY-MM-DD
-requires: [N, M]          # must-read-first dependencies
-supersedes: [N]           # this EP replaces these
-superseded-by: [N]        # this EP has been replaced
-extended-by: [N, M]       # later EPs build on this one
-see-also: [N, M]          # loosely related
+requires: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]      # must-read-first dependencies
+supersedes: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]    # this EP replaces these
+superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"] # this EP has been replaced
+extended-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]   # later EPs build on this one
+see-also: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]      # loosely related
 implemented-in: vX.Y.Z
 discussion-at: <URL>
 ```
 
-All EP-reference fields are YAML lists even when holding a single
-value (`superseded-by: [8]`), for tooling consistency.
+All EP-reference fields are YAML lists of quoted relative Markdown links, even
+when holding a single value, for tooling consistency and direct navigation.
+Use the canonical four-digit EP label and exact target filename; bare numeric
+IDs are not valid relationship values.
 
 ## Bidirectional links
 

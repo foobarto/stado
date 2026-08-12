@@ -6,8 +6,8 @@ status: Implemented
 implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
-requires: [4, 11, 50]
-see-also: [53, 55, 56, 57]
+requires: ["[EP-0004](./0004-git-native-sessions-and-audit.md)", "[EP-0011](./0011-observability-and-telemetry.md)", "[EP-0050](./0050-broker.md)"]
+see-also: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)", "[EP-0055](./0055-retained-resumable-subagents.md)", "[EP-0056](./0056-agent-mailboxes-and-supervision.md)", "[EP-0057](./0057-session-state-journal-decisions-and-signals.md)"]
 history:
   - date: 2026-08-12
     status: Implemented

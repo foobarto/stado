@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: [21, 23]
+see-also: ["[EP-0021](./0021-assistant-turn-metadata.md)", "[EP-0023](./0023-status-modal.md)"]
 history:
   - date: 2026-04-25
     status: Implemented

@@ -5,15 +5,15 @@ author: Bartosz Ptaszynski
 status: Superseded
 type: Standards
 created: 2026-05-04
-superseded-by: [38]
-see-also: [0013, 0014, 0033, 38]
+superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+see-also: ["[EP-0013](./0013-subagent-spawn-tool.md)", "[EP-0014](./0014-multi-session-tui.md)", "[EP-0033](./0033-responsive-supervisor-worker-lanes.md)", "[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Captures the user-fired feature ask captured at the end of the v0.28.0 dogfood loop.
   - date: 2026-05-05
     status: Superseded
-    superseded-by: [38]
+    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
     note: >
       Superseded by EP-0038 before any code shipped. EP-0034's Fleet registry concept survives as
       the runtime backing for agent.list and the /agents slash command, but the tool surface

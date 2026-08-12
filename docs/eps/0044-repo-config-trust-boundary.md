@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-06-14
 implemented-in: v0.75.0
-see-also: [0035, 0039, 0050]
+see-also: ["[EP-0035](./0035-project-local-stado-dir.md)", "[EP-0039](./0039-plugin-distribution-and-trust.md)", "[EP-0050](./0050-broker.md)"]
 history:
   - date: 2026-06-14
     status: Accepted

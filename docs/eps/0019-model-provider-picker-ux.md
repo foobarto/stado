@@ -6,7 +6,7 @@ status: Implemented
 implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
-see-also: [3, 10]
+see-also: ["[EP-0003](./0003-provider-native-agent-interface.md)", "[EP-0010](./0010-interop-surfaces-mcp-acp-headless.md)"]
 history:
   - date: 2026-04-25
     status: Implemented
