@@ -3,6 +3,7 @@ ep: 0029
 title: Config-introspection host imports — `cfg:*` capability vocabulary
 author: Bartosz Ptaszynski
 status: Implemented
+implemented-in: v0.48.8
 type: Standards
 created: 2026-05-04
 history:

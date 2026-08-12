@@ -3,6 +3,7 @@ ep: 20
 title: Inline Context Completion
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
 see-also: [8, 13, 14]

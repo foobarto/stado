@@ -1,14 +1,16 @@
 # No Internal Tools
 
-**Status as of 2026-05-07:** Steps 0–7 shipped. Steps 8–10 remain
+**Status as of 2026-08-12:** Steps 0–7 shipped. Steps 8–10 remain
 planned. See [EP-0002 — All Tools as WASM Plugins](../eps/0002-all-tools-as-plugins.md)
 and [EP-0037 — Tool dispatch and operator surface](../eps/0037-tool-dispatch-and-operator-surface.md).
 
 The model-facing tool surface in stado is plugin-shaped end-to-end.
-Stado without any wasm plugins exposes only an LLM chat plus a tight
-**registry-bootstrap carve-out** of eight tools. Every other tool the
-model can call — `fs.read`, `shell.bash`, `web.fetch`, `rg.search`,
-agent-spawn, etc. — comes from a wasm plugin (bundled or installed).
+Stado without any wasm plugins exposes an LLM chat plus a tight
+**registry-bootstrap carve-out** of eight non-disableable tools, the conditional
+`skills.load` loader, the two native isolated-research dispatchers, and the
+transitional native `tasks` tool. Ordinary task tools — `fs.read`,
+`shell.bash`, `web.fetch`, `rg.search`, agent-spawn, etc. — come from a wasm
+plugin (bundled or installed).
 
 ## Why
 
@@ -55,6 +57,14 @@ These survive `ApplyToolFilter` regardless of operator config
 patterns — the model needs at least these to reach the rest of the
 plugin surface.
 
+`skills.load` is also native, but is intentionally not part of this
+non-disableable kernel: it appears only when model-invocable skills exist and
+can be denied through `[tools].disabled`. `memory.research` and
+`session.research` are native bounded dispatchers into isolated agents rather
+than corpus-reading implementations; their host bridges enforce authorization
+and return cited syntheses. The native `tasks` tool remains the explicitly
+tracked Step 8 migration exception.
+
 ## What's NOT a carve-out
 
 - **`llm.invoke`** is registered on the MCP server's tool list only,
@@ -64,11 +74,9 @@ plugin surface.
   `agent.*` plugin family when it wants to delegate to a sub-agent.
   Structurally separated, not a special case.
 
-- **`tasks`** is migrated to a wasm plugin (Step 8) using
-  `stado_fs_*` + `stado_instance_*` state primitives. Until Step 8
-  lands the native `internal/tools/tasktool/` is still in the tree
-  as a transitional implementation; it will be deleted when the
-  wasm rewrite ships.
+- **`tasks`** is not migrated to a wasm plugin yet. Step 8 will rewrite it using
+  `stado_fs_*` + `stado_instance_*` state primitives. Until then the native
+  `internal/tools/tasktool/` remains a transitional model-facing exception.
 
 ## Migration phases
 
@@ -122,6 +130,7 @@ intentionally still present in the tree:
   collapse into `VerifiedPluginSource` at Step 9.
 - `[runtime.use_wasm]` config block — deleted at Step 9.
 
-These are visible in source today; the spec's risk-and-self-critique
-section calls them out explicitly. None of them are model-facing —
-the agent only sees the post-migration tool registry shape.
+These are visible in source today; the spec's risk-and-self-critique section
+calls them out explicitly. `tasktool` remains model-facing as the declared Step
+8 exception; `llmtool` is not registered on the ordinary agent surface, and the
+bundled shim is an implementation wrapper around the wasm tools the agent sees.

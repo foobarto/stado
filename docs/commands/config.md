@@ -137,6 +137,22 @@ Refuses to overwrite an existing file without `--force` so you can
 `config init` idempotently in dotfile-setup scripts without fearing
 accidental clobber.
 
+### Provider catalogue and setup
+
+```sh
+stado config providers
+stado config providers setup <name>
+stado config providers setup <name> --write
+```
+
+The catalogue groups native-SDK, OpenAI-compatible cloud, and local providers
+and reports only whether their conventional credential environment variable is
+present. `setup` prints provider-specific instructions. `--write` adds the
+corresponding `[inference.presets.<name>]` block for compatible providers;
+`--force` is required to replace an existing block. `--api-key` prints an
+export command for the operator to copy but never writes the key into
+`config.toml`.
+
 ## Config resolution order
 
 From highest-priority to lowest:

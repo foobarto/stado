@@ -259,6 +259,22 @@ func fold(records []wal.Record) (map[string]Message, error) {
 	}
 	return out, nil
 }
+
+// PendingCount reports available or delivered data messages without exposing
+// their untrusted payloads. It is used by host guidance and operator status.
+func PendingCount(w interface{ Records() []wal.Record }, receiver string) (int, error) {
+	messages, err := fold(w.Records())
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range messages {
+		if m.ReceiverSession == receiver && (m.State == StateAvailable || m.State == StateDelivered) {
+			n++
+		}
+	}
+	return n, nil
+}
 func appendEvent(w appender, m Message, principal, actor, idem, typ string) error {
 	data, _ := json.Marshal(m)
 	_, err := w.Append(wal.Transaction{ID: mint("tx_"), IdempotencyKey: idem, Principal: principal, Actor: actor, Events: []wal.Event{{Store: storeName, Type: typ, Session: m.ReceiverSession, Data: data}}})

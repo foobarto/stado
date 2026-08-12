@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,27 @@ func (s *Service) Observe(ctx context.Context, obs Observation, principal, actor
 		return nil, err
 	}
 	signals := detect(prior, obs, s.now().UTC())
+	// Aggregate repeated detector output by stable typed shape during a bounded
+	// cooldown. This prevents a stuck tool loop from growing the WAL without
+	// suppressing evidence that the same mistake recurred on a later task.
+	existing, err := foldSignals(s.wal.Records(), obs.SessionID, s.now())
+	if err != nil {
+		return nil, err
+	}
+	activeShapes := map[string]bool{}
+	for _, sig := range existing {
+		activeShapes[signalShape(sig)] = true
+	}
+	filtered := signals[:0]
+	for _, sig := range signals {
+		shape := signalShape(sig)
+		if activeShapes[shape] {
+			continue
+		}
+		activeShapes[shape] = true
+		filtered = append(filtered, sig)
+	}
+	signals = filtered
 	ob, _ := json.Marshal(obs)
 	events := []wal.Event{{Store: sessionStore, Type: "observation.recorded", Session: obs.SessionID, Data: ob}}
 	for _, sig := range signals {
@@ -46,6 +68,42 @@ func (s *Service) Observe(ctx context.Context, obs Observation, principal, actor
 	}
 	_, err = s.wal.Append(wal.Transaction{ID: mint("tx_"), IdempotencyKey: idem, Principal: principal, Actor: actor, Events: events})
 	return signals, err
+}
+
+func foldSignals(records []wal.Record, session string, now time.Time) ([]Signal, error) {
+	var out []Signal
+	for _, rec := range records {
+		for _, ev := range rec.Transaction.Events {
+			if ev.Store != sessionStore || ev.Session != session || ev.Type != "signal.detected" {
+				continue
+			}
+			var sig Signal
+			if err := json.Unmarshal(ev.Data, &sig); err != nil {
+				return nil, err
+			}
+			if sig.ExpiresAt.After(now) && sig.CreatedAt.After(now.Add(-time.Hour)) {
+				out = append(out, sig)
+			}
+		}
+	}
+	return out, nil
+}
+
+func signalShape(sig Signal) string {
+	keys := make([]string, 0, len(sig.Attributes))
+	for k := range sig.Attributes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(string(sig.Type))
+	for _, k := range keys {
+		b.WriteByte('|')
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(sig.Attributes[k])
+	}
+	return b.String()
 }
 
 func (s *Service) Signals(session string, includeExpired bool) ([]Signal, error) {

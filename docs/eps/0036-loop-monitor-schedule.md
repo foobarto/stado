@@ -3,6 +3,7 @@ ep: 36
 title: Loop, monitor, and schedule — recurring agent work
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.32.0
 type: Standards
 created: 2026-05-05
 see-also: [9, 34, 35]

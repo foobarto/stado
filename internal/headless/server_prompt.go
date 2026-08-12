@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
@@ -186,6 +188,15 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			exec.Hooks = lifecycleHooks
 			opts.Executor = exec
 		}
+	}
+	opts.GuidanceContext = func() string {
+		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: strings.Contains(opts.MemoryContext, "Memory snippets supplied") || strings.Contains(opts.MemoryContext, "Active Stado memories and lessons"), ToolAvailable: func(name string) bool {
+			if opts.Executor == nil || opts.Executor.Registry == nil {
+				return false
+			}
+			_, ok := opts.Executor.Registry.Get(name)
+			return ok
+		}})
 	}
 
 	text, msgs, err := runtime.AgentLoop(pctx, opts)

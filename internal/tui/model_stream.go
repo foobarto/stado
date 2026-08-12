@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/memory"
@@ -109,7 +110,15 @@ func (m *Model) turnMemoryContext(userPrompt string) string {
 		tuiTrace("artifact prompt context failed", "error", modernErr.Error())
 	}
 	state, _ := stateprompt.Build(m.cfg.StateDir(), sessionID)
-	return strings.TrimSpace(strings.Join([]string{body, modern, state}, "\n\n"))
+	fast := strings.TrimSpace(body+modern) != ""
+	guide := guidance.Build(guidance.Options{StateDir: m.cfg.StateDir(), SessionID: sessionID, Prompt: userPrompt, FastContext: fast, Interactive: true, ToolAvailable: func(name string) bool {
+		if m.executor == nil || m.executor.Registry == nil {
+			return false
+		}
+		_, ok := m.executor.Registry.Get(name)
+		return ok
+	}})
+	return strings.TrimSpace(strings.Join([]string{body, modern, state, guide}, "\n\n"))
 }
 
 func latestUserPrompt(msgs []agent.Message) string {

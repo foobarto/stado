@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,19 @@ func TestAgentLoopAddsMemoryContextToSystemPrompt(t *testing.T) {
 	}
 	if got := prov.system; got == "" || !strings.Contains(got, "Memory snippets supplied by installed plugins") {
 		t.Fatalf("system prompt missing memory context:\n%s", got)
+	}
+}
+
+func TestBuildTurnSystemRefreshesBoundedGuidance(t *testing.T) {
+	n := 0
+	opts := AgentLoopOptions{Provider: &systemCaptureProvider{}, Model: "m", GuidanceContext: func() string {
+		n++
+		return "host guidance revision " + fmt.Sprint(n)
+	}}
+	first := buildTurnSystem(opts)
+	second := buildTurnSystem(opts)
+	if !strings.Contains(first, "revision 1") || !strings.Contains(second, "revision 2") {
+		t.Fatalf("guidance was not refreshed: first=%q second=%q", first, second)
 	}
 }
 

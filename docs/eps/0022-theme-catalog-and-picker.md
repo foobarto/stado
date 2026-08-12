@@ -3,6 +3,7 @@ ep: 22
 title: Theme Catalog and Picker
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
+implemented-in: v0.24.0
 type: Standards
 created: 2026-04-24
 see-also: [19]

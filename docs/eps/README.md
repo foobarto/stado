@@ -81,6 +81,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Implemented |
 | 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Implemented |
 | 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
+| 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Accepted |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +125,10 @@ type AgentLoopOptions struct {
 	// MemoryContext is optional approved-memory prompt context. Callers
 	// own retrieval/scoping so this loop stays provider/session generic.
 	MemoryContext string
+	// GuidanceContext is optional bounded host-derived workflow guidance. It
+	// is evaluated at every internal model turn so newly detected trajectory
+	// signals can guide the next step without rewriting message history.
+	GuidanceContext func() string
 
 	// Persona, when non-nil, supplies the agent's operating manual
 	// (system prompt body). Replaces the default stado-shipped
@@ -816,14 +821,20 @@ func coalesceVerifyEvents(text string, calls []agent.ToolUseBlock, usage agent.U
 // (project AGENTS.md + memory still append). Without a persona,
 // falls back to instructions.ComposeSystemPrompt for legacy behavior.
 func buildTurnSystem(opts AgentLoopOptions) string {
+	memoryContext := opts.MemoryContext
+	if opts.GuidanceContext != nil {
+		if guidance := strings.TrimSpace(opts.GuidanceContext()); guidance != "" {
+			memoryContext = strings.TrimSpace(strings.Join([]string{memoryContext, guidance}, "\n\n"))
+		}
+	}
 	var sys string
 	if opts.Persona != nil {
-		sys = personas.AssembleSystem(opts.Persona, opts.System, opts.MemoryContext, "")
+		sys = personas.AssembleSystem(opts.Persona, opts.System, memoryContext, "")
 	} else {
 		sys = instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
 			Provider: opts.Provider.Name(),
 			Model:    opts.Model,
-			Memory:   opts.MemoryContext,
+			Memory:   memoryContext,
 		})
 	}
 	// Gate the listing on the same condition as the skills__load autoload:

@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/personas"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
@@ -287,7 +288,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if skErr != nil {
 		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
 	}
-	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
+	childOpts := AgentLoopOptions{
 		Provider:                 childProvider,
 		Executor:                 exec,
 		Config:                   r.Config,
@@ -309,7 +310,16 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Skills:                   childSkills,
 		QuietRegistryDiagnostics: r.QuietRegistryDiagnostics,
 		TokenCap:                 req.TokenBudget,
-	})
+	}
+	if r.Config != nil {
+		childOpts.GuidanceContext = func() string {
+			return guidance.Build(guidance.Options{StateDir: r.Config.StateDir(), SessionID: child.ID, Prompt: req.Prompt, ToolAvailable: func(name string) bool {
+				_, ok := exec.Registry.Get(name)
+				return ok
+			}})
+		}
+	}
+	text, msgs, err := AgentLoop(childCtx, childOpts)
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr
 	}

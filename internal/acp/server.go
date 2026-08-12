@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/personas"
@@ -646,6 +647,15 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
+	}
+	opts.GuidanceContext = func() string {
+		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: strings.Contains(opts.MemoryContext, "Memory snippets supplied") || strings.Contains(opts.MemoryContext, "Active Stado memories and lessons"), ToolAvailable: func(name string) bool {
+			if opts.Executor == nil || opts.Executor.Registry == nil {
+				return false
+			}
+			_, ok := opts.Executor.Registry.Get(name)
+			return ok
+		}})
 	}
 
 	priorLen := len(localMsgs)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/foobarto/stado/internal/broker/wal"
 )
@@ -119,5 +120,43 @@ func TestOneOffFailureYieldsNoSignal(t *testing.T) {
 	got, err := s.Observe(context.Background(), Observation{SessionID: "s", Kind: ObservationTool, Tool: "x", ArgsDigest: "a", EvidenceRef: "trace:1"}, "alice", "broker", "one")
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got=%v err=%v", got, err)
+	}
+}
+
+func TestRepeatedSignalShapeAggregatesWhileActive(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		_, err := s.Observe(ctx, Observation{SessionID: "s", Kind: ObservationTool, Tool: "x", ArgsDigest: "same", EvidenceRef: "trace:" + string(rune('a'+i))}, "alice", "broker", "obs"+string(rune('a'+i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	signals, err := s.Signals("s", false)
+	if err != nil || len(signals) != 1 || signals[0].Type != SignalRepeatedToolFailure {
+		t.Fatalf("signals=%v err=%v", signals, err)
+	}
+}
+
+func TestRepeatedSignalShapeCanRecurAfterCooldown(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	ctx := context.Background()
+	observe := func(id string) {
+		_, err := s.Observe(ctx, Observation{SessionID: "s", Kind: ObservationTool, Tool: "x", ArgsDigest: "same", EvidenceRef: "trace:" + id}, "alice", "broker", "obs"+id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	observe("1")
+	observe("2")
+	now = now.Add(2 * time.Hour)
+	observe("3")
+	signals, err := s.Signals("s", false)
+	if err != nil || len(signals) != 2 {
+		t.Fatalf("signals=%v err=%v", signals, err)
 	}
 }

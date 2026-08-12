@@ -319,6 +319,13 @@ instructions and cannot grant tools or capabilities. See
 [Adaptive context and learning](docs/adaptive-context.md) and the
 [`stado learn` guide](docs/commands/learning.md) for the full contract.
 
+Stado also supplies bounded native harness guidance at model-turn boundaries.
+Strong unreviewed mechanical signals prompt the agent to preserve a candidate
+lesson and ask you to use `/learn`; historical questions can be routed to the
+isolated memory/session researchers, and retained children with pending work
+trigger mailbox coordination reminders. These nudges use fixed host templates,
+never embed mailbox/tool payloads, and cannot approve memory or widen authority.
+
 Retained subagents complement this memory system for longer work. They can fork
 an authorized historical session into a new identity with an attenuated tool,
 permission, model, and budget profile; durable handles support messaging,
@@ -640,7 +647,9 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 | `internal/tools/{executor,registry,classify}.go` | tool dispatch + per-call commit invariants; the name→tool registry; mutation class (tree vs trace commit) |
 | `internal/providers/` (+ `pkg/agent`) | provider impls (anthropic/openai/google/oaicompat); native thinking-signature + prompt-cache round-trip |
 | `internal/{instructions,personas,skills}` | AGENTS.md/CLAUDE.md loading; persona inheritance; `.stado/skills/*.md` → `/skill:` commands |
-| `internal/{memory,tasks}` | approved-memory prompt context (ranked/capped); shared user+agent task list |
+| `internal/{memory,artifacts,artifactprompt,learn,research}` | legacy and versioned memory; bounded prompt retrieval; evidence-backed learning; isolated memory/session researchers |
+| `internal/{sessioncontext,stateprompt,trajectory}` | bounded operational state, journal, deterministic learning signals, and turn/tool observations |
+| `internal/{tasks,orchestration}` | shared user+agent task list; retained child admission, leases, mailbox coordination, and supervision |
 | `internal/{compact,streambudget,toolinput}` | user-invoked compaction; streamed-text + tool-arg size caps |
 | `internal/runtime/subagent.go` (+ `internal/subagent`) | `spawn_agent`: child loop, forked worktree, write-scope projection |
 | `internal/state/git/{sidecar,session}.go` | the sidecar-bare-repo state model; repo-id canonicalization; per-session `tree`/`trace` refs |
@@ -648,7 +657,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 | `internal/audit/{signer,verify}.go` | the `stado-audit-v2` signature format; strict v2 verify (no v1 fallback); the audit ref-walk |
 | `internal/sandbox/policy.go` | the capability grammar (`fs:`/`net:`/`exec:`/`env:`); policy intersection (`Merge`) |
 | `internal/sandbox/{runner_linux,runner_darwin,landlock_linux,seccomp_linux,proxy}.go` | per-OS enforcement (bwrap/landlock/seccomp, sandbox-exec); the net-allowlist CONNECT proxy |
-| `internal/broker/` | the privileged broker: session-ceiling projection, profiles (default/hardened/no-sandbox), taint, mount table (CI-asserted) |
+| `internal/broker/` | the privileged broker: session-ceiling projection, profiles, taint, mount table, canonical WAL/snapshots, artifact grants, mailboxes, retained lifecycle, and recursive budgets |
 | `internal/{netguard,providers/envscrub,secrets}` | SSRF / private-IP egress blocking; subprocess env safelist (`inherit_env`); operator secret store |
 
 ### TUI (`internal/tui`)
