@@ -32,6 +32,24 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased
+
+### Runtime
+
+- **Deferred user follow-ups become shared tasks by default.** The default agent
+  instructions now preserve one active task, capture unrelated prompts in the
+  shared task store, and revisit deferred work after completion. The `tasks`
+  tool is autoloaded so this policy remains actionable without tool discovery.
+
+### Docs
+
+- **Task-store maturity boundaries are explicit.** Documented the deferred-work
+  convention and clarified that the current global CRUD store is not yet a
+  repository-scoped scheduler or automatic dispatcher.
+- **WASM plugins join the feature reel.** Promoted stado's replaceable
+  tools-as-plugins architecture, signed WASM runtime, capability policy, and
+  shared bundled/third-party ABI in the README and static landing page.
+
 ## v0.79.0 — bounded orchestration and feature showcase — 2026-08-12
 
 ### Runtime
