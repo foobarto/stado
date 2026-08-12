@@ -2,13 +2,18 @@
 ep: 52
 title: Learn — Evidence-Backed Trajectory Refinement
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
+implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
 supersedes: [16]
 requires: [15, 21, 46, 53, 57, 59]
 see-also: [7, 9, 44, 47]
 history:
+  - date: 2026-08-12
+    status: Implemented
+    version: v0.78.0
+    note: Shipped in v0.78.0 as part of the memory, context, and continual-harness implementation.
   - date: 2026-08-12
     status: Accepted
     note: Accepted after product, security, and distributed-systems adversarial review.

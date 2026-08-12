@@ -73,14 +73,14 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Partial |
 | 0051 | [Lua Lifecycle Hook Contract](./0051-lua-lifecycle-hook-contract.md) | Standards | Implemented |
-| 0052 | [Learn — Evidence-Backed Trajectory Refinement](./0052-learn-trajectory-refinement.md) | Standards | Accepted |
-| 0053 | [Versioned Harness Artifacts and Rebuildable Index](./0053-versioned-harness-artifacts-and-index.md) | Standards | Accepted |
-| 0054 | [Memory and Session Research Agents](./0054-addressable-context-and-research-agents.md) | Standards | Accepted |
-| 0055 | [Retained and Resumable Sub-agent Sessions](./0055-retained-resumable-subagents.md) | Standards | Accepted |
-| 0056 | [Durable Agent Mailboxes and Supervision](./0056-agent-mailboxes-and-supervision.md) | Standards | Accepted |
-| 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Accepted |
-| 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Accepted |
-| 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Accepted |
+| 0052 | [Learn — Evidence-Backed Trajectory Refinement](./0052-learn-trajectory-refinement.md) | Standards | Implemented |
+| 0053 | [Versioned Harness Artifacts and Rebuildable Index](./0053-versioned-harness-artifacts-and-index.md) | Standards | Implemented |
+| 0054 | [Memory and Session Research Agents](./0054-addressable-context-and-research-agents.md) | Standards | Implemented |
+| 0055 | [Retained and Resumable Sub-agent Sessions](./0055-retained-resumable-subagents.md) | Standards | Implemented |
+| 0056 | [Durable Agent Mailboxes and Supervision](./0056-agent-mailboxes-and-supervision.md) | Standards | Implemented |
+| 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Implemented |
+| 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Implemented |
+| 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

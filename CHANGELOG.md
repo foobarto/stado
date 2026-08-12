@@ -34,6 +34,11 @@ become semver guarantees.
 
 ## Unreleased
 
+- Consolidated Dependabot updates across the Go dependency graph and pinned
+  GitHub Actions. Notable upgrades include Anthropic SDK 1.62.0, MCP Go 0.57.0,
+  OpenTelemetry 1.45.0, go-git 5.19.2, Google API 0.292.0, gRPC 1.83.0,
+  checkout 7.0.1, setup-go 7.0.0, CodeQL 4.37.3, and Scorecard 2.4.4.
+
 ## v0.78.0 — adaptive context and durable learning — 2026-08-12
 
 ### UX / CLI / TUI
