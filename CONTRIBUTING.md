@@ -185,11 +185,36 @@ does not attempt an unsigned post-release repair.
 
 1. Make sure `go test ./...`, `golangci-lint run`, and
    `hack/tmux-uat.sh all` all pass locally.
-2. Update `CHANGELOG.md` under `## Unreleased` with a one-sentence
+2. Complete the mandatory feature documentation audit below and include every
+   required documentation update in the feature PR.
+3. Update `CHANGELOG.md` under `## Unreleased` with a one-sentence
    hook + a short "why" paragraph.
-3. Open the PR with a short summary + a test-plan checklist.
-4. CI must go green before merge. Flaky tests should be fixed, not
+4. Open the PR with a short summary + a test-plan checklist.
+5. CI must go green before merge. Flaky tests should be fixed, not
    retried.
+
+## Mandatory feature documentation audit
+
+Documentation is the final phase of every feature, not later cleanup. After
+implementation and tests, but before committing, pushing, approving, merging,
+or calling the feature complete:
+
+1. Search the whole documentation surface for the feature name and every
+   changed command, config key, API, package, and behavior. Check `README.md`,
+   `DESIGN.md`, `CHANGELOG.md`, `PLAN.md`, `docs/README.md`, all relevant
+   command, feature, plugin, security, and UAT documentation, and project state
+   under `.agent/`. Do not review only files already touched by the diff.
+2. Update all affected architecture, reference, examples, indexes, links,
+   security boundaries, UAT scenarios, plans, and changelog entries in the same
+   PR. Do not defer known documentation drift to a cleanup PR.
+3. Inspect `docs/eps/README.md` and search every EP for affected contracts. Keep
+   EP frontmatter, history, content, and index rows synchronized. A fully
+   shipped Standards EP must be changed to `status: Implemented` as part of
+   feature completion.
+4. Repeat the searches, validate links and examples where practical, run
+   `git diff --check`, and review the final diff specifically for missing or
+   stale documentation. State the audited surfaces in the PR handoff. If the
+   audit finds no required changes, record that conclusion explicitly.
 
 ## Design principles
 

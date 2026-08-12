@@ -2,12 +2,15 @@
 ep: 60
 title: Native Bounded Harness Guidance
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
 type: Standards
 created: 2026-08-12
 requires: [52, 53, 54, 55, 56, 57, 59]
 see-also: [9, 30, 51, 58]
 history:
+  - date: 2026-08-12
+    status: Implemented
+    note: Shipped native bounded harness guidance across agent surfaces in PR #253, with full tests, signed commits, and documentation synchronized.
   - date: 2026-08-12
     status: Accepted
     note: Accepted for implementation after the repository-wide documentation audit.
