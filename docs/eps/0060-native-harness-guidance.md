@@ -5,6 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-08-12
+implemented-in: v0.79.0
 requires: ["EP-0052", "EP-0053", "EP-0054", "EP-0055", "EP-0056", "EP-0057", "EP-0059"]
 see-also: ["EP-0009", "EP-0030", "EP-0051", "EP-0058"]
 history:
@@ -13,6 +14,7 @@ history:
     note: Accepted for implementation after the repository-wide documentation audit.
   - date: 2026-08-12
     status: Implemented
+    version: v0.79.0
     note: Shipped native bounded harness guidance across agent surfaces in PR #253, with full tests, signed commits, and documentation synchronized.
 ---
 

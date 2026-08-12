@@ -1,57 +1,35 @@
-## v0.78.0 — adaptive context and durable learning — 2026-08-12
-
-### UX / CLI / TUI
-
-- **`stado learn` and `/learn` close the evidence-backed learning loop.** A
-  bounded reviewer analyzes deterministic mistake and correction signals from a
-  completed trajectory and proposes versioned lesson candidates. Candidate
-  inspection is available from CLI and TUI, while activation requires a fresh,
-  one-use operator-origin grant bound to the exact artifact and scope.
-- **The pre-v1 `stado learning` noun is removed.** Legacy stores remain
-  inspectable through compatibility lifecycle subcommands under `stado learn`
-  and migrate idempotently with `stado learn migrate`.
-- **Session context is directly inspectable.** `stado session state`, `signals`,
-  and `journal` expose bounded structured state, deterministic learning signals,
-  and canonical chronology without promoting model assertions into authority.
+## v0.79.0 — bounded orchestration and feature showcase — 2026-08-12
 
 ### Runtime
 
-- **Memory and session research gain isolated agent paths.** The
-  `memory__research` and `session__research` tools search authorized corpora with
-  bounded catalog/search/open operations. Parents receive a synthesis and
-  precise digest-bound citations rather than the explored raw corpus.
-- **Retained subagents can resume historical work under a new identity.** Durable
-  admissions, immutable fork points, broker epochs, leases, recursive budgets,
-  attenuated capability ceilings, retained handles, messaging, cancellation,
-  and bounded supervision make long-running children recoverable without using
-  historical context as authority.
-- **Retrieval feedback is measurable before it is automatic.** Exposure,
-  opening, citation, and evaluated outcomes feed versioned shadow comparisons;
-  `stado learn retrieval-report` reports them without changing active retrieval
-  or demoting mandatory security guidance.
+- **Native bounded orchestration guidance.** Added guidance across TUI, CLI,
+  headless, ACP, and spawned-agent turns. Strong unreviewed mechanical signals
+  encourage candidate-only `stado learn`/`/learn`; fixed request shapes
+  recommend isolated memory/session research; active children and unread
+  mailboxes trigger coordination reminders. Guidance is capability-aware,
+  payload-free, capped, and repeated signal shapes aggregate during a bounded
+  cooldown to prevent learning bloat without hiding later recurrence.
 
-### Persistence / Security
+### Docs
 
-- **Harness artifacts are versioned, scoped, and searchable.** Memory and lesson
-  records carry immutable host-bound scope, tags, groups, evidence, provenance,
-  sensitivity, expiry, and review state. A disposable SQLite FTS5 projection
-  accelerates lookup while the hash-chained broker event log remains canonical.
-- **The broker now supplies the durability substrate for adaptive context.** An
-  exclusive single-writer lock, broker epochs, atomic WAL transactions,
-  idempotent jobs, operator grants, and reserve/commit/release budget accounting
-  fence restarts and concurrent processes. Private and secret artifact bodies
-  remain outside ordinary full-text indexing and prompt eligibility.
-- **State, journal, mailbox, and lifecycle events share one crash-consistent
-  chronology.** Control events cannot be forged as agent messages, receiver
-  inputs commit exactly once before arbitrary effects, and recovery resumes the
-  recorded turn instead of reinjecting it as a new message.
-- **gRPC is updated to 1.82.1.** This removes the reachable GO-2026-6061 xDS
-  RBAC and HTTP/2 transport vulnerability reported by the release gate.
+- **Impact-focused feature reel.** Added it to the README and static landing page,
+  highlighting isolated research, retained subagents, durable mailboxes,
+  adaptive retrieval, trajectory learning, session signals, the durable
+  broker, Verify Work command gates, Lua lifecycle hooks, and native bounded
+  orchestration with links to their EPs.
+- **Navigable EP relationships.** Replaced bare numeric
+  `requires`, `extends`, `supersedes`, `superseded-by`, `extended-by`, and
+  `see-also` values with canonical labels and validated rendered links across
+  the full EP catalogue.
+- **Repository-wide documentation audit.** Added coverage for previously
+  unindexed operator commands, reconciled slash and lean-core guides, documented
+  the v0.78 adaptive-context architecture in `DESIGN.md`, repaired moved example
+  links, and completed `implemented-in` metadata for older implemented EPs.
 
-### Documentation
+### Infra
 
-- Added the adaptive-context guide and accepted EP-0052 through EP-0059 after
-  adversarial product, security, and distributed-systems review. Updated the
-  command guides, slash-command reference, README, roadmap, and homepage for the
-  shipped v0.78.0 behavior.
+- **Dependency and Actions refresh.** Consolidated Dependabot updates across the Go dependency graph and pinned
+  GitHub Actions. Notable upgrades include Anthropic SDK 1.62.0, MCP Go 0.57.0,
+  OpenTelemetry 1.45.0, go-git 5.19.2, Google API 0.292.0, gRPC 1.83.0,
+  checkout 7.0.1, setup-go 7.0.0, CodeQL 4.37.3, and Scorecard 2.4.4.
 
