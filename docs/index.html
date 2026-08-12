@@ -1665,7 +1665,7 @@
       <article class="feature span-4">
         <div class="tag"><span class="idx">▍ EP-0002 · 0006 · 0038</span><span class="sep">/</span> tools are plugins</div>
         <h3>Swap the tool. Keep the <em>guardrails</em>.</h3>
-        <p>Bundled and third-party tools share a replaceable plugin contract. WASM modules run in <span class="mono">wazero</span> under declared capabilities, signature policy, and one auditable ABI.</p>
+        <p>Bundled and third-party tools share a capability-gated ABI in <span class="mono">wazero</span>. Bundled modules are trusted embedded release assets; installed plugins require signature, trust-store, and digest verification.</p>
         <div class="ep-links">
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0002-all-tools-as-plugins.md">tool architecture →</a>
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0006-signed-wasm-plugin-runtime.md">wasm runtime →</a>

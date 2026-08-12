@@ -49,8 +49,9 @@ become semver guarantees.
   convention and clarified that the current global CRUD store is not yet a
   repository-scoped scheduler or automatic dispatcher.
 - **WASM plugins join the feature reel.** Promoted stado's replaceable
-  tools-as-plugins architecture, signed WASM runtime, capability policy, and
-  shared bundled/third-party ABI in the README and static landing page.
+  tools-as-plugins architecture, capability-gated WASM runtime, shared ABI, and
+  distinct embedded-bundled versus signed-installed trust paths in the README
+  and static landing page.
 
 ## v0.79.0 — bounded orchestration and feature showcase — 2026-08-12
 
