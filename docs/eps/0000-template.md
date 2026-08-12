@@ -33,7 +33,7 @@ history:
   - Once status flips to Accepted, the document is append-only. Edits
     that change a decision go in a new EP that supersedes this one.
   - If this EP extends or supersedes an existing one, update that
-    EP's frontmatter in the same PR (see EP-1 §"Updating EPs" and EP-62).
+    EP's frontmatter in the same PR (see EP-1 §"Updating EPs" and EP-61).
 -->
 
 ## Problem
