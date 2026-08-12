@@ -64,6 +64,11 @@ type AgentLoopOptions struct {
 	// before the assistant/tool messages are appended to history. Callers can
 	// inspect the turn with the same pre-append turn index the TUI hook sees.
 	OnTurnComplete func(turnIndex int, text string, toolCalls []agent.ToolUseBlock, usage agent.Usage, duration time.Duration)
+	// OnToolOutcome receives host-observed call/result facts after execution.
+	// Implementations persist deterministic trajectory signals; callback errors
+	// are non-fatal because learning telemetry must not break the active task.
+	OnToolOutcome func(turnIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
+	Research      func(context.Context, string, string) (any, error)
 
 	// OnSubagentEvent fires when spawn_agent creates or finishes a child
 	// session. It is best-effort user/client visibility; audit remains in
@@ -244,6 +249,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			Metrics:                  opts.Metrics,
 			Broker:                   opts.Broker,
 		}
+		if opts.Config != nil && loopRunner.Parent != nil {
+			loopRunner.ResolveSource = ResolveTreeSource(loopRunner.Parent, opts.Config.WorktreeDir())
+		}
 		spawnFn := buildLoopSubagentSpawner(loopRunner)
 		var fb *FleetBridgeAdapter
 		if spawnFn != nil {
@@ -252,6 +260,13 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				Fleet:   fleet,
 				Spawner: loopRunner,
 				RootCtx: ctx,
+			}
+			if opts.Config != nil && loopRunner.Parent != nil {
+				closeRetained, retainedErr := ConfigureRetainedBridge(ctx, opts.Config, loopRunner.Parent, fb)
+				if retainedErr != nil {
+					return "", nil, fmt.Errorf("configure retained agents: %w", retainedErr)
+				}
+				defer func() { _ = closeRetained() }()
 			}
 		}
 		ptyMgr := pty.NewManager()
@@ -274,6 +289,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			fleetBridge:          fb,
 			pty:                  ptyMgr,
 			defaultSandboxPolicy: opts.DefaultSandboxPolicy,
+			research:             opts.Research,
 		}
 	}
 
@@ -743,11 +759,15 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 					content = trimmed
 				}
 			}
-			results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
+			resultBlock := agent.ToolResultBlock{
 				ToolUseID: c.ID,
 				Content:   content,
 				IsError:   isErr,
-			}})
+			}
+			results = append(results, agent.Block{ToolResult: &resultBlock})
+			if opts.OnToolOutcome != nil {
+				opts.OnToolOutcome(turn, c, resultBlock)
+			}
 		}
 		msgs = append(msgs, agent.Message{Role: agent.RoleTool, Content: results})
 		if opts.Broker != nil {

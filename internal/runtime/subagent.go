@@ -2,9 +2,12 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +59,12 @@ type SubagentRunner struct {
 	QuietRegistryDiagnostics bool
 	Metrics                  telemetry.Metrics
 	Broker                   BrokerController
+	// ResolveSource returns an authorized immutable source session/checkpoint.
+	// Nil permits only the active parent.
+	ResolveSource func(context.Context, subagent.Source) (*stadogit.Session, error)
+	// ResolveModel resolves an explicitly requested configured model. Nil denies
+	// model changes. The returned name is the exact model passed to the provider.
+	ResolveModel func(context.Context, string) (agent.Provider, string, error)
 }
 
 // WithInbox returns a copy of the runner with InboxFn set. Implements
@@ -120,6 +129,40 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if r.Provider == nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: provider required")
 	}
+	source := r.Parent
+	var sourceTurnCommit plumbing.Hash
+	if req.Source != nil {
+		if r.ResolveSource == nil {
+			return subagent.Result{}, errors.New("spawn_agent: historical source is not authorized on this surface")
+		}
+		source, err = r.ResolveSource(ctx, *req.Source)
+		if err != nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: resolve source: %w", err)
+		}
+		if source == nil {
+			return subagent.Result{}, errors.New("spawn_agent: source resolver returned nil")
+		}
+		if strings.HasPrefix(req.Source.At, "turns/") {
+			turn, parseErr := strconv.Atoi(strings.TrimPrefix(req.Source.At, "turns/"))
+			if parseErr != nil || turn < 0 {
+				return subagent.Result{}, errors.New("spawn_agent: invalid historical turn selector")
+			}
+			sourceTurnCommit, err = source.Sidecar.ResolveRef(stadogit.TurnTagRef(source.ID, turn))
+			if err != nil {
+				return subagent.Result{}, fmt.Errorf("spawn_agent: resolve historical turn: %w", err)
+			}
+		}
+	}
+	childProvider, childModel := r.Provider, r.Model
+	if req.Model != "" && req.Model != r.Model {
+		if r.ResolveModel == nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested model %q is unavailable", req.Model)
+		}
+		childProvider, childModel, err = r.ResolveModel(ctx, req.Model)
+		if err != nil || childProvider == nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested model %q: %w", req.Model, err)
+		}
+	}
 	childBroker := r.Broker
 	var child *stadogit.Session
 	if r.Broker != nil {
@@ -136,11 +179,23 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			if filepath.Dir(filepath.Clean(reserved)) != worktreeRoot {
 				return subagent.Result{}, fmt.Errorf("spawn_agent: broker child worktree %q is outside %q", reserved, worktreeRoot)
 			}
-			child, err = ForkSessionWithID(r.Config, r.Parent, filepath.Base(reserved))
+			if sourceTurnCommit.IsZero() {
+				child, err = ForkSessionWithID(r.Config, source, filepath.Base(reserved))
+			} else {
+				child, err = ForkSessionAtTurnWithID(r.Config, source, sourceTurnCommit, filepath.Base(reserved))
+			}
 		}
 	}
 	if child == nil && err == nil {
-		child, err = ForkSession(r.Config, r.Parent)
+		if !sourceTurnCommit.IsZero() && req.ChildSessionID != "" {
+			child, err = ForkSessionAtTurnWithID(r.Config, source, sourceTurnCommit, req.ChildSessionID)
+		} else if !sourceTurnCommit.IsZero() {
+			child, err = ForkSessionAtTurn(r.Config, source, sourceTurnCommit)
+		} else if req.ChildSessionID != "" {
+			child, err = ForkSessionWithID(r.Config, source, req.ChildSessionID)
+		} else {
+			child, err = ForkSession(r.Config, source)
+		}
 	}
 	if err != nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: fork child session: %w", err)
@@ -159,12 +214,25 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Tool:     subagent.ToolName,
 		ShortArg: req.Role,
 		Summary:  trimForSubagentCommit(req.Prompt, 72),
-		Model:    r.Model,
+		Model:    childModel,
 		Agent:    agentName,
 		Turn:     child.Turn(),
 	})
 
-	seed := []agent.Message{agent.Text(agent.RoleUser, renderSubagentPrompt(req))}
+	seed := []agent.Message{}
+	if req.Source != nil {
+		seed, err = historicalSeed(source, req.Source.At)
+		if err != nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: restore historical context: %w", err)
+		}
+	}
+	seed = append(seed, agent.Text(agent.RoleUser, renderSubagentPrompt(req)))
+	// A historical tree may contain the source conversation sidecar. The child
+	// is a new identity, so seed its own bounded restored transcript instead of
+	// appending into inherited bytes.
+	if err := os.Remove(filepath.Join(child.WorktreePath, ConversationFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return subagent.Result{}, fmt.Errorf("spawn_agent: reset child conversation: %w", err)
+	}
 	if err := WriteConversation(child.WorktreePath, seed); err != nil {
 		err = fmt.Errorf("spawn_agent: seed child conversation: %w", err)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
@@ -220,7 +288,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
 	}
 	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
-		Provider:                 r.Provider,
+		Provider:                 childProvider,
 		Executor:                 exec,
 		Config:                   r.Config,
 		Metrics:                  r.Metrics,
@@ -228,7 +296,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		InitialTaint:             ContextTainted,
 		DisableVerify:            true,
 		DefaultSandboxPolicy:     childSandbox.DefaultSandboxPolicy(child.WorktreePath),
-		Model:                    r.Model,
+		Model:                    childModel,
 		Messages:                 seed,
 		MaxTurns:                 req.MaxTurns,
 		Thinking:                 r.Thinking,
@@ -240,6 +308,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Persona:                  childPersona,
 		Skills:                   childSkills,
 		QuietRegistryDiagnostics: r.QuietRegistryDiagnostics,
+		TokenCap:                 req.TokenBudget,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr
@@ -281,6 +350,37 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	return result, nil
 }
 
+func historicalSeed(source *stadogit.Session, at string) ([]agent.Message, error) {
+	messages, err := LoadConversation(source.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
+	limitTurns := -1
+	if strings.HasPrefix(at, "turns/") {
+		limitTurns, err = strconv.Atoi(strings.TrimPrefix(at, "turns/"))
+		if err != nil {
+			return nil, err
+		}
+	}
+	bounded := make([]agent.Message, 0, min(len(messages), 64))
+	turns, bytes := 0, 0
+	for _, message := range messages {
+		if limitTurns >= 0 && turns >= limitTurns {
+			break
+		}
+		raw, _ := json.Marshal(message)
+		if len(bounded) >= 64 || bytes+len(raw) > 128<<10 {
+			break
+		}
+		bounded = append(bounded, message)
+		bytes += len(raw)
+		if message.Role == agent.RoleAssistant {
+			turns++
+		}
+	}
+	return bounded, nil
+}
+
 func (r SubagentRunner) buildExecutor(child *stadogit.Session, agentName string) (*tools.Executor, error) {
 	if r.QuietRegistryDiagnostics {
 		return BuildExecutorQuiet(child, r.Config, agentName, r.Metrics)
@@ -293,6 +393,7 @@ func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
 	req.Role = strings.TrimSpace(req.Role)
 	req.Mode = strings.TrimSpace(req.Mode)
 	req.Ownership = strings.TrimSpace(req.Ownership)
+	req.ToolProfile = strings.TrimSpace(req.ToolProfile)
 	if req.Prompt == "" {
 		return subagent.Request{}, fmt.Errorf("spawn_agent: prompt is required")
 	}
@@ -302,6 +403,11 @@ func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
 		return subagent.Request{}, fmt.Errorf("spawn_agent: write_scope: %w", err)
 	}
 	req.WriteScope = writeScope
+	switch req.ToolProfile {
+	case "", "read_only", "worker_safe", "research":
+	default:
+		return subagent.Request{}, fmt.Errorf("spawn_agent: unknown tool_profile %q", req.ToolProfile)
+	}
 	switch {
 	case req.Role == subagent.DefaultRole && req.Mode == subagent.DefaultMode:
 		return req, nil
@@ -394,6 +500,9 @@ func normalizeSubagentRequest(req subagent.Request) subagent.Request {
 	if req.TimeoutSeconds > subagent.MaxTimeoutSeconds {
 		req.TimeoutSeconds = subagent.MaxTimeoutSeconds
 	}
+	if req.TokenBudget <= 0 {
+		req.TokenBudget = subagent.DefaultTokenBudget
+	}
 	return req
 }
 
@@ -413,6 +522,7 @@ func subagentResult(req subagent.Request, child *stadogit.Session, text string, 
 func configureSubagentTools(req subagent.Request, exec *tools.Executor, defaultSandboxPolicy any) (tool.Host, *subagent.ScopedWriteHost, error) {
 	if req.Mode == subagent.WorkspaceWriteMode {
 		keepWorkspaceWriteTools(exec.Registry)
+		applyToolNarrowing(exec.Registry, req)
 		scopedHost, err := subagent.NewScopedWriteHost(autoApproveHost{
 			workdir:              exec.Session.WorktreePath,
 			readLog:              exec.ReadLog,
@@ -425,7 +535,39 @@ func configureSubagentTools(req subagent.Request, exec *tools.Executor, defaultS
 		return scopedHost, scopedHost, nil
 	}
 	keepReadOnlyTools(exec.Registry)
+	applyToolNarrowing(exec.Registry, req)
 	return nil, nil, nil
+}
+
+func applyToolNarrowing(reg *tools.Registry, req subagent.Request) {
+	if reg == nil {
+		return
+	}
+	allowed := map[string]bool{}
+	for _, name := range req.NarrowTools {
+		allowed[strings.TrimSpace(name)] = true
+	}
+	if len(allowed) == 0 {
+		switch req.ToolProfile {
+		case "research":
+			for _, name := range []string{"fs__read", "fs__glob", "fs__grep", "rg__search", "readctx__read", "lsp__definition", "lsp__references", "lsp__symbols", "lsp__hover"} {
+				allowed[name] = true
+			}
+		case "read_only":
+			for _, registered := range reg.All() {
+				if reg.ClassOf(registered.Name()) == tool.ClassNonMutating {
+					allowed[registered.Name()] = true
+				}
+			}
+		case "worker_safe", "":
+			return
+		}
+	}
+	for _, registered := range reg.All() {
+		if !allowed[registered.Name()] {
+			reg.Unregister(registered.Name())
+		}
+	}
 }
 
 func attachWorkerResultDetails(result *subagent.Result, req subagent.Request, child *stadogit.Session, baseTree plumbing.Hash, scopedHost *subagent.ScopedWriteHost) error {

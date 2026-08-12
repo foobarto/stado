@@ -159,6 +159,7 @@ type autoApproveHost struct {
 	// AgentLoopOptions.DefaultSandboxPolicy; explicit sandbox opt-out leaves it
 	// nil. Model A (decision 2026-06-13).
 	defaultSandboxPolicy any
+	research             func(context.Context, string, string) (any, error)
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -178,6 +179,12 @@ func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request
 		return subagent.Result{}, errors.New("spawn_agent unavailable: current host does not support subagents")
 	}
 	return h.spawn(ctx, req)
+}
+func (h autoApproveHost) Research(ctx context.Context, kind, query string) (any, error) {
+	if h.research == nil {
+		return nil, errors.New("research agent unavailable")
+	}
+	return h.research(ctx, kind, query)
 }
 
 // AgentFleetBridge implements tool.AgentFleetProvider so the wasm agent.*

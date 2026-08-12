@@ -12,6 +12,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/foobarto/stado/internal/artifactprompt"
+	"github.com/foobarto/stado/internal/artifacts"
+	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
@@ -20,12 +23,15 @@ import (
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/research"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/stateprompt"
 	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -65,6 +71,7 @@ func (m *Model) turnMemoryContext(userPrompt string) string {
 	var ancestors []string
 	if m.session != nil {
 		sessionID = m.session.ID
+		trajectory.Recorder{StateDir: m.cfg.StateDir(), SessionID: sessionID, Principal: trajectory.LocalPrincipal()}.EnsureObjective(userPrompt)
 		// EP-15 session-scope inheritance: this session sees the session-scoped
 		// memories of the sessions it forked from. The sidecar is already open
 		// on the model, so resolve ancestry directly. Best-effort: on failure
@@ -91,9 +98,18 @@ func (m *Model) turnMemoryContext(userPrompt string) string {
 	})
 	if err != nil {
 		tuiTrace("memory prompt context failed", "error", err.Error())
-		return ""
+		body = ""
 	}
-	return body
+	repoID := ""
+	if root := memory.RepoRootFor(m.cwd); root != "" {
+		repoID, _ = stadogit.RepoID(root)
+	}
+	modern, modernErr := artifactprompt.Build(ctx, artifactprompt.Options{StateDir: m.cfg.StateDir(), RepoID: repoID, SessionID: sessionID, Ancestors: ancestors, Prompt: userPrompt, MaxItems: m.cfg.Memory.EffectiveMaxItems(), BudgetTokens: m.cfg.Memory.EffectiveBudgetTokens()})
+	if modernErr != nil {
+		tuiTrace("artifact prompt context failed", "error", modernErr.Error())
+	}
+	state, _ := stateprompt.Build(m.cfg.StateDir(), sessionID)
+	return strings.TrimSpace(strings.Join([]string{body, modern, state}, "\n\n"))
 }
 
 func latestUserPrompt(msgs []agent.Message) string {
@@ -1073,6 +1089,9 @@ func (m *Model) finishTurnWithoutTools() tea.Cmd {
 	m.state = stateIdle
 	m.finalizeStreamingBlocks()
 	m.renderBlocks()
+	if cmd := m.runPendingLearn(); cmd != nil {
+		return cmd
+	}
 	if m.queuedPrompt != "" {
 		return m.promoteQueuedPrompt()
 	}
@@ -1176,6 +1195,16 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	// worktree. Same model as `stado run` default. The worktree is
 	// where turn-boundary tree commits live (m.session.WorktreePath); it
 	// is NOT the agent's working directory.
+	spawn := m.buildSubagentSpawner()
+	var fleetBridge *runtime.FleetBridgeAdapter
+	if runner, ok := m.buildSubagentRunner(); ok && m.fleet != nil {
+		fleetBridge = &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: runner, RootCtx: m.rootCtx}
+		if m.cfg != nil && m.session != nil {
+			if _, err := runtime.ConfigureRetainedBridge(m.rootCtx, m.cfg, m.session, fleetBridge); err != nil {
+				fleetBridge = nil
+			}
+		}
+	}
 	host := hostAdapter{
 		workdir:         m.cwd,
 		readLog:         m.executor.ReadLog,
@@ -1193,7 +1222,9 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		render: tuiRenderBridge{
 			model: m,
 		},
-		spawn: m.buildSubagentSpawner(),
+		spawn:       spawn,
+		fleetBridge: fleetBridge,
+		research:    m.buildResearchRunner(),
 		activate: func(name string) {
 			if m.activatedTools == nil {
 				m.activatedTools = map[string]bool{}
@@ -1224,6 +1255,13 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		}
 	})
 	m.toolMu.Unlock()
+	var trajectoryRecorder *trajectory.Recorder
+	trajectoryTurn := 0
+	if m.session != nil && m.cfg != nil {
+		rec := trajectory.Recorder{StateDir: m.cfg.StateDir(), SessionID: m.session.ID, Principal: trajectory.LocalPrincipal()}
+		trajectoryRecorder = &rec
+		trajectoryTurn = m.session.Turn()
+	}
 	return func() tea.Msg {
 		defer func() {
 			// Ensure timer is stopped when tool completes (normally or cancelled).
@@ -1248,17 +1286,29 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		} else if isErr {
 			content = res.Error
 		}
-		return toolResultMsg{result: agent.ToolResultBlock{
+		resultBlock := agent.ToolResultBlock{
 			ToolUseID: call.ID,
 			Content:   content,
 			IsError:   isErr,
-		}}
+		}
+		if trajectoryRecorder != nil {
+			trajectoryRecorder.ToolOutcome(trajectoryTurn, call, resultBlock)
+		}
+		return toolResultMsg{result: resultBlock}
 	}
 }
 
 func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (subagent.Result, error) {
-	if m.cfg == nil || m.session == nil || m.provider == nil {
+	runner, ok := m.buildSubagentRunner()
+	if !ok {
 		return nil
+	}
+	return runner.SpawnSubagent
+}
+
+func (m *Model) buildSubagentRunner() (runtime.SubagentRunner, bool) {
+	if m.cfg == nil || m.session == nil || m.provider == nil {
+		return runtime.SubagentRunner{}, false
 	}
 	runner := runtime.SubagentRunner{
 		Config:                   m.cfg,
@@ -1273,6 +1323,7 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 		QuietRegistryDiagnostics: true,
 		Metrics:                  m.metrics,
 		Broker:                   m.broker,
+		ResolveSource:            runtime.ResolveTreeSource(m.session, m.cfg.WorktreeDir()),
 		OnEvent: func(ev runtime.SubagentEvent) {
 			if m.program != nil {
 				m.program.Send(subagentEventMsg{ev: ev})
@@ -1287,7 +1338,45 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 			// currently doing." See docs/eps/0034 D5.
 		},
 	}
-	return runner.SpawnSubagent
+	return runner, true
+}
+
+func (m *Model) buildResearchRunner() func(context.Context, string, string) (any, error) {
+	if m.provider == nil || m.cfg == nil || m.session == nil {
+		return nil
+	}
+	provider, model, stateDir, sessionID := m.provider, m.model, m.cfg.StateDir(), m.session.ID
+	repoID := ""
+	if root := memory.RepoRootFor(m.cwd); root != "" {
+		repoID, _ = stadogit.RepoID(root)
+	}
+	ancestors, _ := runtime.SessionAncestors(m.session.Sidecar, m.cfg.WorktreeDir(), sessionID)
+	worktreeRoot := m.cfg.WorktreeDir()
+	return func(ctx context.Context, kind, query string) (any, error) {
+		switch kind {
+		case "memory":
+			store, err := wal.OpenShared(filepath.Join(stateDir, "broker", "events"))
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = store.Close() }()
+			svc := artifacts.NewService(store, nil)
+			corpus := research.MemoryCorpus{Service: svc, Context: artifacts.QueryContext{Principal: trajectory.LocalPrincipal(), CanonicalRepoID: repoID, SessionID: sessionID, AncestorSessionIDs: ancestors}, Kinds: []artifacts.Kind{artifacts.KindMemory, artifacts.KindLesson}}
+			return research.Agent{Provider: provider, Model: model, Corpus: corpus, Kind: "memory"}.Run(ctx, query)
+		case "session":
+			authorized := map[string]string{}
+			ids := append([]string{sessionID}, ancestors...)
+			for _, id := range ids {
+				if stadogit.ValidateSessionID(id) == nil {
+					authorized[id] = filepath.Join(worktreeRoot, id)
+				}
+			}
+			corpus := research.SessionCorpus{Authorized: authorized, MaxMessages: 20}
+			return research.Agent{Provider: provider, Model: model, Corpus: corpus, Kind: "session"}.Run(ctx, query)
+		default:
+			return nil, fmt.Errorf("unknown research kind %q", kind)
+		}
+	}
 }
 
 // toolDefs builds the tool-definition list for the current turn request. An

@@ -53,6 +53,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onVerifyResult(m, msg)
 	case btwResultMsg:
 		return onBtwResult(m, msg)
+	case learnResultMsg:
+		return onLearnResult(m, msg)
+	case learnManageResultMsg:
+		return onLearnManageResult(m, msg)
 
 	case logTailMsg:
 		return onLogTail(m, msg)

@@ -89,7 +89,14 @@ type SpawnOptions struct {
 	TimeoutSeconds int
 	// Persona names the operating manual for the child agent. Empty
 	// = inherit the parent's persona. EP-0038i.
-	Persona string
+	Persona     string
+	Ownership   string
+	WriteScope  []string
+	Source      *subagent.Source
+	ToolProfile string
+	NarrowTools []string
+	TokenBudget int
+	Execution   string
 }
 
 // Fleet is the in-memory registry of background agents.
@@ -230,6 +237,14 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 		MaxTurns:       opts.MaxTurns,
 		TimeoutSeconds: opts.TimeoutSeconds,
 		Persona:        opts.Persona,
+		Ownership:      opts.Ownership,
+		WriteScope:     append([]string(nil), opts.WriteScope...),
+		Source:         opts.Source,
+		Model:          opts.Model,
+		ToolProfile:    opts.ToolProfile,
+		NarrowTools:    append([]string(nil), opts.NarrowTools...),
+		TokenBudget:    opts.TokenBudget,
+		Execution:      opts.Execution,
 	}
 
 	// Wire the inbox source so AgentSendMessage delivery actually

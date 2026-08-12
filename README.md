@@ -78,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.77.0
+  bash -s -- --dir /usr/local/bin --version v0.78.0
 ```
 
 ### Homebrew
@@ -684,7 +684,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 
 ## Design principles
 
-Four commitments that shape every architectural decision:
+Five commitments that shape every architectural decision:
 
 1. **The user's repo is read-only until they say otherwise.** Agent
    state lives outside. Landing is always explicit.
@@ -697,6 +697,10 @@ Four commitments that shape every architectural decision:
    blocks, reasoning content, prompt caching breakpoints round-trip
    verbatim. The agent loop branches on capabilities rather than
    papering over differences.
+5. **Context is governed state, not an ever-growing prompt.** Evidence-backed
+   learning, scoped memory, isolated research, and bounded session state keep
+   useful history available without promoting model-authored text into authority.
+   See [Adaptive context and learning](docs/adaptive-context.md).
 
 ---
 

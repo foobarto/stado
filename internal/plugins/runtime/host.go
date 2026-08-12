@@ -665,17 +665,36 @@ type FleetBridge interface {
 
 // AgentSpawnRequest is the input to FleetBridge.AgentSpawn.
 type AgentSpawnRequest struct {
-	Prompt         string
-	Model          string
-	Async          bool
-	Ephemeral      bool
-	ParentSession  string // empty = use caller's session
-	AllowedTools   []string
-	SandboxProfile string
+	Prompt         string       `json:"prompt"`
+	Model          string       `json:"model,omitempty"`
+	Async          bool         `json:"async,omitempty"`
+	Ephemeral      bool         `json:"ephemeral,omitempty"`
+	ParentSession  string       `json:"parent_session,omitempty"` // empty = use caller's session
+	AllowedTools   []string     `json:"allowed_tools,omitempty"`
+	SandboxProfile string       `json:"sandbox_profile,omitempty"`
+	Role           string       `json:"role,omitempty"`
+	Mode           string       `json:"mode,omitempty"`
+	Ownership      string       `json:"ownership,omitempty"`
+	WriteScope     []string     `json:"write_scope,omitempty"`
+	MaxTurns       int          `json:"max_turns,omitempty"`
+	TimeoutSeconds int          `json:"timeout_seconds,omitempty"`
+	Source         *AgentSource `json:"source,omitempty"`
+	ToolProfile    string       `json:"tool_profile,omitempty"`
+	NarrowTools    []string     `json:"narrow_tools,omitempty"`
+	TokenBudget    int          `json:"token_budget,omitempty"`
+	Execution      string       `json:"execution,omitempty"`
+	Supervision    string       `json:"supervision,omitempty"`
+	MaxRestarts    int          `json:"max_restarts,omitempty"`
 	// Persona names the operating manual the child runs under.
 	// Empty = inherit the parent's active persona. Empty +
 	// no parent = bundled "default". EP-0038i.
-	Persona string
+	Persona string `json:"persona,omitempty"`
+}
+
+// AgentSource selects an authorized immutable point in a historical session.
+type AgentSource struct {
+	SessionID string `json:"session_id"`
+	At        string `json:"at,omitempty"`
 }
 
 // AgentSpawnResult is the output of FleetBridge.AgentSpawn.

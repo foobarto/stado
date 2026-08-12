@@ -2,9 +2,10 @@
 ep: 15
 title: Memory System Plugin
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Superseded
 type: Standards
 created: 2026-04-24
+superseded-by: [53]
 see-also: [2, 6, 7, 8, 9, 11]
 history:
   - date: 2026-04-24
@@ -58,6 +59,13 @@ history:
       bridge to default-deny session scope (plugins read repo + global
       only) so a `memory:read` plugin cannot forge a `session_id` to read
       another session tree's memories.
+  - date: 2026-08-12
+    status: Superseded
+    superseded-by: [53]
+    note: >-
+      EP-0053 moves authoritative memory/lesson persistence into a broker-owned,
+      versioned artifact log with immutable scope bindings and a rebuildable
+      SQLite index; plugins remain candidate/search adapters.
 ---
 
 # EP-15: Memory System Plugin

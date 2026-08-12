@@ -1,83 +1,68 @@
-# `stado learning`
+# `stado learn`
 
-Propose and inspect reviewable operational lessons from solved work.
+Review completed trajectories and manage evidence-backed operational lessons.
 
 ## What It Does
 
-`stado learning` is the first EP-16 surface. It stores lessons in the
-same append-only memory log as `stado memory`, but marks them with
-`memory_kind: "lesson"` and requires a trigger plus evidence. Lessons
-start as `candidate`; they only enter prompts after explicit approval
-through `stado learning approve <id>`.
+`stado learn --session-id <id>` (or the explicit `stado learn run`) asks an
+isolated reviewer to inspect host-recorded mistake and correction signals. A
+review may create up to five versioned `lesson` candidates; it never activates
+them. One-off failures are deliberately ignored.
 
-Approved lessons are injected in a separate "Operational lessons"
-section after ordinary memory when `[memory].enabled = true`.
+The pre-v1 `stado learning` command has been removed. Existing legacy memory
+logs can be imported once with `stado learn migrate`.
 
 ## Common Flow
 
 ```sh
-stado learning propose \
-  --summary "Use pinned Go toolchain" \
-  --lesson "Use the pinned toolchain path before declaring Go unavailable." \
-  --trigger "When Go tooling is missing from PATH." \
-  --evidence "Local verification used the repo-pinned Go binary." \
-  --test "go test ./..."
-
-stado learning list
-stado learning show lesson_...
-stado learning edit lesson_... \
-  --trigger "When Go tooling is missing from PATH in this repo." \
-  --rationale "The repo pins a Go toolchain under the module cache."
-stado learning approve lesson_...
-stado learning supersede lesson_... \
-  --summary "Use the current release checklist" \
-  --lesson "Run the current release checklist before declaring a release complete." \
-  --trigger "When cutting or validating a release." \
-  --evidence "The prior release lesson was stale."
-stado learning document lesson_...
-stado learning stale
-stado learning stale --apply
-stado learning export > lessons.json
+stado learn --session-id sess_...
+stado learn run --session-id sess_... --focus "tool argument corrections"
+stado learn candidates --session-id sess_...
+stado learn artifact art_... --session-id sess_...
+stado learn retrieval-report
+stado learn migrate
 ```
 
-Use `--scope global`, `--scope repo`, or `--scope session`. Repo scope
-is the default and resolves the current repo id automatically. Session
-scope requires `--session-id`.
+In the TUI, `/learn [focus]` reviews the just-completed session trajectory.
+Candidate review is available without starting another model turn:
+
+```text
+/learn candidates
+/learn show art_...
+/learn approve art_...
+```
+
+Approval is intentionally unavailable through ordinary `stado learn approve`.
+An agent can invoke a CLI through a shell, so that is not proof of operator
+intent. The interactive approval path creates a one-use broker grant bound to
+the exact artifact version, body, scope, and actor before committing activation.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `stado learning propose` | Append a lesson candidate to the memory log |
-| `stado learning list` | List folded lesson items |
-| `stado learning show <id>` | Print one lesson item as JSON |
-| `stado learning edit <id>` | Append a lesson-specific edit event |
-| `stado learning approve <id>` | Promote a candidate lesson to approved |
-| `stado learning supersede <id>` | Replace an approved lesson with a new approved lesson |
-| `stado learning reject <id>` | Mark a lesson rejected |
-| `stado learning delete <id>` | Remove a lesson from the folded active view |
-| `stado learning document <id>` | Write the lesson to `.learnings/` and reject it from prompt retrieval |
-| `stado learning stale [--apply]` | Find approved lessons that cite missing evidence files; `--apply` marks them candidate for review |
-| `stado learning export` | Export folded lesson items as JSON |
+| `stado learn [run] --session-id <id>` | Review one completed trajectory and record the review job |
+| `stado learn candidates` | List visible candidate and migrated legacy lessons |
+| `stado learn artifact <id>` | Show one authorized memory or lesson artifact |
+| `stado learn migrate` | Archive and idempotently import the legacy memory JSONL store |
+| `stado learn retrieval-report` | Show shadow adaptive-retrieval observations |
 
-## Notes
+The legacy lesson lifecycle subcommands remain under `stado learn` for local
+audit and migration work (`propose`, `list`, `show`, `edit`, `reject`, `delete`,
+`supersede`, `document`, `stale`, and `export`). They operate on the legacy
+store and do not bypass the trusted activation boundary.
 
-Lessons are reviewable guidance, not system-prompt edits. Current user
-messages, repo instructions, and the active task override them. Bad or
-stale lessons can be rejected, deleted, edited, or superseded with
-lesson-specific commands. The generic `stado memory` review commands
-still operate on the same append-only store for audit and recovery work.
+## Scope and Safety
 
-`stado learning document <id>` is the explicit "document elsewhere"
-path: it writes a Markdown note under `.learnings/`, refuses to
-overwrite an existing file, and marks the lesson rejected so it is not
-retrieved for prompts.
+Review scope is `session` by default; `--scope repo` and `--scope global` are
+available when the host can bind the corresponding identity. Session artifacts
+are visible to the creating session and its descendants, not siblings or
+ancestors.
 
-`stado learning stale` is a dry-run by default. It scans approved
-lessons whose evidence names repo-relative files that no longer exist in
-the current worktree. `--apply` marks those lessons `candidate` for
-review so they stop being retrieved until re-approved.
+Lessons are untrusted guidance below operator and repository instructions. An
+active lesson cannot grant tools, permissions, or authority. Reviewer outputs
+retain their evidence provenance and taint, and secret-bearing material is not
+made eligible for normal prompt retrieval.
 
-`stado learning export` emits a lesson-only JSON export from the same
-folded store as `stado memory export`. It is a local audit/recovery
-format, not a signed sync bundle.
+See [Adaptive context and learning](../adaptive-context.md) for the persistence,
+research-agent, retained-agent, and adaptive-ranking contracts.

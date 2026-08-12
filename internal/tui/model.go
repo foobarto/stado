@@ -473,6 +473,9 @@ type Model struct {
 	// message exists). Pi's pattern — lets the user line up "the next
 	// thing to try" without waiting for the model to finish typing.
 	queuedPrompt string
+	// pendingLearn records a user /learn gesture made while a turn is busy.
+	// It runs only after that turn reaches a durable boundary.
+	pendingLearnFocus *string
 	// steeringMsg is a message the user injected mid-turn (Enter while
 	// busy, or /steer). Unlike queuedPrompt (which waits for the next
 	// turn), it's drained into the live conversation at the next tool

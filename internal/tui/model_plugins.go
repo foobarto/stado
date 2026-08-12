@@ -344,14 +344,16 @@ func (m *Model) hasAutoCompactBackgroundPlugin() bool {
 // readLog delegates PriorRead/RecordRead to the Executor's shared log so
 // the read tool can dedup across a session's turns.
 type hostAdapter struct {
-	workdir  string
-	readLog  *tools.ReadLog
-	runner   sandbox.Runner
-	approval tuiApprovalBridge
-	choice   tuiChoiceBridge
-	print    tuiPrintBridge  // F9a — stado_ui_print routing
-	render   tuiRenderBridge // F9b.2 — stado_ui_render routing
-	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
+	workdir     string
+	readLog     *tools.ReadLog
+	runner      sandbox.Runner
+	approval    tuiApprovalBridge
+	choice      tuiChoiceBridge
+	print       tuiPrintBridge  // F9a — stado_ui_print routing
+	render      tuiRenderBridge // F9b.2 — stado_ui_render routing
+	spawn       func(context.Context, subagent.Request) (subagent.Result, error)
+	fleetBridge pluginRuntime.FleetBridge
+	research    func(context.Context, string, string) (any, error)
 	// activate is the lazy-load activation hook. Called by the
 	// tools__describe / tools__activate / plugin__load meta-tools via
 	// the pkg/tool.ToolActivator interface; adds the named tool to
@@ -373,6 +375,15 @@ type hostAdapter struct {
 	// shell.spawn → shell.read/write across calls would fail with
 	// "session not found." Bug-fix per operator report.
 	pty *pty.Manager
+}
+
+func (h hostAdapter) AgentFleetBridge() any { return h.fleetBridge }
+
+func (h hostAdapter) Research(ctx context.Context, kind, query string) (any, error) {
+	if h.research == nil {
+		return nil, errors.New("research agent unavailable")
+	}
+	return h.research(ctx, kind, query)
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {

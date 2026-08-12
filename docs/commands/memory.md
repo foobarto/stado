@@ -86,8 +86,14 @@ rejected, deleted, superseded, expired, and `secret` memories are never
 injected into prompts; they remain visible through review/export surfaces
 for auditability.
 
-Lesson items created by `stado learning` live in the same log with
-`memory_kind: "lesson"`. Approved lessons are retrieved separately from
-ordinary memory and rendered in an "Operational lessons" prompt section.
-Plain `memory:read` queries without `memory_kind` return ordinary memory
-only; callers must request `memory_kind: "lesson"` explicitly.
+The legacy JSONL store remains available for audit and can be imported with
+`stado learn migrate`. The new broker-owned artifact store preserves ordinary
+`memory` and behavioral `lesson` kinds as versioned, scope-bound records. Its
+SQLite FTS index is disposable; the hash-chained broker event log remains the
+authority. Approved legacy memories stay active after migration, while approved
+legacy lessons require interactive reaffirmation before prompt use.
+
+Fast prompt retrieval selects only active, authorized, non-expired artifacts
+under hard item and token limits. Use the isolated `memory__research` tool for a
+deeper search that returns a synthesis with precise artifact citations rather
+than copying the explored corpus into the parent context.

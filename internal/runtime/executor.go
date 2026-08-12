@@ -12,6 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/researchtool"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/agent"
 	pkgtool "github.com/foobarto/stado/pkg/tool"
@@ -84,6 +85,8 @@ func CanonicalToolName(name string) string {
 func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 	reg := buildBundledPluginRegistry()
 	registerMetaTools(reg)
+	reg.Register(researchtool.Tool{Kind: "memory"})
+	reg.Register(researchtool.Tool{Kind: "session"})
 	if cfg != nil {
 		registerInstalledPluginTools(reg, cfg)
 	}

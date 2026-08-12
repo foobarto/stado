@@ -31,6 +31,7 @@ deferred work + product gaps + non-goals.
 
 | Rank | Gap | Current state |
 |------|-----|---------------|
+| 0 | **Adaptive context and learning architecture** | SHIPPED in v0.78.0 — EP-0052–0059 were accepted after product, security, and distributed-systems adversarial review. The release includes the durable WAL/grants/budgets, scoped artifacts + FTS/migration, state/signals/learn, isolated research tools, retained orchestration/mailboxes/supervision, and shadow ranking. |
 | 1 | **v1 security architecture rollout** | Largely SHIPPED in v0.57.0 — sandbox-by-default, the privileged broker, session-scoped capabilities with an immutable ceiling, the mount-table CI invariant, and the taint substrate all landed (phase table below + EP-0050). Remaining: phase 6 taint-ingestion wiring and phase 7 ssh-agent + git sub-agent socket bind-mount. Decision record at [`.agent/decisions/2026-05-27-v1-security-architecture.md`](.agent/decisions/2026-05-27-v1-security-architecture.md). |
 | 2 | **Windows sandbox v2** | Windows still runs unsandboxed behind `WinWarnRunner`. Job objects + restricted tokens remain the largest security/runtime gap for that platform. Re-open when someone with a Windows dev environment picks it up. |
 | 3 | **Signed apt/rpm hosted repos** | goreleaser emits `.deb` / `.rpm` artifacts and the Homebrew tap publishes on every release. External repo hosting (apt/rpm) needs an operator with infra. |
@@ -38,6 +39,30 @@ deferred work + product gaps + non-goals.
 Other surfaces — multi-session switching, alternative sandbox
 backends — are net-new capabilities rather than half-shipped
 work, so they live in EP backlog conversations, not here.
+
+### Adaptive context implementation order
+
+Adversarial review rejected broad parallel implementation. The dependency order
+is narrow and evidence-driven:
+
+| Phase | EP / slice | Gate |
+|---|---|---|
+| A | EP-0059 single-writer events, snapshots, jobs, budget reservations | shipped — v0.78.0 |
+| B | EP-0053 `memory|lesson` migration, scope binding, tags/groups, FTS | shipped — v0.78.0 |
+| C | EP-0057 minimal state + five deterministic mistake/correction signals | shipped — v0.78.0 |
+| D | EP-0052 `stado learn` + `/learn` candidate review | shipped — v0.78.0 |
+| E | EP-0054 memory research, then session research | shipped — v0.78.0 |
+| F | EP-0055 retained/historical children | shipped — v0.78.0 |
+| G | EP-0056 mailboxes/supervision | shipped — v0.78.0 |
+| H | EP-0058 shadow evaluation/adaptive retrieval | shipped in shadow mode — v0.78.0 |
+
+General artifact kinds, retained tool-output blobs, model reranking, and automatic
+non-use demotion remain deferred pending usage evidence. The small
+`related|supports|contradicts|supersedes` relation vocabulary is implemented with
+endpoint scope checks; broader graph semantics remain deferred.
+Phases D and E additionally require v1 security phase 6 taint ingestion wiring;
+origin metadata must be populated at every ingestion point, not merely represented
+by dormant substrate.
 
 ## v1 security architecture rollout
 

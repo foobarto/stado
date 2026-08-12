@@ -9,6 +9,11 @@ import (
 	"testing"
 	"time"
 
+	brokerbudget "github.com/foobarto/stado/internal/broker/budget"
+	"github.com/foobarto/stado/internal/broker/mailbox"
+	"github.com/foobarto/stado/internal/broker/retained"
+	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/orchestration"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/subagent"
 )
@@ -81,6 +86,85 @@ func TestFleetBridgeAdapter_Spawn_AsyncReturnsRunningImmediately(t *testing.T) {
 	}
 	if result.FinalText != "" {
 		t.Errorf("async spawn FinalText = %q, want empty", result.FinalText)
+	}
+}
+
+type requestCapturingSpawner struct{ got chan subagent.Request }
+
+func (s requestCapturingSpawner) SpawnSubagent(_ context.Context, req subagent.Request) (subagent.Result, error) {
+	s.got <- req
+	return subagent.Result{ChildSession: "captured"}, nil
+}
+
+func TestFleetBridgeAdapter_Spawn_ForwardsAttenuatedRequest(t *testing.T) {
+	got := make(chan subagent.Request, 1)
+	a := newAdapterWithSpawner(t, requestCapturingSpawner{got: got})
+	_, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
+		Prompt: "work", Model: "configured", Async: true,
+		Role: "worker", Mode: "workspace_write", Ownership: "parser",
+		WriteScope: []string{"internal/parser/**"}, MaxTurns: 7, TimeoutSeconds: 300,
+		Source:  &pluginRuntime.AgentSource{SessionID: "old", At: "turns/2"},
+		Persona: "worker", ToolProfile: "worker_safe", NarrowTools: []string{"fs__read"},
+		TokenBudget: 9000, Execution: "wait",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-got:
+		if req.Role != "worker" || req.Mode != "workspace_write" || req.Ownership != "parser" || req.MaxTurns != 7 || req.TimeoutSeconds != 300 || req.TokenBudget != 9000 || req.Execution != "wait" {
+			t.Fatalf("request fields were dropped: %#v", req)
+		}
+		if req.Source == nil || req.Source.SessionID != "old" || req.Source.At != "turns/2" {
+			t.Fatalf("source was dropped: %#v", req.Source)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("spawner did not receive request")
+	}
+}
+
+func TestFleetBridgeAdapter_RetainedSpawnIsDurableAndReadable(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ledger := brokerbudget.New(store)
+	if _, err := ledger.CreateAccount(t.Context(), "root", "", brokerbudget.Limits{Tokens: 100, Turns: 20, WallSeconds: 1000}, "alice", "broker", "account"); err != nil {
+		t.Fatal(err)
+	}
+	policy := mailbox.NewDynamicRelationPolicy()
+	mail := mailbox.New(store, policy)
+	coord := orchestration.New(retained.New(store), ledger, mail, nil)
+	coord.Policy = policy
+	a := newAdapterWithSpawner(t, &fakeSpawner{res: subagent.Result{Text: "durable answer"}})
+	a.Retained, a.RetainedAccountID, a.Principal, a.ParentSessionID = coord, "root", "alice", "parent"
+	a.ResolveForkPoint = func(context.Context, pluginRuntime.AgentSpawnRequest) (retained.ForkPoint, error) {
+		return retained.ForkPoint{SourceSessionID: "parent", ConversationDigest: "conversation", TreeCommit: "tree", TraceCommit: "trace", ResolvedAt: time.Now()}, nil
+	}
+	result, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "research", Execution: "retained", TokenBudget: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != string(retained.StatusCompleted) || result.FinalText != "durable answer" {
+		t.Fatalf("result = %#v", result)
+	}
+	admission, ok, err := coord.Registry.Get(result.ID)
+	if err != nil || !ok || admission.ChildSessionID != result.SessionID {
+		t.Fatalf("admission=%#v ok=%v err=%v", admission, ok, err)
+	}
+	listed, err := a.AgentList(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range listed {
+		if entry.ID == result.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("retained handle missing from agent list")
 	}
 }
 

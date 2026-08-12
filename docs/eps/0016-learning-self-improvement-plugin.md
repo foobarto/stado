@@ -2,9 +2,10 @@
 ep: 16
 title: Learning and Self-Improvement Plugin
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Superseded
 type: Standards
 created: 2026-04-24
+superseded-by: [52]
 see-also: [2, 6, 9, 11, 15]
 history:
   - date: 2026-04-24
@@ -50,6 +51,12 @@ history:
       Closed the local EP-16 workflow as implemented: explicit proposal,
       review, approval, retrieval, document-elsewhere, deleted-file stale
       review, and lesson-only export are all shipped.
+  - date: 2026-08-12
+    status: Superseded
+    superseded-by: [52]
+    note: >-
+      EP-0052 replaces the manual-only `stado learning` lifecycle with the
+      canonical evidence-backed `stado learn` and `/learn` trajectory review.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin

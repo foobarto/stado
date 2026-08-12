@@ -365,6 +365,9 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/memory [on|off|status]` — show or toggle approved-memory retrieval
   for this session
+- `/learn [focus]` — review the completed trajectory for evidence-backed lesson
+  candidates; `/learn candidates`, `/learn show <id>`, and `/learn approve <id>`
+  provide the trusted interactive review path
 - `/btw` — off-band side-question mode
 - `/skill` — list user-invocable skills (`[user-only]` marks entries hidden
   from the model); `/skill:<name>` injects a skill body into the conversation.

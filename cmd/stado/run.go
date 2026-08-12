@@ -26,6 +26,7 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -278,6 +279,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				Hooks:         lifecycleHooks,
 				OnEvent:       emitter(runJSON, runQuiet, os.Stdout),
 				OnVerifyEvent: verifyEmitter(runJSON, os.Stdout, os.Stderr),
+				OnToolOutcome: trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: continueSessID, Principal: trajectory.LocalPrincipal()}.ToolOutcome,
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 				},
@@ -317,6 +319,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					}
 				}
 				activeSession = sess
+				recorder := trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: sess.ID, Principal: trajectory.LocalPrincipal()}
+				recorder.EnsureObjective(runPrompt)
+				opts.OnToolOutcome = recorder.ToolOutcome
+				opts.MemoryContext = buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, sess.ID, runPrompt)
+				opts.Research = buildRunResearch(cfg, prov, sess, cwd)
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
