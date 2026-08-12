@@ -1010,6 +1010,15 @@
     text-transform: uppercase;
   }
   .feature .ep-link:hover{ color: var(--fg); }
+  .feature .ep-links{
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line-2);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .feature .ep-links .ep-link{ margin-top: 0; padding-top: 0; border-top: 0; }
 
   /* diagram for sidecar */
   .diagram{
@@ -1647,7 +1656,7 @@
   <div class="wrap">
     <div class="section-head">
       <div>
-        <span class="small-caps"><span class="cube"></span>§ latest · implemented</span>
+        <span class="small-caps"><span class="cube"></span>§ latest · shipped</span>
       </div>
       <h2>The agent loop grew a <em>memory</em>, a crew, and a nervous system.</h2>
     </div>
@@ -1664,7 +1673,10 @@
         <div class="tag"><span class="idx">▍ EP-0055 · 0056</span><span class="sep">/</span> retained agents</div>
         <h3>A crew that survives the <em>turn</em>.</h3>
         <p>Retain useful workers, supervise their lifecycle, and coordinate through durable mailboxes instead of losing every collaboration when a prompt finishes.</p>
-        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0055-retained-resumable-subagents.md">retained agents →</a>
+        <div class="ep-links">
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0055-retained-resumable-subagents.md">retained agents →</a>
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0056-agent-mailboxes-and-supervision.md">mailboxes →</a>
+        </div>
       </article>
 
       <article class="feature span-4">

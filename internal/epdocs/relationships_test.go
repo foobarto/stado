@@ -11,6 +11,7 @@ import (
 )
 
 var relationshipField = regexp.MustCompile(`^(requires|extends|supersedes|superseded-by|extended-by|see-also):\s*\[(.*)\]\s*$`)
+var relationshipKey = regexp.MustCompile(`^(requires|extends|supersedes|superseded-by|extended-by|see-also):`)
 var relationshipValue = regexp.MustCompile(`^"(EP-[0-9]{4})"$`)
 
 var displayNames = map[string]string{
@@ -67,6 +68,9 @@ func checkRelationshipLinks(t *testing.T, path string, targets map[string]string
 		}
 		match := relationshipField.FindStringSubmatch(lines[i])
 		if match == nil {
+			if relationshipKey.MatchString(lines[i]) {
+				t.Fatalf("malformed relationship field %q; use a YAML list of quoted EP-NNNN labels", lines[i])
+			}
 			continue
 		}
 		values := parseValues(t, match[2])
@@ -86,6 +90,15 @@ func checkRelationshipLinks(t *testing.T, path string, targets map[string]string
 		t.Fatal("missing closing frontmatter delimiter")
 	}
 	if len(parts) == 0 {
+		for i := close + 1; i < len(lines); i++ {
+			if lines[i] == "" {
+				continue
+			}
+			if strings.HasPrefix(lines[i], "> **Relationships:**") {
+				t.Fatal("rendered relationships exist without relationship frontmatter")
+			}
+			break
+		}
 		return
 	}
 	want := "> **Relationships:** " + strings.Join(parts, " · ")

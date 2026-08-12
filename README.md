@@ -59,7 +59,7 @@ environment.
 ## Feature highlights
 
 The newer pieces turn stado from a safe coding loop into a durable agent
-runtime. A few highlights from the latest implemented EPs:
+runtime. A few highlights from recently shipped capabilities and their EPs:
 
 | Capability | What makes it useful |
 | --- | --- |

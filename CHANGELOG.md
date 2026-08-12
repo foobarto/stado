@@ -38,7 +38,7 @@ become semver guarantees.
   highlighting isolated research, retained subagents, durable mailboxes,
   adaptive retrieval, trajectory learning, session signals, the durable
   broker, Verify Work, Lua lifecycle hooks, and native bounded orchestration
-  with links to their implemented EPs.
+  with links to their EPs.
 - Made EP relationship metadata directly navigable by replacing bare numeric
   `requires`, `extends`, `supersedes`, `superseded-by`, `extended-by`, and
   `see-also` values with canonical labels and validated rendered links across
