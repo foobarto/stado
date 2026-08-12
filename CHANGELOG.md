@@ -38,8 +38,9 @@ become semver guarantees.
 
 - **Deferred user follow-ups become shared tasks by default.** The default agent
   instructions now preserve one active task, capture unrelated prompts in the
-  shared task store, and revisit deferred work after completion. The `tasks`
-  tool is autoloaded so this policy remains actionable without tool discovery.
+  shared task store, and revisit only that conversation's deferred task IDs
+  after completion. The `tasks` tool is autoloaded so this policy remains
+  actionable without tool discovery.
 
 ### Docs
 

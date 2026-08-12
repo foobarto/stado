@@ -138,7 +138,7 @@ func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 		"Cairn workflow defaults:",
 		"think before coding, simplicity first, surgical changes, and goal-driven execution",
 		"If the new request is unrelated, use the shared tasks tool to record it",
-		"After completing the active task, inspect deferred open tasks",
+		"revisit only the task IDs deferred by this conversation",
 		"Project instructions:\nalways write tests",
 	} {
 		if !strings.Contains(got, want) {

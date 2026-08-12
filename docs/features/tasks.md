@@ -9,8 +9,10 @@ The tool is part of the default model-facing tool surface. stado's default
 agent instructions treat the store as a deferred-work inbox: when a user sends
 an unrelated request during active work, the agent records it instead of
 silently replacing the current task, then revisits open tasks after the active
-task finishes. Requests that correct, constrain, or directly extend the active
-work remain part of that work.
+task finishes. Automatic continuation is limited to task IDs deferred by that
+conversation; agents do not claim arbitrary items from the global store.
+Requests that correct, constrain, or directly extend the active work remain
+part of that work.
 
 ## What It Stores
 
