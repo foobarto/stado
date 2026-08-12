@@ -69,7 +69,7 @@ runtime. A few highlights from recently shipped capabilities and their EPs:
 | **Trajectory learning** ([EP-0052](docs/eps/0052-learn-trajectory-refinement.md)) | Review completed sessions for concrete lesson candidates, approve the useful ones, and feed them back into future work. |
 | **Session journal + deterministic signals** ([EP-0057](docs/eps/0057-session-state-journal-decisions-and-signals.md)) | Project objectives, blockers, decisions, corrections, and mistakes into queryable durable state rather than reconstructing them from chat. |
 | **Durable broker, events, and budgets** ([EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md)) | Give agents and automations resumable event delivery, explicit budgets, crash-safe coordination, and one shared substrate for supervision. |
-| **Verify Work phase** ([EP-0046](docs/eps/0046-verify-work-phase.md)) | Make verification a first-class loop phase with explicit evidence instead of letting a plausible implementation silently become “done.” |
+| **Verify Work command gates** ([EP-0046](docs/eps/0046-verify-work-phase.md)) | Run configured verification commands before completion and record their evidence; the EP's independent LLM judge remains deferred. |
 | **Programmable Lua lifecycle hooks** ([EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md)) | Inspect, deny, or mutate lifecycle events through a constrained scripting contract while stado retains the actual enforcement boundary. |
 
 Together with native bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),

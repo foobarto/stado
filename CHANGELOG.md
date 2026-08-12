@@ -37,7 +37,7 @@ become semver guarantees.
 - Added an impact-focused feature reel to the README and static landing page,
   highlighting isolated research, retained subagents, durable mailboxes,
   adaptive retrieval, trajectory learning, session signals, the durable
-  broker, Verify Work, Lua lifecycle hooks, and native bounded orchestration
+  broker, Verify Work command gates, Lua lifecycle hooks, and native bounded orchestration
   with links to their EPs.
 - Made EP relationship metadata directly navigable by replacing bare numeric
   `requires`, `extends`, `supersedes`, `superseded-by`, `extended-by`, and

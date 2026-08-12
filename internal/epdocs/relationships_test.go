@@ -29,6 +29,9 @@ func TestRelationshipLinksMatchFrontmatter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(paths) == 0 {
+		t.Fatal("no EP files discovered")
+	}
 	sort.Strings(paths)
 	targets := make(map[string]string)
 	for _, path := range paths {
