@@ -103,7 +103,7 @@ it for bug fixes, dep bumps, and contained refactors.
   the current runtime contract. Optional
   `implemented-in: vX.Y.Z` in frontmatter points at the release.
 - **Superseded** — replaced by a later EP. Frontmatter points forward
-  via `superseded-by: [N]`.
+  via `superseded-by: ["[EP-NNNN](./NNNN-short-kebab-title.md)"]`.
 - **Withdrawn** — author pulled it before acceptance.
 - **Rejected** — maintainers declined it. Kept for historical context.
 

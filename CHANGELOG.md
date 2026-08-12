@@ -35,7 +35,7 @@ become semver guarantees.
 ## Unreleased
 
 - Made EP relationship metadata directly navigable by replacing bare numeric
-  `requires`, `supersedes`, `superseded-by`, `extended-by`, and `see-also`
+  `requires`, `extends`, `supersedes`, `superseded-by`, `extended-by`, and `see-also`
   values with validated relative Markdown links across the full EP catalogue.
 - Consolidated Dependabot updates across the Go dependency graph and pinned
   GitHub Actions. Notable upgrades include Anthropic SDK 1.62.0, MCP Go 0.57.0,
