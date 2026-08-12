@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-var relationshipField = regexp.MustCompile(`^(requires|extends|supersedes|superseded-by|extended-by|see-also):\s*\[(.*)\]\s*$`)
-var relationshipKey = regexp.MustCompile(`^(requires|extends|supersedes|superseded-by|extended-by|see-also):`)
+var relationshipField = regexp.MustCompile(`^(\s*)(requires|extends|supersedes|superseded-by|extended-by|see-also):\s*\[(.*)\]\s*$`)
+var relationshipKey = regexp.MustCompile(`^\s*(requires|extends|supersedes|superseded-by|extended-by|see-also):`)
 var relationshipValue = regexp.MustCompile(`^"(EP-[0-9]{4})"$`)
 
 var displayNames = map[string]string{
@@ -76,17 +76,18 @@ func checkRelationshipLinks(t *testing.T, path string, targets map[string]string
 			}
 			continue
 		}
-		values := parseValues(t, match[2])
+		indent, field := match[1], match[2]
+		values := parseValues(t, match[3])
 		links := make([]string, 0, len(values))
 		for _, label := range values {
 			target, ok := targets[label]
 			if !ok {
-				t.Fatalf("%s references missing %s", match[1], label)
+				t.Fatalf("%s references missing %s", field, label)
 			}
 			links = append(links, fmt.Sprintf("[%s](%s)", label, target))
 		}
-		if len(links) > 0 {
-			parts = append(parts, fmt.Sprintf("**%s:** %s", displayNames[match[1]], strings.Join(links, ", ")))
+		if indent == "" && len(links) > 0 {
+			parts = append(parts, fmt.Sprintf("**%s:** %s", displayNames[field], strings.Join(links, ", ")))
 		}
 	}
 	if close < 0 {

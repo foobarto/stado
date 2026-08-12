@@ -53,7 +53,7 @@ history:
       review, and lesson-only export are all shipped.
   - date: 2026-08-12
     status: Superseded
-    superseded-by: ["[EP-0052](./0052-learn-trajectory-refinement.md)"]
+    superseded-by: ["EP-0052"]
     note: >-
       EP-0052 replaces the manual-only `stado learning` lifecycle with the
       canonical evidence-backed `stado learn` and `/learn` trajectory review.

@@ -13,7 +13,7 @@ history:
     note: Initial draft. Captures the user-fired feature ask captured at the end of the v0.28.0 dogfood loop.
   - date: 2026-05-05
     status: Superseded
-    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+    superseded-by: ["EP-0038"]
     note: >
       Superseded by EP-0038 before any code shipped. EP-0034's Fleet registry concept survives as
       the runtime backing for agent.list and the /agents slash command, but the tool surface

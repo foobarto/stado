@@ -13,7 +13,7 @@ history:
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
   - date: 2026-05-05
     status: Partial
-    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+    superseded-by: ["EP-0038"]
     note: >
       Partially superseded by EP-0038. The --with-tool-host flag becomes default behaviour (since
       under EP-0038 every tool is a wasm plugin, the bundled-vs-plugin distinction goes away); the

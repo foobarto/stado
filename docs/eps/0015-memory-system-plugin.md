@@ -61,7 +61,7 @@ history:
       another session tree's memories.
   - date: 2026-08-12
     status: Superseded
-    superseded-by: ["[EP-0053](./0053-versioned-harness-artifacts-and-index.md)"]
+    superseded-by: ["EP-0053"]
     note: >-
       EP-0053 moves authoritative memory/lesson persistence into a broker-owned,
       versioned artifact log with immutable scope bindings and a rebuildable

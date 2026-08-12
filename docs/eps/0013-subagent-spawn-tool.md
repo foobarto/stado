@@ -10,7 +10,7 @@ see-also: ["EP-0003", "EP-0004", "EP-0006", "EP-0010", "EP-0011", "EP-0038"]
 history:
   - date: 2026-05-05
     status: Superseded
-    superseded-by: ["[EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)"]
+    superseded-by: ["EP-0038"]
     note: >
       Tool surface superseded by EP-0038's agent.* family (agent.spawn, agent.list,
       agent.read_messages, agent.send_message, agent.cancel). spawn_agent's native-instead-of-wasm

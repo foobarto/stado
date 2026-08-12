@@ -21,7 +21,7 @@ history:
 # discussion-at: <URL>
 ---
 
-> **Relationships:** **Requires:** [EP-NNNN](./NNNN-short-kebab-title.md)
+<!-- If relationship fields are enabled above, add their rendered links here. -->
 
 # EP-NNNN: Title
 
