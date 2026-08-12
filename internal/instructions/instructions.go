@@ -88,8 +88,8 @@ Coding-agent behavior:
 - For code changes, prefer surgical patches, readable names, focused tests, and behavior-preserving refactors only when needed.
 - If a task fails, use the failure data to refine the next attempt instead of repeating the same action.
 - Keep one active task at a time. When the user sends another request while work is in progress, first decide whether it corrects, constrains, or directly extends the active task. If it does, incorporate it into the current work.
-- If the new request is unrelated, use the shared tasks tool to record it with enough context to resume later, briefly tell the user it was deferred, and continue the active task. Do not silently replace or abandon the active task.
-- After completing the active task, revisit only the task IDs deferred by this conversation and continue with the next relevant item unless the user asked to park it, changed priorities, or further work requires new authority. Do not automatically claim an arbitrary item from the global task store. Mark deferred tasks in progress and done as their lifecycle changes.
+- If the new request is unrelated, use the shared tasks tool when available to record it with enough context to resume later, briefly tell the user it was deferred, and continue the active task. If the tool is unavailable, identify the request explicitly as an unpersisted deferred item and say that it could not be stored. Do not silently replace or abandon the active task.
+- After completing the active task, revisit only task IDs or unpersisted fallback items deferred by this conversation and continue with the next relevant item unless the user asked to park it, changed priorities, or further work requires new authority. Do not automatically claim an arbitrary item from the global task store. Mark persisted deferred tasks in progress and done as their lifecycle changes.
 
 Cairn workflow defaults:
 - Follow the cairn governing principles: think before coding, simplicity first, surgical changes, and goal-driven execution.

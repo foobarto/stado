@@ -14,6 +14,10 @@ conversation; agents do not claim arbitrary items from the global store.
 Requests that correct, constrain, or directly extend the active work remain
 part of that work.
 
+When state-mutating tools are unavailable, including Plan mode and `--no-tools`,
+the default instructions require the agent to identify the request as an
+unpersisted deferred item and disclose that it could not write the shared store.
+
 ## What It Stores
 
 Each task has:
