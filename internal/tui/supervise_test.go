@@ -121,6 +121,103 @@ func TestSuperviseVerificationExhaustionPausesWithoutRestartingWorker(t *testing
 	}
 }
 
+func newSuperviseTaintTestRun(t *testing.T, root string) (*supervise.Service, supervise.State) {
+	t.Helper()
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	st, err := svc.Create(context.Background(), root, supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: root, SessionSequence: 1, TreeDigest: "unavailable"}
+	st, err = svc.ProposeBaseline(context.Background(), st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, st
+}
+
+func completeSupervisePlanForTaintTest(t *testing.T, svc *supervise.Service, st supervise.State) supervise.State {
+	t.Helper()
+	var err error
+	st, err = svc.ApproveBaseline(context.Background(), st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.AdvanceStep(context.Background(), st.ID, st.Version, supervise.RoleOperator, st.Anchor(), "test", "operator", "step")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := supervise.Evidence{Kind: "test", Summary: "verification attempted", Anchor: st.Anchor()}
+	st, err = svc.RequestCompletion(context.Background(), st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{
+		Summary: "ready", Evidence: []supervise.Evidence{evidence}, Anchor: st.Anchor(),
+	}, "test", "worker", "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func TestSuperviseTaintFailuresPauseDurablyAndRemainResumable(t *testing.T) {
+	t.Run("baseline initialization", func(t *testing.T) {
+		svc, st := newSuperviseTaintTestRun(t, "root-taint-baseline")
+		m := scenarioModel(t)
+		m.broker = failingTaintBroker{err: errors.New("broker unavailable")}
+		m.supervision = &superviseRuntime{service: svc, state: st, generation: 1}
+		model, cmd := onSuperviseBaselineDecision(m, superviseBaselineDecisionMsg{generation: 1, approved: true})
+		got := model.(*Model)
+		if cmd != nil || got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || got.supervision.state.ResumeStatus != supervise.StatusRunning {
+			t.Fatalf("baseline taint failure state=%v cmd=%v durable=%+v", got.state, cmd != nil, got.supervision.state)
+		}
+		if !strings.Contains(got.supervision.state.PauseReason, "baseline initialization") {
+			t.Fatalf("pause reason = %q", got.supervision.state.PauseReason)
+		}
+	})
+
+	t.Run("deterministic gate rejection", func(t *testing.T) {
+		svc, st := newSuperviseTaintTestRun(t, "root-taint-gate")
+		st = completeSupervisePlanForTaintTest(t, svc, st)
+		m := scenarioModel(t)
+		m.session = nil
+		m.broker = failingTaintBroker{err: errors.New("broker unavailable")}
+		m.verifyConfig = runtime.VerifyConfig{Commands: []string{"false"}, MaxRounds: 2}
+		m.verifyEnabled, m.verifying, m.state = true, true, stateStreaming
+		m.supervision = &superviseRuntime{service: svc, state: st, detector: supervise.RestoreDetector(st.Detector), gateActive: true}
+		model, cmd := onSuperviseGateResult(m, verifyResultMsg{outcome: runtime.VerifyOutcome{Status: runtime.VerifyFailed, Round: 1, Output: "still failing"}})
+		got := model.(*Model)
+		if cmd != nil || got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || !strings.Contains(got.supervision.state.PauseReason, "still failing") {
+			t.Fatalf("gate taint failure state=%v cmd=%v durable=%+v", got.state, cmd != nil, got.supervision.state)
+		}
+		got.broker = nil
+		if resume := got.resumeSupervision(); resume == nil {
+			t.Fatal("durably paused gate failure was not resumable")
+		}
+		last := got.msgs[len(got.msgs)-1]
+		if len(last.Content) == 0 || last.Content[0].Text == nil || !strings.Contains(last.Content[0].Text.Text, "still failing") {
+			t.Fatalf("resume omitted durable pause reason: %+v", last)
+		}
+	})
+
+	t.Run("independent verifier rejection", func(t *testing.T) {
+		svc, st := newSuperviseTaintTestRun(t, "root-taint-verifier")
+		st = completeSupervisePlanForTaintTest(t, svc, st)
+		m := scenarioModel(t)
+		m.session = nil
+		m.broker = failingTaintBroker{err: errors.New("broker unavailable")}
+		m.supervision = &superviseRuntime{service: svc, state: st, verifierGeneration: 1}
+		verdict := &supervise.Verdict{Kind: supervise.ReviewCompletion, Decision: supervise.VerdictReject, Anchor: st.Anchor(), Rationale: "missing release evidence"}
+		model, cmd := onSuperviseVerifierResult(m, superviseVerifierResultMsg{generation: 1, result: supervise.ReviewResult{Verdict: verdict}})
+		got := model.(*Model)
+		if cmd != nil || got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || !strings.Contains(got.supervision.state.PauseReason, "missing release evidence") {
+			t.Fatalf("verifier taint failure state=%v cmd=%v durable=%+v", got.state, cmd != nil, got.supervision.state)
+		}
+	})
+}
+
 func TestSuperviseTriggersCoalesceWithoutDroppingEvidence(t *testing.T) {
 	now := time.Now()
 	first := &supervise.Trigger{ID: "first", CreatedAt: now, Signals: []supervise.TriggerSignal{{Type: supervise.TriggerRepeatedFailure, Severity: "warning", EvidenceRefs: []string{"event:1"}, Attributes: map[string]string{"tool": "bash"}}}}
@@ -305,6 +402,39 @@ func TestSuperviseEvidenceContentIsByteBoundedAndUTF8Safe(t *testing.T) {
 	got := boundedSuperviseEvidenceContent(strings.Repeat("ż", 100), 71)
 	if len(got) > 71 || !utf8.ValidString(got) || !strings.HasSuffix(got, "[evidence truncated by host boundary]") {
 		t.Fatalf("bounded evidence bytes=%d valid=%t content=%q", len(got), utf8.ValidString(got), got)
+	}
+}
+
+func TestSuperviseEvidenceSnapshotLazilyPagesImmutableBlocks(t *testing.T) {
+	m := scenarioModel(t)
+	m.session = nil
+	m.blocks = []block{
+		{kind: "assistant", body: "\x1b[31mfirst answer\x1b[0m"},
+		{kind: "thinking", body: "hidden reasoning"},
+		{kind: "tool", toolName: "read", toolArgs: `{"path":"README.md"}`, toolResult: "tool result"},
+		{kind: "assistant", body: strings.Repeat("later ", 20_000)},
+	}
+	snapshot := m.superviseEvidenceSnapshot(supervise.State{RootSessionID: "root-evidence-lazy", SessionSequence: 1, TreeDigest: "unavailable"})
+	if len(snapshot.bySection[supervise.EvidenceTranscript]) != 0 || len(snapshot.bySection[supervise.EvidenceTools]) != 0 || len(snapshot.blocks) != 3 {
+		t.Fatalf("snapshot eagerly materialized blocks: transcript=%d tools=%d raw=%d", len(snapshot.bySection[supervise.EvidenceTranscript]), len(snapshot.bySection[supervise.EvidenceTools]), len(snapshot.blocks))
+	}
+	if !strings.Contains(snapshot.blocks[0].body, "\x1b[31m") {
+		t.Fatal("snapshot eagerly sanitized transcript content")
+	}
+	m.blocks[0].body = "mutated after snapshot"
+	page, err := snapshot.Read(context.Background(), supervise.EvidenceQuery{Section: supervise.EvidenceTranscript, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.NextCursor != "1" || strings.Contains(page.Items[0].Content, "\x1b") || !strings.Contains(page.Items[0].Content, "first answer") {
+		t.Fatalf("first lazy transcript page = %+v", page)
+	}
+	toolPage, err := snapshot.Search(context.Background(), supervise.EvidenceQuery{Section: supervise.EvidenceTools, Pattern: "tool result", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(toolPage.Items) != 1 || toolPage.Items[0].Summary != "read" || !strings.Contains(toolPage.Items[0].Content, "tool result") {
+		t.Fatalf("lazy tool search page = %+v", toolPage)
 	}
 }
 

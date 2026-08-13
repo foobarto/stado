@@ -1,6 +1,7 @@
-// Package supervisepicker implements the trusted /supervise setup wizard.
-// It collects operator choices only; it neither starts models nor approves the
-// watchdog's later baseline proposal.
+// Package supervisepicker implements the trusted /supervise setup boundary from
+// EP-0062 (docs/eps/0062-harness-enforced-supervised-work.md). It collects
+// operator choices only; it neither starts models nor approves the watchdog's
+// later baseline proposal.
 package supervisepicker
 
 import (
@@ -59,15 +60,14 @@ type field struct {
 }
 
 type Model struct {
-	Visible      bool
-	Advanced     bool
-	Width        int
-	Height       int
-	Cursor       int
-	Notice       string
-	Draft        Draft
-	Out          Result
-	decimalEdits map[string]string
+	Visible  bool
+	Advanced bool
+	Width    int
+	Height   int
+	Cursor   int
+	Notice   string
+	Draft    Draft
+	Out      Result
 }
 
 func New() *Model { return &Model{} }
@@ -79,7 +79,6 @@ func (m *Model) Open(objective, provider, model string) {
 	m.Visible, m.Advanced, m.Cursor, m.Notice = true, false, 0, ""
 	m.Draft = Draft{Objective: strings.TrimSpace(objective), Config: cfg}
 	m.Out = Result{}
-	m.decimalEdits = make(map[string]string)
 }
 
 func (m *Model) Close() { m.Visible = false }
@@ -162,18 +161,6 @@ func (m *Model) start() {
 		m.Notice = "Objective is required."
 		return
 	}
-	for _, item := range []struct {
-		label string
-		value *float64
-	}{
-		{label: "Watchdog cost cap USD", value: &m.Draft.Config.WatchdogBudget.CostCapUSD},
-		{label: "Verifier cost cap USD", value: &m.Draft.Config.VerifierBudget.CostCapUSD},
-	} {
-		if err := m.commitDecimal(item.label, item.value); err != nil {
-			m.Notice = err.Error()
-			return
-		}
-	}
 	cfg, err := supervise.NormalizeConfig(m.Draft.Config)
 	if err != nil {
 		m.Notice = err.Error()
@@ -234,7 +221,6 @@ func (m *Model) fields() []field {
 		m.integer("Watchdog thinking budget", &m.Draft.Config.Watchdog.ThinkingBudgetTokens),
 		m.choice("Watchdog effort", func() string { return string(m.Draft.Config.Watchdog.Effort) }, func(v string) { m.Draft.Config.Watchdog.Effort = supervise.Effort(v) }, "low", "medium", "high", "xhigh", "max"),
 		m.integer("Watchdog token cap", &m.Draft.Config.WatchdogBudget.TokenCap),
-		m.decimal("Watchdog cost cap USD", &m.Draft.Config.WatchdogBudget.CostCapUSD),
 		m.integer("Watchdog timeout seconds", &m.Draft.Config.WatchdogBudget.TimeoutSeconds),
 		m.text("Verifier provider", func() string { return m.Draft.Config.Verifier.Provider }, func(v string) { m.Draft.Config.Verifier.Provider = strings.TrimSpace(v) }),
 		m.text("Verifier model", func() string { return m.Draft.Config.Verifier.Model }, func(v string) { m.Draft.Config.Verifier.Model = strings.TrimSpace(v) }),
@@ -242,7 +228,6 @@ func (m *Model) fields() []field {
 		m.integer("Verifier thinking budget", &m.Draft.Config.Verifier.ThinkingBudgetTokens),
 		m.choice("Verifier effort", func() string { return string(m.Draft.Config.Verifier.Effort) }, func(v string) { m.Draft.Config.Verifier.Effort = supervise.Effort(v) }, "low", "medium", "high", "xhigh", "max"),
 		m.integer("Verifier token cap", &m.Draft.Config.VerifierBudget.TokenCap),
-		m.decimal("Verifier cost cap USD", &m.Draft.Config.VerifierBudget.CostCapUSD),
 		m.integer("Verifier timeout seconds", &m.Draft.Config.VerifierBudget.TimeoutSeconds),
 		m.integer("Event review retries", &m.Draft.Config.EventReviewRetries),
 		m.integer("Failed-event pause limit", &m.Draft.Config.FailedEventLimit),
@@ -274,45 +259,6 @@ func (m *Model) integer(label string, value *int) field {
 		}
 	})
 }
-func (m *Model) decimal(label string, value *float64) field {
-	return m.text(label, func() string {
-		if edit, ok := m.decimalEdits[label]; ok {
-			return edit
-		}
-		return strconv.FormatFloat(*value, 'f', -1, 64)
-	}, func(v string) {
-		if m.decimalEdits == nil {
-			m.decimalEdits = make(map[string]string)
-		}
-		m.decimalEdits[label] = v
-		if strings.TrimSpace(v) == "" {
-			*value = 0
-			return
-		}
-		if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-			*value = n
-		}
-	})
-}
-
-func (m *Model) commitDecimal(label string, value *float64) error {
-	raw, ok := m.decimalEdits[label]
-	if !ok {
-		return nil
-	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		*value = 0
-		return nil
-	}
-	n, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return fmt.Errorf("%s must be a number", label)
-	}
-	*value = n
-	return nil
-}
-
 func (m *Model) toggle(label string, value *bool) field {
 	return field{label: label, kind: fieldToggle, get: func() string {
 		if *value {

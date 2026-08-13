@@ -21,7 +21,7 @@ default or `live`), plan-pivot approval (`user` by default or `watchdog`), and
 standard/high-assurance/custom scrutiny profile. `Ctrl+A` opens advanced
 settings for requirements/acceptance/verification hints, independent watchdog
 and verifier provider/model, provider-native thinking, thinking budget, effort,
-token/cost/time budgets, retry/backoff and correction limits, and
+token budgets, timeouts, retry/backoff and correction limits, and
 required/fallback posture.
 
 The standard profile treats event monitoring as advisory with the bounded
@@ -34,11 +34,8 @@ native reasoning budget is requested, while
 `effort=low|medium|high|xhigh|max` is forwarded through the provider's effort
 control when supported.
 
-Token caps are preflighted and enforced on every reviewer turn. A nonzero USD
-cap is accepted only when the selected provider explicitly reports billable
-USD usage. The built-in providers currently report tokens, not billable USD,
-so a configured reviewer USD cap fails before dispatch; use token caps for
-those providers.
+Reviewer spend ceilings are token-only in v1. Token caps are preflighted and
+enforced on every reviewer turn; timeouts remain a separate execution bound.
 
 A fresh watchdog proposes the full baseline in scrollback. Worker execution
 does not begin until you review it and choose Allow in the trusted approval
@@ -61,6 +58,8 @@ verification.
 - Exactly one approved plan step is active. Step-completion claims need evidence
   and watchdog approval; final verification cannot start until every approved
   step has advanced.
+- Supervision owns worker-turn scheduling. Starting `/supervise` stops an
+  existing `/loop`, and the watchdog/host can interrupt recurring execution.
 - Ordinary follow-up prompts are held until a safe boundary. A fresh watchdog
   routes directly related input to the worker and persists unrelated or
   uncertain work in the shared task store. The inbox is durable and acknowledged

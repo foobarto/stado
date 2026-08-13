@@ -1,7 +1,7 @@
 // Package eval defines reproducible supervised-versus-unsupervised benchmark
-// records and deterministic comparison metrics. It intentionally does not call
-// providers: the same scenario artifacts can be run against local, Ollama
-// Cloud, or hosted models without hiding credentials or inference costs.
+// records and deterministic comparison metrics for EP-0062. It intentionally
+// does not call providers: the same scenario artifacts can be run against local,
+// Ollama Cloud, or hosted models without hiding credentials or inference costs.
 package eval
 
 import (

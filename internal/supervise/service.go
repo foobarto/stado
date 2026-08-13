@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"sync"
 	"time"
@@ -176,7 +175,7 @@ func validateRoleProfile(p RoleProfile) error {
 }
 
 func validateBudget(b RoleBudget) error {
-	if b.TokenCap < 0 || b.CostCapUSD < 0 || math.IsNaN(b.CostCapUSD) || math.IsInf(b.CostCapUSD, 0) || b.TimeoutSeconds < 0 || b.TimeoutSeconds > 86_400 {
+	if b.TokenCap < 0 || b.TimeoutSeconds < 0 || b.TimeoutSeconds > 86_400 {
 		return errors.New("budget outside supported range")
 	}
 	return nil

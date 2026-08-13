@@ -69,7 +69,7 @@ objective, watchdog mode (`event` or `live`), plan-pivot authority (`user` or
 bounded `watchdog`), and standard/high-assurance/custom profile. Advanced fields
 select watchdog and verifier provider/model, provider-native
 `thinking=auto|on|off`, thinking budget, `effort=low|medium|high|xhigh|max`,
-token/cost/time budgets, retry/backoff and correction limits, acceptance/DoD
+token budgets, timeouts, retry/backoff and correction limits, acceptance/DoD
 hints, and required/fallback posture.
 
 The standard profile keeps event monitoring advisory under the bounded
@@ -122,7 +122,9 @@ The native detector observes host facts for repeated failures, identical retry
 thrash, edit/revert cycles, verification regression, four-turn criterion
 stalls, 80% budget burn, diff/scope expansion, child failure/exhaustion, step
 claims, pivot requests, risky boundaries, correction follow-up, and completion
-claims. It never parses hidden reasoning.
+claims. It never parses hidden reasoning. A criterion-stall window resets only
+when the active step or completed-step count advances; new evidence and tree
+churn remain review context but are activity, not proof of plan progress.
 
 ### Corrections, interruption, and failure
 
@@ -153,6 +155,10 @@ hands its still-open task IDs back to the normal worker loop in request order,
 and starts the oldest without claiming unrelated global backlog items. Explicit
 `/steer` remains the operator override. This uses the existing task system
 rather than creating a competing project tracker.
+
+Supervision owns worker-turn scheduling while it is active. Starting
+`/supervise` stops any existing `/loop`; the watchdog/host may interrupt or
+stop recurring execution under the supervision lifecycle.
 
 ### Pivots and human-only boundaries
 
@@ -204,10 +210,13 @@ and does not inherit supervision implicitly.
 - Baseline/watchdog/verifier provider failure is visible; work never begins
   without baseline approval and never completes without verification.
 - Stale model responses are discarded by anchor comparison.
+- Provider teardown is resource cleanup, not verdict authority: a teardown
+  error does not replace a successfully parsed and anchored verdict.
+- If a required broker-context update fails after a durable transition, the
+  host durably pauses the run and carries the reason into operator resumption;
+  it does not leave a nominally running run with no scheduled worker turn.
 - Evidence/tool/page budgets abort the review rather than silently truncating
   authority-bearing judgments.
-- Reviewer USD caps fail before dispatch unless the provider explicitly
-  reports billable USD usage; built-in providers currently require token caps.
 - The operator-selected reviewer provider receives requested evidence. A
   different provider is a data-trust choice: configured hook redaction is
   preserved, but arbitrary source/chat secrets are neither automatically

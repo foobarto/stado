@@ -28,6 +28,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
+// This file is the TUI host adapter for EP-0062. The supervise package owns the
+// durable, role-checked state machine; this adapter owns worker-turn scheduling,
+// provider lifecycles, broker context, and bounded evidence presentation.
 type superviseRuntime struct {
 	service            *supervise.Service
 	store              *wal.Store
@@ -120,6 +123,10 @@ func (m *Model) openSuperviseWizard(objective string) {
 		return
 	}
 	if m.loop != nil {
+		// EP-0062 gives supervision exclusive ownership of worker turns, while
+		// EP-0036 defines /supervise as an explicit /loop stop condition. The
+		// watchdog cannot reliably interrupt recurring work if both schedulers
+		// remain active.
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: "loop stopped - supervised work now owns worker turns"})
 	}
@@ -260,6 +267,10 @@ func (m *Model) resumeSupervision() tea.Cmd {
 	case supervise.StatusVerifying:
 		return m.startSuperviseCompletionFlow()
 	case supervise.StatusPaused:
+		// EP-0062 resumes the same durable run rather than starting a context-
+		// free retry. Preserve the host-owned pause diagnosis across the state
+		// transition so the worker knows which failed tactic must change.
+		priorPauseReason := rt.state.PauseReason
 		anchor := rt.state.Anchor()
 		anchor.TreeDigest = m.superviseTreeDigest()
 		st, err := rt.service.Resume(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleOperator, anchor, trajectory.LocalPrincipal(), "operator", "supervise-resume:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version))
@@ -289,6 +300,9 @@ func (m *Model) resumeSupervision() tea.Cmd {
 			return m.startSuperviseCompletionFlow()
 		}
 		feedback := "[Host-authenticated supervision decision]\nThe operator resumed supervised work. Re-read the enforced baseline and continue from the active step; do not repeat failed tactics without new evidence."
+		if priorPauseReason != "" {
+			feedback += "\nPrior pause reason: " + textutil.TruncateRunes(textutil.SanitizeForTerminal(priorPauseReason), 2048)
+		}
 		workerMsg := agent.Text(agent.RoleUser, feedback)
 		m.msgs = append(m.msgs, workerMsg)
 		m.persistMessage(workerMsg)
@@ -436,7 +450,7 @@ func onSuperviseBaselineDecision(m *Model, msg superviseBaselineDecisionMsg) (te
 	m.registerSuperviseControlTools()
 	m.appendBlock(block{kind: "system", body: fmt.Sprintf("supervise: baseline approved and enforced · mode %s · plan v%d · active step %s", st.Config.Mode, st.PlanVersion, st.ActiveStep)})
 	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
-		m.appendBlock(block{kind: "system", body: "supervise: broker taint reset failed: " + err.Error()})
+		m.pauseSupervisionAfterTaintFailure(rt, "baseline initialization", err)
 		return m, nil
 	}
 	m.appendUser(st.Baseline.Objective)
@@ -502,7 +516,7 @@ func onSuperviseGateResult(m *Model, msg verifyResultMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.setBrokerTaint(runtime.ContextTainted); err != nil {
-		m.appendBlock(block{kind: "system", body: err.Error()})
+		m.pauseSupervisionAfterTaintFailure(rt, "deterministic verification rejection: "+feedback, err)
 		return m, nil
 	}
 	msgToWorker := agent.Text(agent.RoleUser, feedback)
@@ -677,7 +691,7 @@ func onSuperviseVerifierResult(m *Model, msg superviseVerifierResultMsg) (tea.Mo
 	}
 	m.appendBlock(block{kind: "system", body: feedback})
 	if err := m.setBrokerTaint(runtime.ContextTainted); err != nil {
-		m.state = stateIdle
+		m.pauseSupervisionAfterTaintFailure(rt, "independent verifier rejection: "+feedback, err)
 		return m, nil
 	}
 	workerMsg := agent.Text(agent.RoleUser, feedback)
@@ -690,6 +704,41 @@ func onSuperviseVerifierResult(m *Model, msg superviseVerifierResultMsg) (tea.Mo
 
 func superviseVerificationEvent(passed bool) supervise.WorkerEvent {
 	return supervise.WorkerEvent{Kind: supervise.WorkerVerification, VerificationPassed: &passed}
+}
+
+// pauseSupervisionAfterTaintFailure preserves EP-0062's fail-closed authority
+// boundary. Once a durable transition has happened, a broker-context failure
+// must leave a resumable durable pause—not a running run with no worker turn and
+// not an in-memory-only error that a restart forgets.
+func (m *Model) pauseSupervisionAfterTaintFailure(rt *superviseRuntime, phase string, taintErr error) {
+	if rt == nil || rt.service == nil || rt.state.ID == "" {
+		m.state = stateError
+		m.appendBlock(block{kind: "system", body: "supervise: broker taint update failed: " + taintErr.Error()})
+		m.renderBlocks()
+		return
+	}
+	service, runID := rt.service, rt.state.ID
+	reason := textutil.TruncateRunes("broker taint update failed during "+phase+": "+taintErr.Error(), 4096)
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Status == supervise.StatusPaused {
+				return current, nil
+			}
+			idem := "supervise-taint-failure:" + runID + ":" + strconvVersionUI(current.Version)
+			return service.Pause(m.rootCtx, runID, current.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", idem)
+		},
+	)
+	if err != nil {
+		m.state = stateError
+		m.appendBlock(block{kind: "system", body: "supervise: broker taint update failed and the run could not be durably paused: " + err.Error()})
+		m.renderBlocks()
+		return
+	}
+	rt.state = st
+	m.state = stateIdle
+	m.appendBlock(block{kind: "system", body: "supervise: paused after broker taint update failure; fix the broker and use /supervise resume"})
+	m.renderBlocks()
 }
 
 func (m *Model) startSupervisePivotReview() tea.Cmd {
@@ -2095,7 +2144,17 @@ func (m *Model) cancelActiveSuperviseReview() bool {
 type staticSuperviseEvidence struct {
 	anchor     supervise.Anchor
 	bySection  map[supervise.EvidenceSection][]supervise.EvidenceItem
+	blocks     []staticSuperviseBlock
 	repository *superviseRepositorySnapshot
+}
+
+// staticSuperviseBlock is an immutable, shallow transcript snapshot. EP-0062
+// requires anchored, bounded pages; it does not require every review to eagerly
+// sanitize and duplicate the entire potentially long transcript.
+type staticSuperviseBlock struct {
+	index                int
+	kind, body, toolName string
+	toolArgs, toolResult string
 }
 
 type superviseRepositorySnapshot struct {
@@ -2103,6 +2162,9 @@ type superviseRepositorySnapshot struct {
 	head    plumbing.Hash
 }
 
+// superviseEvidenceSnapshot freezes the evidence authority surface at the
+// EP-0062 anchor. Expensive transcript/tool material is rendered lazily by
+// blockPage, while repository reads remain pinned to the anchored tree.
 func (m *Model) superviseEvidenceSnapshot(st supervise.State) *staticSuperviseEvidence {
 	s := &staticSuperviseEvidence{anchor: st.Anchor(), bySection: map[supervise.EvidenceSection][]supervise.EvidenceItem{}}
 	if m.session != nil && st.TreeDigest != "" && st.TreeDigest != "empty" && st.TreeDigest != "unavailable" {
@@ -2130,20 +2192,18 @@ func (m *Model) superviseEvidenceSnapshot(st supervise.State) *staticSuperviseEv
 		content := boundedSuperviseEvidenceContent(patch, 64<<10)
 		s.bySection[supervise.EvidenceDiff] = append(s.bySection[supervise.EvidenceDiff], supervise.EvidenceItem{ID: "worker-diff", Section: supervise.EvidenceDiff, Summary: strings.Join(paths, ", "), Content: content})
 	}
+	s.blocks = make([]staticSuperviseBlock, 0, len(m.blocks))
 	for i, b := range m.blocks {
 		if b.kind == "thinking" {
 			continue
 		}
-		item := supervise.EvidenceItem{ID: fmt.Sprintf("block:%d", i), Section: supervise.EvidenceTranscript, Sequence: uint64(i + 1), Summary: b.kind, Content: textutil.SanitizeForTerminal(strings.TrimSpace(b.body))}
-		if b.kind == "tool" {
-			item.Section = supervise.EvidenceTools
-			item.Summary = b.toolName
-			item.Content = textutil.SanitizeForTerminal(strings.TrimSpace(b.toolArgs + "\n" + b.toolResult))
-		}
-		if len(item.Content) > 64<<10 {
-			item.Content = boundedSuperviseEvidenceContent(item.Content, 64<<10)
-		}
-		s.bySection[item.Section] = append(s.bySection[item.Section], item)
+		// Copy only immutable string headers here. Sanitization, concatenation,
+		// and byte bounding happen for the requested page, so every review does
+		// not eagerly process the full transcript/tool history.
+		s.blocks = append(s.blocks, staticSuperviseBlock{
+			index: i, kind: b.kind, body: b.body, toolName: b.toolName,
+			toolArgs: b.toolArgs, toolResult: b.toolResult,
+		})
 	}
 	if m.fleet != nil {
 		addJSON(supervise.EvidenceChildren, "children:fleet", "Root-owned background-subworker lifecycle and bounded progress/results", m.fleet.List())
@@ -2174,6 +2234,9 @@ func (s *staticSuperviseEvidence) Follow(_ context.Context, q supervise.Evidence
 func (s *staticSuperviseEvidence) page(q supervise.EvidenceQuery, search bool) (supervise.EvidencePage, error) {
 	if q.Section == supervise.EvidenceRepository {
 		return s.repositoryPage(q, search)
+	}
+	if q.Section == supervise.EvidenceTranscript || q.Section == supervise.EvidenceTools {
+		return s.blockPage(q, search)
 	}
 	items := append([]supervise.EvidenceItem(nil), s.bySection[q.Section]...)
 	if search {
@@ -2216,6 +2279,63 @@ func (s *staticSuperviseEvidence) page(q supervise.EvidenceQuery, search bool) (
 	page := supervise.EvidencePage{AsOf: s.anchor, Items: append([]supervise.EvidenceItem(nil), items[start:end]...)}
 	if end < len(items) {
 		page.NextCursor = strconv.Itoa(end)
+	}
+	return page, nil
+}
+
+// blockPage applies filtering, sanitization, and byte bounds only to the page a
+// reviewer requested. Pagination still walks the immutable snapshot, so lazy
+// rendering cannot make evidence drift underneath an anchored EP-0062 verdict.
+func (s *staticSuperviseEvidence) blockPage(q supervise.EvidenceQuery, search bool) (supervise.EvidencePage, error) {
+	start, err := superviseEvidenceCursor(q.Cursor, len(s.blocks))
+	if err != nil {
+		return supervise.EvidencePage{}, err
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	allowed := map[string]bool{}
+	for _, kind := range q.Kinds {
+		allowed[kind] = true
+	}
+	needle := strings.ToLower(q.Pattern)
+	page := supervise.EvidencePage{AsOf: s.anchor}
+	matched, more := 0, false
+	for _, b := range s.blocks {
+		section, summary, content := supervise.EvidenceTranscript, b.kind, b.body
+		if b.kind == "tool" {
+			section, summary, content = supervise.EvidenceTools, b.toolName, b.toolArgs+"\n"+b.toolResult
+		}
+		if section != q.Section || len(allowed) > 0 && !allowed[summary] {
+			continue
+		}
+		if search && !strings.Contains(strings.ToLower(summary+"\n"+content), needle) {
+			continue
+		}
+		matchIndex := matched
+		matched++
+		if matchIndex < start {
+			continue
+		}
+		if len(page.Items) >= limit {
+			more = true
+			break
+		}
+		content = textutil.SanitizeForTerminal(strings.TrimSpace(content))
+		if len(content) > 64<<10 {
+			content = boundedSuperviseEvidenceContent(content, 64<<10)
+		}
+		page.Items = append(page.Items, supervise.EvidenceItem{
+			ID: fmt.Sprintf("block:%d", b.index), Section: section,
+			Sequence: uint64(b.index + 1), Summary: summary, Content: content,
+		})
+	}
+	if !more && start > matched {
+		return supervise.EvidencePage{}, errors.New("supervise: invalid evidence cursor")
+	}
+	if more {
+		page.NextCursor = strconv.Itoa(start + len(page.Items))
 	}
 	return page, nil
 }

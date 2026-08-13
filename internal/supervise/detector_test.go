@@ -122,14 +122,15 @@ func TestDetectorFindsStepCorrectionNoProgressAndBudget(t *testing.T) {
 	}
 }
 
-func TestDetectorNoProgressResetsOnHostObservedProgress(t *testing.T) {
+func TestDetectorNoProgressTracksPlanProgressNotActivity(t *testing.T) {
 	tests := []struct {
-		name   string
-		change func(*WorkerEvent)
+		name        string
+		change      func(*WorkerEvent)
+		wantTrigger bool
 	}{
-		{"completed step", func(ev *WorkerEvent) { ev.CompletedSteps++ }},
-		{"evidence", func(ev *WorkerEvent) { ev.EvidenceCount++ }},
-		{"tree", func(ev *WorkerEvent) { ev.TreeDigest = "tree-b" }},
+		{"completed step", func(ev *WorkerEvent) { ev.CompletedSteps++ }, false},
+		{"evidence only", func(ev *WorkerEvent) { ev.EvidenceCount++ }, true},
+		{"tree activity only", func(ev *WorkerEvent) { ev.TreeDigest = "tree-b" }, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,8 +140,12 @@ func TestDetectorNoProgressResetsOnHostObservedProgress(t *testing.T) {
 				if seq == 4 {
 					tc.change(&ev)
 				}
-				if got := d.Observe(ev, detectorAnchor(seq)); got != nil {
-					t.Fatalf("turn %d produced no-progress despite %s progress: %+v", seq, tc.name, got)
+				got := d.Observe(ev, detectorAnchor(seq))
+				if seq < 4 && got != nil {
+					t.Fatalf("early no-progress trigger at turn %d: %+v", seq, got)
+				}
+				if seq == 4 && (got != nil) != tc.wantTrigger {
+					t.Fatalf("turn 4 trigger=%+v, want trigger=%v for %s", got, tc.wantTrigger, tc.name)
 				}
 			}
 		})

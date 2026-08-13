@@ -50,7 +50,7 @@ type Reviewer struct {
 	Now     func() time.Time
 }
 
-func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudget, in ReviewRequest) (result ReviewResult, runErr error) {
+func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudget, in ReviewRequest) (ReviewResult, error) {
 	if r.Factory == nil || r.Source == nil {
 		return ReviewResult{}, errors.New("supervise: reviewer requires provider factory and evidence source")
 	}
@@ -68,17 +68,12 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		return ReviewResult{}, fmt.Errorf("supervise: build %s provider: %w", in.Role, err)
 	}
 	if closer, ok := provider.(io.Closer); ok {
-		defer func() {
-			if closeErr := closer.Close(); closeErr != nil && runErr == nil {
-				result = ReviewResult{}
-				runErr = fmt.Errorf("supervise: close %s provider: %w", in.Role, closeErr)
-			}
-		}()
+		// EP-0062 makes the parsed, anchored verdict the review's semantic
+		// result. Provider cleanup is resource hygiene and must not erase an
+		// otherwise valid verdict merely because Close reports an error.
+		defer func() { _ = closer.Close() }()
 	}
 	caps := agent.CapabilitiesForModel(provider, profile.Model)
-	if budget.CostCapUSD > 0 && !caps.ReportsCostUSD {
-		return ReviewResult{}, errors.New("supervise: reviewer provider does not report USD cost; use a token cap instead")
-	}
 	if budget.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(budget.TimeoutSeconds)*time.Second)
@@ -130,9 +125,6 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		}
 		if budget.TokenCap > 0 && total.InputTokens+total.OutputTokens > budget.TokenCap {
 			return ReviewResult{}, errors.New("supervise: reviewer token budget exceeded")
-		}
-		if budget.CostCapUSD > 0 && total.CostUSD > budget.CostCapUSD {
-			return ReviewResult{}, errors.New("supervise: reviewer cost budget exceeded")
 		}
 		var assistant []agent.Block
 		if text != "" {

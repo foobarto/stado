@@ -66,12 +66,10 @@ func (p *noReasoningReviewProvider) Capabilities() agent.Capabilities {
 
 type managedReviewProvider struct {
 	*scriptedReviewProvider
-	caps     agent.Capabilities
 	closeErr error
 	closes   int
 }
 
-func (p *managedReviewProvider) Capabilities() agent.Capabilities { return p.caps }
 func (p *managedReviewProvider) Close() error {
 	p.closes++
 	return p.closeErr
@@ -332,7 +330,7 @@ func TestReviewerHardTokenBudgetFailsClosedWhenProviderOmitsUsage(t *testing.T) 
 	}
 }
 
-func TestReviewerClosesFreshProviderAndRequiresReportedCost(t *testing.T) {
+func TestReviewerClosesFreshProvider(t *testing.T) {
 	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
 	source := &reviewSource{anchor: state.Anchor()}
 	resultBody := `{"verdict":{"kind":"event","decision":"continue","rationale":"aligned"}}`
@@ -350,31 +348,20 @@ func TestReviewerClosesFreshProviderAndRequiresReportedCost(t *testing.T) {
 		}
 	})
 
-	t.Run("unsupported USD cap fails before dispatch", func(t *testing.T) {
-		provider := &managedReviewProvider{scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, _ agent.TurnRequest) []agent.Event {
-			t.Fatal("review dispatched without provider cost reporting")
-			return nil
-		}}}
-		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
-		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{CostCapUSD: 0.10}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
-		if err == nil || !strings.Contains(err.Error(), "does not report USD cost") || provider.turn != 0 || provider.closes != 1 {
-			t.Fatalf("unsupported cost cap error=%v turns=%d closes=%d", err, provider.turn, provider.closes)
-		}
-	})
-
-	t.Run("reported USD cap is enforced", func(t *testing.T) {
+	t.Run("cleanup failure does not discard a valid verdict", func(t *testing.T) {
 		provider := &managedReviewProvider{
-			caps: agent.Capabilities{ReportsCostUSD: true},
+			closeErr: errors.New("cleanup failed"),
 			scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, _ agent.TurnRequest) []agent.Event {
-				return []agent.Event{{Kind: agent.EvTextDelta, Text: resultBody}, {Kind: agent.EvDone, Usage: &agent.Usage{CostUSD: 0.20}}}
+				return []agent.Event{{Kind: agent.EvTextDelta, Text: resultBody}, {Kind: agent.EvDone}}
 			}},
 		}
 		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
-		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{CostCapUSD: 0.10}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
-		if err == nil || !strings.Contains(err.Error(), "cost budget exceeded") || provider.closes != 1 {
-			t.Fatalf("reported cost cap error=%v closes=%d", err, provider.closes)
+		result, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+		if err != nil || result.Verdict == nil || provider.closes != 1 {
+			t.Fatalf("result=%+v error=%v closes=%d", result, err, provider.closes)
 		}
 	})
+
 }
 
 func TestReviewerRejectsUnfitTokenBudgetBeforeDispatch(t *testing.T) {

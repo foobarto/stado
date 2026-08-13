@@ -1,6 +1,7 @@
 // Package supervise implements the host-owned contract and enforcement state
-// for supervised work. Model output may propose changes and verdicts, but only
-// the service transition rules can grant authority or complete a run.
+// specified by EP-0062 (docs/eps/0062-harness-enforced-supervised-work.md).
+// Model output may propose changes and verdicts, but only the service transition
+// rules can grant authority or complete a run.
 package supervise
 
 import "time"
@@ -54,9 +55,10 @@ type RoleProfile struct {
 }
 
 type RoleBudget struct {
-	TokenCap       int     `json:"token_cap,omitempty"`
-	CostCapUSD     float64 `json:"cost_cap_usd,omitempty"`
-	TimeoutSeconds int     `json:"timeout_seconds,omitempty"`
+	// Reviewer spend limits are intentionally token-only in EP-0062 v1. Do not
+	// infer a monetary authority boundary from provider-reported cost metadata.
+	TokenCap       int `json:"token_cap,omitempty"`
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 }
 
 type Config struct {

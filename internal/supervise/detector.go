@@ -333,11 +333,14 @@ func (d *Detector) detect(prior []WorkerEvent, ev WorkerEvent) []TriggerSignal {
 			}
 		}
 		if len(turns) == 4 {
+			// EP-0062 defines this as a criterion-progress stall, not an
+			// activity stall. New evidence and tree churn remain useful trigger
+			// context, but only a step transition or completed-step progress
+			// resets the four-turn window; otherwise busywork could suppress the
+			// watchdog indefinitely.
 			unchanged := true
 			for _, p := range turns[1:] {
 				if completedSteps(p) != completedSteps(ev) ||
-					p.EvidenceCount != ev.EvidenceCount ||
-					p.TreeDigest != ev.TreeDigest ||
 					p.StepID != ev.StepID {
 					unchanged = false
 					break

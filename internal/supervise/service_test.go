@@ -3,7 +3,6 @@ package supervise
 import (
 	"context"
 	"errors"
-	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -46,11 +45,11 @@ func TestNormalizeConfigDefaultsAndHighAssurance(t *testing.T) {
 	}
 }
 
-func TestNormalizeConfigRejectsNonFiniteBudgetAndOversizedProviderIdentity(t *testing.T) {
+func TestNormalizeConfigRejectsInvalidBudgetAndOversizedProviderIdentity(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.WatchdogBudget.CostCapUSD = math.NaN()
+	cfg.WatchdogBudget.TokenCap = -1
 	if _, err := NormalizeConfig(cfg); err == nil {
-		t.Fatal("NaN watchdog cost budget accepted")
+		t.Fatal("negative watchdog token budget accepted")
 	}
 	cfg = DefaultConfig()
 	cfg.Verifier.Provider = strings.Repeat("x", 513)
