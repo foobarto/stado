@@ -73,6 +73,7 @@ var reservedSlashNames = map[string]bool{
 	"/stop":         true,
 	"/subagents":    true,
 	"/supervisor":   true,
+	"/supervise":    true,
 	"/switch":       true,
 	"/t":            true, // /tool alias
 	"/task":         true,

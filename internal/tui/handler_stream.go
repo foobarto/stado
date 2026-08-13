@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -117,6 +118,30 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.firePostLLMHook()
 	m.firePostTurnHook()
 	var cmds []tea.Cmd
+	if m.supervision != nil {
+		used, cap := m.totalTokens(), m.budgetHardTokens
+		if used < 0 {
+			used = 0
+		}
+		if cap < 0 {
+			cap = 0
+		}
+		cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
+			Kind:              supervise.WorkerTurnCompleted,
+			CriteriaCompleted: len(m.supervision.state.CompletedSteps),
+			TokenUsage:        uint64(used),
+			TokenBudget:       uint64(cap),
+		}))
+		if superviseClaimsCompletion(m.turnText) && !superviseTurnUsesControl(m.turnToolCalls, superviseCompletionTool) {
+			cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCompletionClaimed}))
+		}
+		if m.supervision.correctionPending {
+			cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCorrectionFollowup}))
+		}
+	}
+	// Observe the completed worker turn before onTurnComplete can start an
+	// inbox review. Otherwise the classifier captures the previous anchor and
+	// its otherwise-current verdict is guaranteed to be discarded as stale.
 	cmds = append(cmds, m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))
 	// EP-0036: after each turn, check if the loop agent signalled
 	// done; if not and loop is active, queue the next iteration or

@@ -36,6 +36,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/providerpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
+	"github.com/foobarto/stado/internal/tui/supervisepicker"
 	"github.com/foobarto/stado/internal/tui/taskpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
@@ -394,7 +395,10 @@ type Model struct {
 	verifyRounds     int
 	verifying        bool
 	verifyGeneration uint64
-	session          *stadogit.Session
+	// supervision is the host-owned /supervise run attached to this root
+	// session. It is distinct from the legacy responsive /supervisor lane.
+	supervision *superviseRuntime
+	session     *stadogit.Session
 	// Cached footer VCS summary. Status rendering happens frequently, so
 	// avoid probing git on every frame.
 	statusGitCwd       string
@@ -405,20 +409,21 @@ type Model struct {
 	sessionUIStates map[string]sessionUIState
 
 	// UI components
-	input        *input.Editor
-	slash        *palette.Model
-	slashInline  bool
-	agentPick    *agentpicker.Model
-	modelPicker  *modelpicker.Model
-	sessionPick  *sessionpicker.Model
-	taskPick     *taskpicker.Model
-	treePick     *treepicker.Model
-	themePick    *themepicker.Model
-	filePicker   *filepicker.Model
-	providerPick *providerpicker.Model
-	fleetPicker  *fleetpicker.Model
-	fleet        *runtime.Fleet
-	attach       attachState // /session attach RW state (EP-0038 §F)
+	input         *input.Editor
+	slash         *palette.Model
+	slashInline   bool
+	agentPick     *agentpicker.Model
+	modelPicker   *modelpicker.Model
+	sessionPick   *sessionpicker.Model
+	taskPick      *taskpicker.Model
+	treePick      *treepicker.Model
+	themePick     *themepicker.Model
+	filePicker    *filepicker.Model
+	providerPick  *providerpicker.Model
+	fleetPicker   *fleetpicker.Model
+	supervisePick *supervisepicker.Model
+	fleet         *runtime.Fleet
+	attach        attachState // /session attach RW state (EP-0038 §F)
 	// sessionToolOverrides holds /tool enable/disable/autoload/
 	// unautoload edits made without --save. Zero value = no
 	// overrides. EP-0037 §I, BACKLOG #5.
@@ -820,6 +825,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		filePicker:       filepicker.New(),
 		providerPick:     providerpicker.New(),
 		fleetPicker:      fleetpicker.New(),
+		supervisePick:    supervisepicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
 		vp:               viewport.New(),

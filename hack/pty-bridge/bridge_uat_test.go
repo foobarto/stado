@@ -1018,6 +1018,74 @@ strict = true
 	})
 }
 
+// TestBridgeE2E_Stado_SuperviseWizard exercises the trusted setup surface
+// through the real slash dispatcher, PTY, Bubble Tea update loop, and xterm.js
+// renderer. It deliberately cancels before requirements review so the test
+// needs no provider call while still covering basic defaults, the advanced
+// page, and modal dismissal.
+func TestBridgeE2E_Stado_SuperviseWizard(t *testing.T) {
+	requireBridgeE2E(t)
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge && window.bridge.snapshot && window.bridge.snapshot().indexOf('Type a message') >= 0`,
+			10*time.Second); err != nil {
+			return fmt.Errorf("supervise input never became ready: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+		time.Sleep(1500 * time.Millisecond)
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('/supervise Ship the guarded feature\r')`, nil)); err != nil {
+			return fmt.Errorf("send /supervise: %w", err)
+		}
+		basic := `(function(){
+			var s = window.bridge.snapshot();
+			return s.indexOf('Supervise setup') >= 0 &&
+				s.indexOf('Ship the guarded feature') >= 0 &&
+				s.indexOf('Watchdog mode') >= 0 && s.indexOf('event') >= 0 &&
+				s.indexOf('Plan pivots') >= 0 && s.indexOf('user') >= 0 &&
+				s.indexOf('Assurance profile') >= 0 && s.indexOf('standard') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, basic, 10*time.Second); err != nil {
+			return fmt.Errorf("supervise basic wizard/defaults not rendered: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x01')`, nil)); err != nil {
+			return fmt.Errorf("send Ctrl+A: %w", err)
+		}
+		advanced := `(function(){
+			var s = window.bridge.snapshot();
+			return s.indexOf('Supervise setup · advanced') >= 0 &&
+				s.indexOf('Acceptance/gate hints') >= 0 &&
+				s.indexOf('Definition-of-done hints') >= 0 &&
+				s.indexOf('Watchdog provider') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, advanced, 10*time.Second); err != nil {
+			return fmt.Errorf("supervise advanced wizard not rendered: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x1b')`, nil)); err != nil {
+			return fmt.Errorf("send Esc: %w", err)
+		}
+		closed := `(function(){
+			var s = window.bridge.snapshot();
+			return s.indexOf('Type a message') >= 0 && s.indexOf('Supervise setup') < 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, closed, 10*time.Second); err != nil {
+			return fmt.Errorf("supervise wizard did not dismiss: %w; snapshot:\n%s", err, snapshot(ctx, t))
+		}
+		return nil
+	})
+}
+
 func TestBridgeE2E_Stado_SlashFilter(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)

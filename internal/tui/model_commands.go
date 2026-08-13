@@ -119,6 +119,8 @@ func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
 // Update.
 func (m *Model) anyModalOpen() bool {
 	switch {
+	case m.supervisePick != nil && m.supervisePick.Visible:
+		return true
 	case m.modelPicker.Visible:
 		return true
 	case m.personaPicker.Visible:
@@ -151,6 +153,9 @@ func (m *Model) anyModalOpen() bool {
 // visible. Used by the Ctrl+C top-level binding so a single press
 // reliably closes whatever popup is up.
 func (m *Model) closeAllModals() {
+	if m.supervisePick != nil && m.supervisePick.Visible {
+		m.supervisePick.Close()
+	}
 	if m.modelPicker.Visible {
 		m.modelPicker.Close()
 	}
@@ -327,9 +332,13 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		streamCancelled := m.cancelRunningStream()
 		toolCancelled := m.cancelRunningTool()
 		pendingDropped := m.clearPendingToolQueue()
+		reviewCancelled := m.cancelActiveSuperviseReview()
 		switch {
-		case streamCancelled || toolCancelled || pendingDropped > 0:
+		case streamCancelled || toolCancelled || pendingDropped > 0 || reviewCancelled:
 			body := "cancel: in-flight turn cancelled (queued prompt, if any, will run next)"
+			if reviewCancelled && !streamCancelled && !toolCancelled && pendingDropped == 0 {
+				body = "cancel: active supervision review interrupted"
+			}
 			if toolCancelled {
 				body = "cancel: in-flight tool cancelled (queued prompt, if any, will run next)"
 			}
@@ -451,6 +460,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.openAgentPicker()
 	case "/supervisor":
 		m.handleSupervisorSlash(parts)
+	case "/supervise":
+		return m.handleSuperviseSlash(parts)
 	case "/stats":
 		m.appendBlock(block{kind: "system", body: m.renderStats()})
 	case "/ps":

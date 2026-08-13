@@ -11,6 +11,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/foobarto/stado/internal/supervise"
 )
 
 func onWindowSize(m *Model, msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
@@ -166,5 +168,19 @@ func onLocalHint(m *Model, msg localHintMsg) (tea.Model, tea.Cmd) {
 
 func onSubagentEvent(m *Model, msg subagentEventMsg) (tea.Model, tea.Cmd) {
 	m.recordSubagentEvent(msg.ev)
-	return m, nil
+	var cmds []tea.Cmd
+	cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
+		Kind:        supervise.WorkerChildLifecycle,
+		ChildID:     msg.ev.ChildSession,
+		ChildStatus: msg.ev.Status,
+	}))
+	if len(msg.ev.ScopeViolations) > 0 {
+		cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
+			Kind:            supervise.WorkerTreeChanged,
+			TreeDigest:      m.superviseTreeDigest(),
+			ChangedPaths:    append([]string(nil), msg.ev.ChangedFiles...),
+			OutOfScopePaths: append([]string(nil), msg.ev.ScopeViolations...),
+		}))
+	}
+	return m, tea.Batch(cmds...)
 }

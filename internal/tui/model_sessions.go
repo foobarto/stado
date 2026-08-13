@@ -350,9 +350,14 @@ func (m *Model) sessionActionCWD() string {
 
 func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) {
 	m.saveActiveSessionUIState()
+	m.detachSupervision()
 	m.executorSandbox.Apply(exec)
 	m.executor = exec
 	m.resetForSession(sess)
+	if err := m.loadSupervision(); err != nil {
+		m.appendBlock(block{kind: "system", body: err.Error()})
+	}
+	m.renderBlocks()
 }
 
 func (m *Model) saveActiveSessionUIState() {

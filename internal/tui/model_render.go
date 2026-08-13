@@ -41,6 +41,9 @@ func (m *Model) viewString() string {
 	if m.showStatus {
 		return m.renderStatusModal(m.width, m.height)
 	}
+	if m.supervisePick != nil && m.supervisePick.Visible {
+		return m.supervisePick.View(m.width, m.height)
+	}
 
 	// Landing screen shows until there's real conversation/activity. The
 	// startup banner block (startup:true) is ignored here so it doesn't

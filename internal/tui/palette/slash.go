@@ -69,6 +69,7 @@ var Commands = []Command{
 	{"/ps", "List running fleet agents with status, model, and age", "", "Session"},
 	{"/kill", "Cancel a running agent (/kill <agent-id>, ids from /ps)", "", "Session"},
 	{"/supervisor", "Show or toggle the supervisor lane (/supervisor on|off|status)", "", "Session"},
+	{"/supervise", "Start harness-enforced planned work with an independent watchdog and verifier", "", "Session"},
 	{"/adopt", "Dry-run or apply recent worker subagent changes (/adopt [child] [--apply])", "", "Session"},
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},

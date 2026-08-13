@@ -31,6 +31,7 @@ import (
 	"github.com/foobarto/stado/internal/stateprompt"
 	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/pkg/agent"
@@ -60,6 +61,12 @@ func (m *Model) turnSystemPrompt(userPrompt string) string {
 			}
 			sys += listing
 		}
+	}
+	if supervision := m.superviseSystemContext(); supervision != "" {
+		if sys != "" {
+			sys += "\n\n"
+		}
+		sys += supervision
 	}
 	return sys
 }
@@ -1078,6 +1085,10 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	if len(m.turnToolCalls) == 0 {
 		m.resolveSteeringAtTurnEnd()
+		if m.supervision != nil && len(m.supervision.followupQueue) > 0 && m.supervision.state.Status == supervise.StatusRunning {
+			m.closeTurnWithoutTools()
+			return m.startNextSuperviseFollowupReview()
+		}
 		if !m.turnCancelled && m.verifyEnabled && m.verifyConfig.Enabled() {
 			return m.startVerification()
 		}
@@ -1090,6 +1101,17 @@ func (m *Model) onTurnComplete() tea.Cmd {
 }
 
 func (m *Model) finishTurnWithoutTools() tea.Cmd {
+	m.closeTurnWithoutTools()
+	if cmd := m.runPendingLearn(); cmd != nil {
+		return cmd
+	}
+	if m.queuedPrompt != "" {
+		return m.promoteQueuedPrompt()
+	}
+	return nil
+}
+
+func (m *Model) closeTurnWithoutTools() {
 	if m.session != nil {
 		if err := m.session.NextTurn(); err != nil {
 			m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
@@ -1098,13 +1120,6 @@ func (m *Model) finishTurnWithoutTools() tea.Cmd {
 	m.state = stateIdle
 	m.finalizeStreamingBlocks()
 	m.renderBlocks()
-	if cmd := m.runPendingLearn(); cmd != nil {
-		return cmd
-	}
-	if m.queuedPrompt != "" {
-		return m.promoteQueuedPrompt()
-	}
-	return nil
 }
 
 func (m *Model) resolveSteeringAtTurnEnd() {
@@ -1128,9 +1143,18 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
 		m.pendingCalls = m.pendingCalls[1:]
+		if m.supervision != nil && m.supervision.state.Status != supervise.StatusRunning {
+			m.rejectSupervisePhaseTool(call, m.supervision.state.Status)
+			continue
+		}
 		if !m.turnAllowsTool(call.Name) {
 			m.rejectUnavailableTool(call)
 			continue
+		}
+		if m.supervision != nil && m.supervision.state.Status == supervise.StatusRunning {
+			if boundary := superviseRiskBoundary(call); boundary != "" {
+				return m.requestSuperviseRiskApproval(call, boundary)
+			}
 		}
 		return m.executeCallAsync(call)
 	}
@@ -1139,6 +1163,22 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	m.pendingResults = nil
 	m.state = stateIdle
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+func (m *Model) rejectSupervisePhaseTool(call agent.ToolUseBlock, status supervise.Status) {
+	content := "blocked by supervised-work host boundary while run is " + string(status)
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == call.ID {
+			m.blocks[i].toolResult = content
+			m.blocks[i].streaming = false
+			if m.blocks[i].endedAt.IsZero() {
+				m.blocks[i].endedAt = time.Now()
+			}
+			m.invalidateBlockCache(i)
+			break
+		}
+	}
+	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{ToolUseID: call.ID, Content: content, IsError: true})
 }
 
 func (m *Model) turnAllowsTool(name string) bool {
@@ -1440,6 +1480,9 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 	if m.skillModelInvocationEnabled() {
 		extra = append(extra, "skills__load")
 	}
+	if m.supervision != nil && m.supervision.state.Status == supervise.StatusRunning {
+		extra = append(extra, superviseProgressTool, supervisePivotTool, superviseCompletionTool)
+	}
 	autoloaded := runtime.AutoloadedToolsWithExtra(m.executor.Registry, eff, extra)
 	pool := autoloaded
 	if len(m.activatedTools) > 0 {
@@ -1461,7 +1504,10 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 	if m.mode == modePlan || m.mode == modeBTW {
 		out := make([]tool.Tool, 0, len(pool))
 		for _, t := range pool {
-			if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+			// Supervision controls mutate only the host-owned contract WAL and
+			// remain necessary even when the worker is otherwise in Plan mode.
+			// They grant no repository or external-effect capability.
+			if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating && !(m.supervision != nil && m.supervision.state.Status == supervise.StatusRunning && isSuperviseControlTool(t.Name())) {
 				continue
 			}
 			out = append(out, t)

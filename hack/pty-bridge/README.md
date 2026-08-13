@@ -92,9 +92,8 @@ The tests:
    `window.bridge.snapshot()` against per-test predicates.
 5. Assert the predicate matches within a timeout.
 
-The catalogue of scenarios + their per-test cost lives in
-[`TEST-PLAN.md`](TEST-PLAN.md). At time of writing: 14 top-level
-test functions / 24 sub-scenarios, ~76s walltime end-to-end.
+The current scenario catalogue and per-test cost live in
+[`TEST-PLAN.md`](TEST-PLAN.md).
 
 Skips when `STADO_PTY_BRIDGE_E2E` is unset OR no Chrome binary
 is findable — the package's `go test` stays fast and offline

@@ -51,6 +51,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onStreamDone(m, msg)
 	case verifyResultMsg:
 		return onVerifyResult(m, msg)
+	case superviseBaselineResultMsg:
+		return onSuperviseBaselineResult(m, msg)
+	case superviseBaselineDecisionMsg:
+		return onSuperviseBaselineDecision(m, msg)
+	case superviseVerifierResultMsg:
+		return onSuperviseVerifierResult(m, msg)
+	case supervisePivotReviewMsg:
+		return onSupervisePivotReview(m, msg)
+	case supervisePivotDecisionMsg:
+		return onSupervisePivotDecision(m, msg)
+	case superviseEventReviewMsg:
+		return onSuperviseEventReview(m, msg)
+	case superviseRiskDecisionMsg:
+		return onSuperviseRiskDecision(m, msg)
+	case superviseFollowupReviewMsg:
+		return onSuperviseFollowupReview(m, msg)
 	case btwResultMsg:
 		return onBtwResult(m, msg)
 	case learnResultMsg:

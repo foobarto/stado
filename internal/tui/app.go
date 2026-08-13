@@ -204,6 +204,9 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 	// No-op on fresh sessions — conversation.jsonl only exists after
 	// at least one message has been written.
 	m.LoadPersistedConversation()
+	if err := m.loadSupervision(); err != nil {
+		notices = append(notices, "stado: "+err.Error())
+	}
 	// Render the captured startup banner as a system block so it lands
 	// in the scrollback the alt-screen would otherwise have cleared.
 	// Injected after the replay so a resumed session shows prior history
@@ -273,6 +276,16 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 func (m *Model) Shutdown() {
 	if m.fleet != nil {
 		m.fleet.CancelAll()
+	}
+	if m.supervision != nil {
+		if m.supervision.cancel != nil {
+			m.supervision.cancel()
+			m.supervision.cancel = nil
+		}
+		if m.supervision.store != nil {
+			_ = m.supervision.store.Close()
+			m.supervision.store = nil
+		}
 	}
 }
 

@@ -22,9 +22,11 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -523,6 +525,19 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.renderBlocks()
 		return nil
 	}
+	if rt := m.supervision; rt != nil && !superviseTerminal(rt.state.Status) {
+		anchor := rt.state.Anchor()
+		anchor.SessionSequence = max(rt.sequence, rt.state.SessionSequence) + 1
+		anchor.TreeDigest = superviseSessionTreeDigest(child)
+		st, reattachErr := rt.service.ReattachSession(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, child.ID, anchor, trajectory.LocalPrincipal(), "tui-host", "supervise-reattach:"+rt.state.ID+":"+child.ID)
+		if reattachErr != nil {
+			m.appendBlock(block{kind: "system", body: "auto-recovery: supervised run could not attach to the compacted child: " + reattachErr.Error()})
+			m.renderBlocks()
+			return nil
+		}
+		rt.state, rt.sequence = st, st.SessionSequence
+		rt.detector = supervise.RestoreDetector(st.Detector)
+	}
 
 	prompt := m.recoveryPrompt
 	queued := m.queuedPrompt
@@ -533,6 +548,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	m.session = child
 	m.executorSandbox.Apply(exec)
 	m.executor = exec
+	m.registerSuperviseControlTools()
 	m.msgs = nil
 	m.blocks = nil
 	m.todos = nil
@@ -567,6 +583,9 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	})
 
 	body := fmt.Sprintf("auto-recovery: switched to compacted child session %s", childID)
+	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
+		body += "\nsupervise: retained root " + m.supervision.state.RootSessionID + " and advanced the worker-session anchor"
+	}
 	if strings.TrimSpace(seed) != "" {
 		body += "\nsummary: " + trimSeed(seed, 120)
 	}

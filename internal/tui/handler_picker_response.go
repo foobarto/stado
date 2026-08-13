@@ -20,10 +20,25 @@ import (
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/supervisepicker"
 	"github.com/foobarto/stado/internal/tui/treepicker"
 )
 
 func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if m.supervisePick != nil && m.supervisePick.Visible {
+		cmd, handled := m.supervisePick.Update(msg)
+		if handled {
+			out := m.supervisePick.TakeResult()
+			switch out.Action {
+			case supervisepicker.ActionStart:
+				return m, m.beginSupervise(out.Draft), true
+			case supervisepicker.ActionCancel:
+				m.layout()
+			}
+			return m, cmd, true
+		}
+		return m, nil, true
+	}
 	if m.slash.Visible {
 		// Palette owns all keypresses while visible — keystrokes feed
 		// its internal Query (so characters don't leak into the main
