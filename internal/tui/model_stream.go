@@ -1085,9 +1085,16 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	if len(m.turnToolCalls) == 0 {
 		m.resolveSteeringAtTurnEnd()
-		if m.supervision != nil && len(m.supervision.followupQueue) > 0 && m.supervision.state.Status == supervise.StatusRunning {
-			m.closeTurnWithoutTools()
-			return m.startNextSuperviseFollowupReview()
+		if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
+			if len(m.supervision.followupQueue) > 0 && m.supervision.state.Status == supervise.StatusRunning {
+				m.closeTurnWithoutTools()
+				return m.startNextSuperviseFollowupReview()
+			}
+			// Supervised verification is authority-bearing and starts only
+			// after supervise__request_completion durably enters
+			// StatusVerifying. Ordinary /verify must not race that workflow
+			// on prose-only worker turns.
+			return m.finishTurnWithoutTools()
 		}
 		if !m.turnCancelled && m.verifyEnabled && m.verifyConfig.Enabled() {
 			return m.startVerification()

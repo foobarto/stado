@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/supervise"
 )
 
 func TestVerifySlashTogglesConfiguredGate(t *testing.T) {
@@ -231,5 +232,32 @@ func TestCancelledNoToolTurnSkipsVerification(t *testing.T) {
 	cmd := m.onTurnComplete()
 	if cmd != nil || m.verifying || m.state != stateIdle {
 		t.Fatalf("cancelled completion cmd=%v verifying=%v state=%v", cmd != nil, m.verifying, m.state)
+	}
+}
+
+func TestActiveSupervisionSkipsGenericNoToolVerification(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.turnText = "All work is complete."
+	m.verifyEnabled = true
+	m.verifyConfig = runtime.VerifyConfig{Commands: []string{"should-not-run"}, MaxRounds: 2}
+	m.supervision = &superviseRuntime{state: supervise.State{Status: supervise.StatusRunning}}
+
+	cmd := m.onTurnComplete()
+	if cmd != nil || m.verifying || m.verifyRounds != 0 || m.state != stateIdle {
+		t.Fatalf("supervised prose turn started generic verification: cmd=%v verifying=%v rounds=%d state=%v", cmd != nil, m.verifying, m.verifyRounds, m.state)
+	}
+}
+
+func TestTerminalSupervisionDoesNotDisableOrdinaryVerification(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.verifyEnabled = true
+	m.verifyConfig = runtime.VerifyConfig{Commands: []string{"true"}, MaxRounds: 2}
+	m.supervision = &superviseRuntime{state: supervise.State{Status: supervise.StatusCompleted}}
+
+	cmd := m.onTurnComplete()
+	if cmd == nil || !m.verifying {
+		t.Fatalf("terminal supervision suppressed ordinary verification: cmd=%v verifying=%v", cmd != nil, m.verifying)
 	}
 }

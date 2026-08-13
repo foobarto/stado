@@ -383,3 +383,48 @@ func TestSuperviseEventVerdictResyncsAfterAsyncEvidenceWrite(t *testing.T) {
 		t.Fatalf("runtime version=%d durable version=%d evidence version=%d", got.supervision.state.Version, current.Version, durable.Version)
 	}
 }
+
+func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-control-cas", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-control-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attempts := 0
+	got, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return svc.State(st.ID) },
+		func(current supervise.State) (supervise.State, error) {
+			attempts++
+			if attempts == 1 {
+				if _, _, enqueueErr := svc.EnqueueFollowup(ctx, current.ID, current.Version, supervise.RoleOperator, "concurrent operator note", "test", "operator", "followup"); enqueueErr != nil {
+					t.Fatal(enqueueErr)
+				}
+			}
+			return svc.RecordEvidence(ctx, current.ID, current.Version, supervise.RoleWorker, supervise.Evidence{
+				Kind: "test", Summary: "worker progress", Anchor: current.Anchor(),
+			}, "test", "worker", "evidence:"+strconvVersion(current.Version))
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || len(got.PendingFollowups) != 1 || len(got.Evidence) != 1 {
+		t.Fatalf("attempts=%d state=%+v", attempts, got)
+	}
+}
