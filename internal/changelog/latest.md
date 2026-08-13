@@ -28,6 +28,12 @@
   actionable without tool discovery; unavailable tools and failed writes
   explicitly retain and disclose an unpersisted fallback instead of losing work.
 
+### Dependencies
+
+- **Go 1.26.6 is now the minimum and release toolchain.** This patch release
+  fixes the standard-library vulnerabilities reported by the release gate in
+  `net/url`, `crypto/tls`, `encoding/xml`, and `encoding/asn1`.
+
 ### Docs
 
 - **EP-0062 documents supervised-work authority and failure semantics.** Added
