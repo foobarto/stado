@@ -64,6 +64,19 @@ func (p *noReasoningReviewProvider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{SupportsThinking: true}
 }
 
+type managedReviewProvider struct {
+	*scriptedReviewProvider
+	caps     agent.Capabilities
+	closeErr error
+	closes   int
+}
+
+func (p *managedReviewProvider) Capabilities() agent.Capabilities { return p.caps }
+func (p *managedReviewProvider) Close() error {
+	p.closes++
+	return p.closeErr
+}
+
 type reviewSource struct {
 	anchor Anchor
 	reads  int
@@ -317,6 +330,51 @@ func TestReviewerHardTokenBudgetFailsClosedWhenProviderOmitsUsage(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "omitted usage") || provider.turn != 1 {
 		t.Fatalf("missing usage error=%v turns=%d", err, provider.turn)
 	}
+}
+
+func TestReviewerClosesFreshProviderAndRequiresReportedCost(t *testing.T) {
+	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+	resultBody := `{"verdict":{"kind":"event","decision":"continue","rationale":"aligned"}}`
+
+	t.Run("fresh provider is closed", func(t *testing.T) {
+		provider := &managedReviewProvider{scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+			return []agent.Event{{Kind: agent.EvTextDelta, Text: resultBody}, {Kind: agent.EvDone}}
+		}}}
+		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+		if _, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state}); err != nil {
+			t.Fatal(err)
+		}
+		if provider.closes != 1 {
+			t.Fatalf("provider closes = %d, want 1", provider.closes)
+		}
+	})
+
+	t.Run("unsupported USD cap fails before dispatch", func(t *testing.T) {
+		provider := &managedReviewProvider{scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+			t.Fatal("review dispatched without provider cost reporting")
+			return nil
+		}}}
+		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{CostCapUSD: 0.10}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+		if err == nil || !strings.Contains(err.Error(), "does not report USD cost") || provider.turn != 0 || provider.closes != 1 {
+			t.Fatalf("unsupported cost cap error=%v turns=%d closes=%d", err, provider.turn, provider.closes)
+		}
+	})
+
+	t.Run("reported USD cap is enforced", func(t *testing.T) {
+		provider := &managedReviewProvider{
+			caps: agent.Capabilities{ReportsCostUSD: true},
+			scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+				return []agent.Event{{Kind: agent.EvTextDelta, Text: resultBody}, {Kind: agent.EvDone, Usage: &agent.Usage{CostUSD: 0.20}}}
+			}},
+		}
+		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{CostCapUSD: 0.10}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+		if err == nil || !strings.Contains(err.Error(), "cost budget exceeded") || provider.closes != 1 {
+			t.Fatalf("reported cost cap error=%v closes=%d", err, provider.closes)
+		}
+	})
 }
 
 func TestReviewerRejectsUnfitTokenBudgetBeforeDispatch(t *testing.T) {

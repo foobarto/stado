@@ -61,6 +61,7 @@ type Capabilities struct {
 	SupportsPromptCache     bool
 	SupportsThinking        bool
 	SupportsReasoningEffort bool
+	ReportsCostUSD          bool
 	MaxParallelToolCalls    int
 	SupportsVision          bool
 	MaxContextTokens        int

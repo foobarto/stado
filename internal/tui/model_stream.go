@@ -1150,7 +1150,7 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
 		m.pendingCalls = m.pendingCalls[1:]
-		if m.supervision != nil && m.supervision.state.Status != supervise.StatusRunning {
+		if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) && m.supervision.state.Status != supervise.StatusRunning {
 			m.rejectSupervisePhaseTool(call, m.supervision.state.Status)
 			continue
 		}

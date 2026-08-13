@@ -1129,9 +1129,18 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	}
 	if msg.err != nil {
 		reason := textutil.TruncateRunes(msg.err.Error(), 4096)
-		st, err := rt.service.RecordReviewFailure(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", "supervise-review-failed:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version))
+		service, runID := rt.service, rt.state.ID
+		st, err := retrySuperviseMutation(
+			func() (supervise.State, error) { return service.State(runID) },
+			func(current supervise.State) (supervise.State, error) {
+				idem := "supervise-review-failed:" + runID + ":" + strconvVersionUI(current.Version)
+				return service.RecordReviewFailure(m.rootCtx, runID, current.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", idem)
+			},
+		)
 		if err == nil {
 			rt.state = st
+		} else {
+			m.appendBlock(block{kind: "system", body: "supervise: could not durably record watchdog failure: " + err.Error()})
 		}
 		if rt.state.Status == supervise.StatusPaused {
 			m.cancelSupervisedWorker()

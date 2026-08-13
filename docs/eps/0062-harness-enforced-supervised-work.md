@@ -206,6 +206,8 @@ and does not inherit supervision implicitly.
 - Stale model responses are discarded by anchor comparison.
 - Evidence/tool/page budgets abort the review rather than silently truncating
   authority-bearing judgments.
+- Reviewer USD caps fail before dispatch unless the provider explicitly
+  reports billable USD usage; built-in providers currently require token caps.
 - The operator-selected reviewer provider receives requested evidence. A
   different provider is a data-trust choice: configured hook redaction is
   preserved, but arbitrary source/chat secrets are neither automatically

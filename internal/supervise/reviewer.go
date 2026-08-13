@@ -50,7 +50,7 @@ type Reviewer struct {
 	Now     func() time.Time
 }
 
-func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudget, in ReviewRequest) (ReviewResult, error) {
+func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudget, in ReviewRequest) (result ReviewResult, runErr error) {
 	if r.Factory == nil || r.Source == nil {
 		return ReviewResult{}, errors.New("supervise: reviewer requires provider factory and evidence source")
 	}
@@ -67,7 +67,18 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("supervise: build %s provider: %w", in.Role, err)
 	}
+	if closer, ok := provider.(io.Closer); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil && runErr == nil {
+				result = ReviewResult{}
+				runErr = fmt.Errorf("supervise: close %s provider: %w", in.Role, closeErr)
+			}
+		}()
+	}
 	caps := agent.CapabilitiesForModel(provider, profile.Model)
+	if budget.CostCapUSD > 0 && !caps.ReportsCostUSD {
+		return ReviewResult{}, errors.New("supervise: reviewer provider does not report USD cost; use a token cap instead")
+	}
 	if budget.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(budget.TimeoutSeconds)*time.Second)

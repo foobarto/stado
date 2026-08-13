@@ -34,6 +34,12 @@ native reasoning budget is requested, while
 `effort=low|medium|high|xhigh|max` is forwarded through the provider's effort
 control when supported.
 
+Token caps are preflighted and enforced on every reviewer turn. A nonzero USD
+cap is accepted only when the selected provider explicitly reports billable
+USD usage. The built-in providers currently report tokens, not billable USD,
+so a configured reviewer USD cap fails before dispatch; use token caps for
+those providers.
+
 A fresh watchdog proposes the full baseline in scrollback. Worker execution
 does not begin until you review it and choose Allow in the trusted approval
 drawer.

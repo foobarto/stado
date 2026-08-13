@@ -127,11 +127,12 @@ sequences.
 `EvTextDelta · EvThinkingDelta · EvToolCallStart · EvToolCallArgsDelta
 · EvToolCallEnd · EvCacheHit · EvCacheMiss · EvUsage · EvDone · EvError`.
 
-**Capabilities** surface what a model supports — `SupportsPromptCache`,
-`SupportsThinking`, `MaxParallelToolCalls`, `SupportsVision`,
-`MaxContextTokens`. The agent loop branches on these today for prompt
-caching, thinking enablement/budgeting, vision gating, and context
-threshold enforcement.
+**Capabilities** surface what a model/provider supports —
+`SupportsPromptCache`, `SupportsThinking`, `SupportsReasoningEffort`,
+`ReportsCostUSD`, `MaxParallelToolCalls`, `SupportsVision`, and
+`MaxContextTokens`. The agent loop branches on these today for prompt caching,
+thinking and effort controls, fail-closed reviewer cost budgets, vision gating,
+and context-threshold enforcement.
 
 `EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
 `CacheWriteTokens` are the *intended* canonical surface for prompt-cache

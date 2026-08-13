@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -234,7 +235,7 @@ func TestSuperviseSystemContextEnforcesSingleTaskAndAuthority(t *testing.T) {
 }
 
 func TestSupervisePendingAuthorityPhaseBlocksRemainingToolBatch(t *testing.T) {
-	for _, status := range []supervise.Status{supervise.StatusPivotPending, supervise.StatusVerifying, supervise.StatusPaused, supervise.StatusCompleted} {
+	for _, status := range []supervise.Status{supervise.StatusPivotPending, supervise.StatusVerifying, supervise.StatusPaused} {
 		t.Run(string(status), func(t *testing.T) {
 			call := agent.ToolUseBlock{ID: "later-call", Name: "bash"}
 			m := &Model{
@@ -252,6 +253,31 @@ func TestSupervisePendingAuthorityPhaseBlocksRemainingToolBatch(t *testing.T) {
 			}
 			if len(m.pendingCalls) != 0 || m.blocks[0].streaming || !strings.Contains(m.blocks[0].toolResult, "host boundary") {
 				t.Fatalf("blocked model state: calls=%d block=%+v", len(m.pendingCalls), m.blocks[0])
+			}
+		})
+	}
+}
+
+func TestSuperviseTerminalRunAllowsOrdinaryToolQueue(t *testing.T) {
+	for _, status := range []supervise.Status{supervise.StatusCompleted, supervise.StatusCancelled} {
+		t.Run(string(status), func(t *testing.T) {
+			call := agent.ToolUseBlock{ID: "ordinary-call", Name: "read"}
+			m := &Model{
+				supervision:  &superviseRuntime{state: supervise.State{Status: status}},
+				pendingCalls: []agent.ToolUseBlock{call},
+				turnAllowed:  map[string]struct{}{call.Name: {}},
+				blocks:       []block{{kind: "tool", toolID: call.ID, toolName: call.Name, streaming: true}},
+			}
+			cmd := m.advanceToolQueue()
+			if cmd == nil {
+				t.Fatal("advanceToolQueue returned nil")
+			}
+			msg, ok := cmd().(toolResultMsg)
+			if !ok || !strings.Contains(msg.result.Content, "tool execution unavailable") {
+				t.Fatalf("terminal run did not reach ordinary execution path: %#v", msg)
+			}
+			if strings.Contains(m.blocks[0].toolResult, "host boundary") {
+				t.Fatalf("terminal run blocked ordinary tool: %+v", m.blocks[0])
 			}
 		})
 	}
@@ -432,6 +458,50 @@ func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
 	}
 	if attempts != 2 || len(got.PendingFollowups) != 1 || len(got.Evidence) != 1 {
 		t.Fatalf("attempts=%d state=%+v", attempts, got)
+	}
+}
+
+func TestSuperviseReviewFailureReloadsAfterConcurrentControlMutation(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	cfg := supervise.DefaultConfig()
+	cfg.WatchdogRequired = true
+	st, err := svc.Create(ctx, "root-review-failure-cas", cfg, "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-review-failure-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	durable, _, err := svc.EnqueueFollowup(ctx, st.ID, st.Version, supervise.RoleOperator, "concurrent operator note", "test", "operator", "followup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := scenarioModel(t)
+	m.supervision = &superviseRuntime{service: svc, store: store, state: st, reviewing: true, reviewGeneration: 1}
+	model, _ := onSuperviseEventReview(m, superviseEventReviewMsg{generation: 1, err: errors.New("watchdog unavailable")})
+	got := model.(*Model)
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != supervise.StatusPaused || current.FailedEventStreak != 1 || len(current.PendingFollowups) != 1 {
+		t.Fatalf("review failure was not recorded after version %d: %+v", durable.Version, current)
+	}
+	if got.supervision.state.Version != current.Version || got.supervision.state.Status != supervise.StatusPaused {
+		t.Fatalf("runtime state=%+v durable=%+v", got.supervision.state, current)
 	}
 }
 
