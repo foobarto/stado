@@ -43,11 +43,12 @@ type TokenCounter interface {
 // Populated either statically (known provider) or via runtime probing
 // (oaicompat /v1/models + first-call heuristics).
 type Capabilities struct {
-	SupportsPromptCache  bool
-	SupportsThinking     bool
-	MaxParallelToolCalls int
-	SupportsVision       bool
-	MaxContextTokens     int
+	SupportsPromptCache     bool
+	SupportsThinking        bool
+	SupportsReasoningEffort bool
+	MaxParallelToolCalls    int
+	SupportsVision          bool
+	MaxContextTokens        int
 }
 
 // TurnRequest is one agent turn: model, messages, available tools, and

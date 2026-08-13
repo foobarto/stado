@@ -59,14 +59,15 @@ type field struct {
 }
 
 type Model struct {
-	Visible  bool
-	Advanced bool
-	Width    int
-	Height   int
-	Cursor   int
-	Notice   string
-	Draft    Draft
-	Out      Result
+	Visible      bool
+	Advanced     bool
+	Width        int
+	Height       int
+	Cursor       int
+	Notice       string
+	Draft        Draft
+	Out          Result
+	decimalEdits map[string]string
 }
 
 func New() *Model { return &Model{} }
@@ -78,6 +79,7 @@ func (m *Model) Open(objective, provider, model string) {
 	m.Visible, m.Advanced, m.Cursor, m.Notice = true, false, 0, ""
 	m.Draft = Draft{Objective: strings.TrimSpace(objective), Config: cfg}
 	m.Out = Result{}
+	m.decimalEdits = make(map[string]string)
 }
 
 func (m *Model) Close() { m.Visible = false }
@@ -159,6 +161,18 @@ func (m *Model) start() {
 	if m.Draft.Objective == "" {
 		m.Notice = "Objective is required."
 		return
+	}
+	for _, item := range []struct {
+		label string
+		value *float64
+	}{
+		{label: "Watchdog cost cap USD", value: &m.Draft.Config.WatchdogBudget.CostCapUSD},
+		{label: "Verifier cost cap USD", value: &m.Draft.Config.VerifierBudget.CostCapUSD},
+	} {
+		if err := m.commitDecimal(item.label, item.value); err != nil {
+			m.Notice = err.Error()
+			return
+		}
 	}
 	cfg, err := supervise.NormalizeConfig(m.Draft.Config)
 	if err != nil {
@@ -261,7 +275,16 @@ func (m *Model) integer(label string, value *int) field {
 	})
 }
 func (m *Model) decimal(label string, value *float64) field {
-	return m.text(label, func() string { return strconv.FormatFloat(*value, 'f', -1, 64) }, func(v string) {
+	return m.text(label, func() string {
+		if edit, ok := m.decimalEdits[label]; ok {
+			return edit
+		}
+		return strconv.FormatFloat(*value, 'f', -1, 64)
+	}, func(v string) {
+		if m.decimalEdits == nil {
+			m.decimalEdits = make(map[string]string)
+		}
+		m.decimalEdits[label] = v
 		if strings.TrimSpace(v) == "" {
 			*value = 0
 			return
@@ -271,6 +294,25 @@ func (m *Model) decimal(label string, value *float64) field {
 		}
 	})
 }
+
+func (m *Model) commitDecimal(label string, value *float64) error {
+	raw, ok := m.decimalEdits[label]
+	if !ok {
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		*value = 0
+		return nil
+	}
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fmt.Errorf("%s must be a number", label)
+	}
+	*value = n
+	return nil
+}
+
 func (m *Model) toggle(label string, value *bool) field {
 	return field{label: label, kind: fieldToggle, get: func() string {
 		if *value {

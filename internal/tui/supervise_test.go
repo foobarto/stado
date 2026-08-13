@@ -279,3 +279,107 @@ func TestSuperviseEvidenceContentIsByteBoundedAndUTF8Safe(t *testing.T) {
 func testSuperviseBaseline() supervise.Baseline {
 	return supervise.Baseline{Objective: "ship", AcceptanceCriteria: []string{"works"}, Plan: []supervise.Step{{ID: "build", Title: "build", DoneWhen: "done"}}, DefinitionOfDone: []string{"docs"}, Verification: []string{"tests"}}
 }
+
+func TestSuperviseWizardStopsExistingLoopBeforeApproval(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateIdle
+	m.loop = &loopState{prompt: "poll deployment", interval: time.Minute}
+	m.openSuperviseWizard("ship safely")
+	if m.loop != nil {
+		t.Fatal("supervision wizard left the existing loop active")
+	}
+	if m.supervisePick == nil || !m.supervisePick.Visible {
+		t.Fatal("supervision wizard did not open")
+	}
+	if cmd := m.loopIterate(); cmd != nil {
+		t.Fatal("a queued loop tick started work after supervision took ownership")
+	}
+}
+
+func TestLoopCannotOwnTurnsDuringNonTerminalSupervision(t *testing.T) {
+	for _, status := range []supervise.Status{
+		supervise.StatusSetup,
+		supervise.StatusAwaitingApproval,
+		supervise.StatusRunning,
+		supervise.StatusPivotPending,
+		supervise.StatusVerifying,
+		supervise.StatusPaused,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			m := scenarioModel(t)
+			m.state = stateIdle
+			m.supervision = &superviseRuntime{state: supervise.State{Status: status}}
+			if cmd := m.handleLoopCmd("poll deployment"); cmd != nil {
+				t.Fatal("starting /loop under supervision returned a worker command")
+			}
+			if m.loop != nil {
+				t.Fatal("/loop started while non-terminal supervision was attached")
+			}
+
+			m.loop = &loopState{prompt: "stale queued iteration"}
+			if cmd := m.loopIterate(); cmd != nil {
+				t.Fatal("stale loop iteration returned a worker command")
+			}
+			if m.loop != nil {
+				t.Fatal("stale loop iteration survived supervised ownership")
+			}
+		})
+	}
+}
+
+func TestSuperviseEventVerdictResyncsAfterAsyncEvidenceWrite(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-evidence-cas", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-evidence-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleRuntimeState := st
+	durable, err := svc.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{
+		Kind: "test", Summary: "worker evidence arrived during review", Anchor: st.Anchor(),
+	}, "test", "worker", "evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trigger := &supervise.Trigger{ID: "trigger-evidence-cas", Anchor: st.Anchor(), Signals: []supervise.TriggerSignal{{
+		Type: supervise.TriggerNoProgress, Severity: "warning", EvidenceRefs: []string{"worker-event:1"},
+	}}}
+	verdict := &supervise.Verdict{Kind: supervise.ReviewEvent, Decision: supervise.VerdictContinue, Anchor: st.Anchor(), Rationale: "continue with the new evidence"}
+	m := scenarioModel(t)
+	m.rootCtx = ctx
+	m.supervision = &superviseRuntime{
+		service: svc, store: store, state: staleRuntimeState, reviewGeneration: 1, reviewing: true,
+	}
+	model, cmd := onSuperviseEventReview(m, superviseEventReviewMsg{
+		generation: 1, trigger: trigger, result: supervise.ReviewResult{Verdict: verdict},
+	})
+	if cmd != nil {
+		t.Fatal("resynchronized verdict unexpectedly scheduled another host action")
+	}
+	got := model.(*Model)
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.LastVerdict == nil || current.LastVerdict.Decision != supervise.VerdictContinue {
+		t.Fatalf("verdict was dropped after evidence version %d: %+v", durable.Version, current.LastVerdict)
+	}
+	if got.supervision.state.Version != current.Version || current.Version != durable.Version+1 {
+		t.Fatalf("runtime version=%d durable version=%d evidence version=%d", got.supervision.state.Version, current.Version, durable.Version)
+	}
+}

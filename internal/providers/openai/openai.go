@@ -51,11 +51,12 @@ func (p *Provider) Name() string { return p.name }
 
 func (p *Provider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		SupportsPromptCache:  true,
-		SupportsThinking:     false, // via Responses API only; not in this provider
-		MaxParallelToolCalls: 8,
-		SupportsVision:       true,
-		MaxContextTokens:     128_000,
+		SupportsPromptCache:     true,
+		SupportsThinking:        false, // via Responses API only; not in this provider
+		SupportsReasoningEffort: true,
+		MaxParallelToolCalls:    8,
+		SupportsVision:          true,
+		MaxContextTokens:        128_000,
 	}
 }
 

@@ -46,3 +46,33 @@ func TestWizardRequiresObjectiveAndExposesAdvancedReasoning(t *testing.T) {
 		}
 	}
 }
+
+func TestWizardPreservesFractionalCostCapWhileTyping(t *testing.T) {
+	m := New()
+	m.Open("ship it", "openai", "gpt-test")
+	m.Advanced = true
+	for i, f := range m.fields() {
+		if f.label == "Watchdog cost cap USD" {
+			m.Cursor = i
+			break
+		}
+	}
+	if m.fields()[m.Cursor].label != "Watchdog cost cap USD" {
+		t.Fatal("watchdog cost cap field not found")
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	for _, key := range []string{"0", ".", "5"} {
+		_, _ = m.Update(tea.KeyPressMsg{Text: key})
+	}
+	if got := m.fields()[m.Cursor].get(); got != "0.5" {
+		t.Fatalf("cost cap edit buffer = %q, want 0.5", got)
+	}
+	if got := m.Draft.Config.WatchdogBudget.CostCapUSD; got != 0.5 {
+		t.Fatalf("cost cap = %v, want 0.5", got)
+	}
+	m.start()
+	result := m.TakeResult()
+	if result.Action != ActionStart || result.Draft.Config.WatchdogBudget.CostCapUSD != 0.5 {
+		t.Fatalf("start result = %+v", result)
+	}
+}

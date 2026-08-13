@@ -102,11 +102,12 @@ func (p *Provider) BaseURL() string { return p.baseURL }
 
 func (p *Provider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		SupportsPromptCache:  true,
-		SupportsThinking:     true,
-		MaxParallelToolCalls: 8,
-		SupportsVision:       true,
-		MaxContextTokens:     200_000,
+		SupportsPromptCache:     true,
+		SupportsThinking:        true,
+		SupportsReasoningEffort: true,
+		MaxParallelToolCalls:    8,
+		SupportsVision:          true,
+		MaxContextTokens:        200_000,
 	}
 }
 

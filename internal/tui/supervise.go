@@ -119,6 +119,10 @@ func (m *Model) openSuperviseWizard(objective string) {
 		m.appendBlock(block{kind: "system", body: "supervise: wait for the current turn or tool to finish before starting supervised work"})
 		return
 	}
+	if m.loop != nil {
+		m.loop = nil
+		m.appendBlock(block{kind: "system", body: "loop stopped - supervised work now owns worker turns"})
+	}
 	if m.supervisePick == nil {
 		m.supervisePick = supervisepicker.New()
 	}
@@ -1126,6 +1130,11 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	if msg.result.Verdict == nil {
 		return m, startPending()
 	}
+	// Worker control tools mutate the durable state from the executor
+	// goroutine before their toolResultMsg reaches Bubble Tea. Refresh here so
+	// an evidence-only version advance cannot make a current verdict lose its
+	// compare-and-swap race.
+	m.syncSuperviseState()
 	if msg.result.Verdict.Anchor != rt.state.Anchor() {
 		// The worker is allowed to keep moving while an event review runs.
 		// Preserve the reviewed signal and coalesce it with newer signals so
@@ -1149,8 +1158,11 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 			return m, nil
 		}
 	}
-	st, err := rt.service.RecordEventVerdict(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleWatchdog, *msg.result.Verdict, msg.trigger, trajectory.LocalPrincipal(), "watchdog", "supervise-event-verdict:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version))
+	st, err := m.recordSuperviseEventVerdict(msg)
 	if err != nil {
+		if errors.Is(err, supervise.ErrVersion) || errors.Is(err, supervise.ErrStaleVerdict) {
+			rt.pendingTrigger = coalesceSuperviseTriggers(msg.trigger, rt.pendingTrigger)
+		}
 		return m, startPending()
 	}
 	rt.state = st
@@ -1172,6 +1184,32 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	}
 	m.renderBlocks()
 	return m, startPending()
+}
+
+func (m *Model) recordSuperviseEventVerdict(msg superviseEventReviewMsg) (supervise.State, error) {
+	rt := m.supervision
+	if rt == nil || msg.result.Verdict == nil {
+		return supervise.State{}, supervise.ErrInvalidState
+	}
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		expected := rt.state.Version
+		st, err := rt.service.RecordEventVerdict(m.rootCtx, rt.state.ID, expected, supervise.RoleWatchdog, *msg.result.Verdict, msg.trigger, trajectory.LocalPrincipal(), "watchdog", "supervise-event-verdict:"+rt.state.ID+":"+strconvVersionUI(expected))
+		if !errors.Is(err, supervise.ErrVersion) {
+			return st, err
+		}
+		lastErr = err
+		latest, stateErr := rt.service.State(rt.state.ID)
+		if stateErr != nil {
+			return supervise.State{}, stateErr
+		}
+		rt.state = latest
+		if msg.result.Verdict.Anchor != latest.Anchor() || (msg.trigger != nil && msg.trigger.Anchor != latest.Anchor()) {
+			return supervise.State{}, supervise.ErrStaleVerdict
+		}
+	}
+	return supervise.State{}, lastErr
 }
 
 func (m *Model) nextSuperviseHostAction() tea.Cmd {

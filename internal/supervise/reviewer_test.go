@@ -26,13 +26,24 @@ func (f *reviewFactory) Build(context.Context, RoleProfile) (agent.Provider, err
 }
 
 type scriptedReviewProvider struct {
-	turn int
-	fn   func(int, agent.TurnRequest) []agent.Event
+	turn        int
+	countTokens int
+	countErr    error
+	fn          func(int, agent.TurnRequest) []agent.Event
 }
 
 func (p *scriptedReviewProvider) Name() string { return "review-test" }
 func (p *scriptedReviewProvider) Capabilities() agent.Capabilities {
-	return agent.Capabilities{SupportsThinking: true}
+	return agent.Capabilities{SupportsThinking: true, SupportsReasoningEffort: true}
+}
+func (p *scriptedReviewProvider) CountTokens(context.Context, agent.TurnRequest) (int, error) {
+	if p.countErr != nil {
+		return 0, p.countErr
+	}
+	if p.countTokens > 0 {
+		return p.countTokens, nil
+	}
+	return 1, nil
 }
 func (p *scriptedReviewProvider) StreamTurn(_ context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
 	p.turn++
@@ -43,6 +54,14 @@ func (p *scriptedReviewProvider) StreamTurn(_ context.Context, req agent.TurnReq
 	}
 	close(ch)
 	return ch, nil
+}
+
+type noReasoningReviewProvider struct {
+	*scriptedReviewProvider
+}
+
+func (p *noReasoningReviewProvider) Capabilities() agent.Capabilities {
+	return agent.Capabilities{SupportsThinking: true}
 }
 
 type reviewSource struct {
@@ -82,7 +101,7 @@ func TestReviewerUsesOnlyFilteredToolsAndReturnsAnchoredVerdict(t *testing.T) {
 		}}
 	}}
 	r := Reviewer{Factory: factory, Source: source}
-	result, err := r.Run(context.Background(), RoleProfile{Model: "watch", Thinking: ThinkingAuto, Effort: EffortXHigh}, RoleBudget{TokenCap: 1000}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+	result, err := r.Run(context.Background(), RoleProfile{Model: "watch", Thinking: ThinkingAuto, Effort: EffortXHigh}, RoleBudget{TokenCap: 100_000}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,4 +270,63 @@ func TestReviewerRejectsCitationThatHostDidNotServe(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "was not served") {
 		t.Fatalf("hallucinated citation error = %v", err)
 	}
+}
+
+func TestReviewerOmitsReasoningEffortWhenProviderDoesNotAdvertiseIt(t *testing.T) {
+	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+	provider := &noReasoningReviewProvider{scriptedReviewProvider: &scriptedReviewProvider{fn: func(_ int, req agent.TurnRequest) []agent.Event {
+		if req.ReasoningEffort != "" {
+			t.Fatalf("unsupported reasoning effort was forwarded: %q", req.ReasoningEffort)
+		}
+		return []agent.Event{{Kind: agent.EvTextDelta, Text: "{\"verdict\":{\"kind\":\"event\",\"decision\":\"continue\",\"rationale\":\"aligned\"}}"}, {Kind: agent.EvDone}}
+	}}}
+	factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+	if _, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff, Effort: EffortHigh}, RoleBudget{}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReviewerCapsGenerationBeforeDispatch(t *testing.T) {
+	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+	provider := &scriptedReviewProvider{countTokens: 7, fn: func(_ int, req agent.TurnRequest) []agent.Event {
+		if req.MaxTokens != 13 {
+			t.Fatalf("max tokens = %d, want remaining 20 - input 7 = 13", req.MaxTokens)
+		}
+		return []agent.Event{{Kind: agent.EvTextDelta, Text: "{\"verdict\":{\"kind\":\"event\",\"decision\":\"continue\",\"rationale\":\"aligned\"}}"}, {Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 7, OutputTokens: 2}}}
+	}}
+	factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+	if _, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{TokenCap: 20}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReviewerRejectsUnfitTokenBudgetBeforeDispatch(t *testing.T) {
+	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+
+	t.Run("request input consumes remaining budget", func(t *testing.T) {
+		provider := &scriptedReviewProvider{countTokens: 10, fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+			t.Fatal("review request was dispatched despite an unfit token budget")
+			return nil
+		}}
+		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{TokenCap: 10}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+		if err == nil || !strings.Contains(err.Error(), "cannot fit") || provider.turn != 0 {
+			t.Fatalf("pre-dispatch budget error=%v turns=%d", err, provider.turn)
+		}
+	})
+
+	t.Run("thinking budget exceeds capped output", func(t *testing.T) {
+		provider := &scriptedReviewProvider{countTokens: 1, fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+			t.Fatal("review request was dispatched despite an unfit thinking budget")
+			return nil
+		}}
+		factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+		_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOn, ThinkingBudgetTokens: 32}, RoleBudget{TokenCap: 32}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+		if err == nil || !strings.Contains(err.Error(), "thinking budget") || provider.turn != 0 {
+			t.Fatalf("pre-dispatch thinking error=%v turns=%d", err, provider.turn)
+		}
+	})
 }
