@@ -1482,9 +1482,9 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 			}
 		}
 		checks := []struct{ needle, label string }{
-			{"gh pr merge", "merge"}, {"git merge", "merge"},
+			{"git merge", "merge"},
 			{"git push", "push"},
-			{"gh release", "release"}, {"npm publish", "publish"}, {"cargo publish", "publish"},
+			{"npm publish", "publish"}, {"cargo publish", "publish"},
 			{"kubectl apply", "deploy"}, {"terraform apply", "deploy"},
 			{"drop table", "destructive operation"}, {"truncate table", "destructive operation"},
 		}
@@ -1494,7 +1494,6 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 			}
 		}
 		externalCommands := []string{
-			"gh issue create", "gh issue comment", "gh pr create", "gh pr comment", "gh api --method post", "gh api -x post",
 			"glab issue create", "glab mr create", "wget --post", "sendmail ",
 		}
 		for _, command := range externalCommands {
@@ -1577,8 +1576,10 @@ func superviseCommandRiskBoundary(command string, depth int) string {
 			}
 		case base == "curl" && superviseCurlMutates(words[i+1:]):
 			return "external commitment"
-		case base == "gh" && superviseGHAPIMutates(words[i+1:]):
-			return "external commitment"
+		case base == "gh":
+			if boundary := superviseGHCommandBoundary(words[i+1:]); boundary != "" {
+				return boundary
+			}
 		case base == "kubectl" || base == "oc":
 			switch superviseKubectlSubcommand(words[i+1:]) {
 			case "delete":
@@ -1784,6 +1785,70 @@ func superviseCurlMutates(args []string) bool {
 		}
 	}
 	return false
+}
+
+// superviseGHCommandBoundary recognizes the GitHub CLI operations that cross
+// EP-0062's human-only merge, release, destructive-action, or external-
+// commitment boundaries. The repository selector is inherited by gh command
+// groups and Cobra accepts it before either the group or action, so locate both
+// command levels structurally instead of relying on contiguous command text.
+// This is a quality-gate classifier for known operations, not a security
+// boundary for arbitrary aliases, extensions, or future gh commands.
+func superviseGHCommandBoundary(args []string) string {
+	command, tail := superviseGHCommandPart(args)
+	switch command {
+	case "api":
+		if superviseGHAPIMutates(append([]string{"api"}, tail...)) {
+			return "external commitment"
+		}
+	case "pr":
+		action, _ := superviseGHCommandPart(tail)
+		switch action {
+		case "merge":
+			return "merge"
+		case "close", "comment", "create", "edit", "lock", "ready", "reopen", "revert", "review", "unlock", "update-branch":
+			return "external commitment"
+		}
+	case "issue":
+		action, _ := superviseGHCommandPart(tail)
+		switch action {
+		case "delete":
+			return "destructive operation"
+		case "close", "comment", "create", "develop", "edit", "lock", "pin", "reopen", "transfer", "unlock", "unpin":
+			return "external commitment"
+		}
+	case "release":
+		action, _ := superviseGHCommandPart(tail)
+		switch action {
+		case "create", "delete", "delete-asset", "edit", "upload":
+			return "release"
+		}
+	}
+	return ""
+}
+
+func superviseGHCommandPart(args []string) (string, []string) {
+	for i := 0; i < len(args); i++ {
+		raw, lower := args[i], strings.ToLower(args[i])
+		switch {
+		case raw == "-R" || lower == "--repo":
+			if i+1 < len(args) {
+				i++
+			}
+		case strings.HasPrefix(raw, "-R") && len(raw) > 2:
+		case strings.HasPrefix(lower, "--repo="):
+		case lower == "--help" || lower == "--version":
+			return "", nil
+		case strings.HasPrefix(raw, "-"):
+			// No other inherited option is currently accepted before the pr,
+			// issue, or release action. An unknown option cannot be skipped
+			// safely because its following word may be its value.
+			return "", nil
+		default:
+			return lower, args[i+1:]
+		}
+	}
+	return "", nil
 }
 
 // superviseGHAPIMutates recognizes GitHub CLI API calls whose HTTP or GraphQL
