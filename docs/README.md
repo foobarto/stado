@@ -39,6 +39,7 @@ Shorter forms live in:
 | `stado harness` / `stado integrations` | [commands/operations.md](commands/operations.md) | Security harness setup and external-agent discovery |
 | `stado schedule` / `stado usage` | [commands/operations.md](commands/operations.md) | Persistent scheduled runs and audit-derived usage reports |
 | `stado install` / `stado uninstall` | [commands/operations.md](commands/operations.md) | User-local binary installation lifecycle |
+| `stado supervise-eval` | [features/supervise.md](features/supervise.md#evaluation) | Validate and score paired supervised-work evaluations |
 
 ## Features
 
@@ -52,6 +53,7 @@ Shorter forms live in:
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
+| Supervised work | [features/supervise.md](features/supervise.md) | Harness-enforced plans, watchdog correction, task deferral, and independent completion verification |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Adaptive context and learning | [adaptive-context.md](adaptive-context.md) | Versioned memory, trajectory learning, isolated research, retained agents, and bounded state |

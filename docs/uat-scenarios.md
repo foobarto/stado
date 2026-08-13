@@ -114,11 +114,29 @@ Grouped by surface. Scenario naming convention:
 | L2 | Reboot under same worktree → resume via replay | [UNIT] existing |
 | L3 | /compact accept → conversation.jsonl rewritten | [UNIT] existing |
 
+## O. Supervised work
+
+| # | Scenario | Status |
+|---|----------|--------|
+| O1 | `/supervise` opens a basic wizard defaulting to event mode + user-approved pivots | [DONE] unit picker test + PTY/xterm `TestBridgeE2E_Stado_SuperviseWizard` |
+| O2 | Advanced wizard exposes independent watchdog/verifier provider, thinking, effort, and budgets | [DONE] unit picker test + PTY/xterm `TestBridgeE2E_Stado_SuperviseWizard` |
+| O3 | Worker cannot approve the baseline, plan/contract pivot outside policy, or completion | [DONE] `internal/supervise` service authority tests |
+| O4 | Stale watchdog/verifier anchors cannot authorize later state | [DONE] `TestServiceRequiresHumanBaselineApprovalAndBindsVerdicts` |
+| O5 | Event bounded retries/streak and live indefinite capped-backoff policy, correction follow-up, and detector cooldown survive state transitions | [DONE] `internal/supervise` service/detector + `TestSuperviseLiveRetryDelayIncreasesAndCaps` |
+| O6 | Human-only merge/deploy/destructive tool boundaries are recognized before dispatch | [DONE] `TestSuperviseRiskBoundaryIsHumanOnly` |
+| O7 | Supervised prompt context enforces one active step, task deferral, human authority, and verifier-owned completion | [DONE] `TestSuperviseSystemContextEnforcesSingleTaskAndAuthority` |
+| O8 | Process restart restores run state/detector history and `/supervise status|resume|cancel` routes lifecycle | [UNIT] durable service + TUI lifecycle coverage; [PTY] release smoke checklist |
+| O9 | Reviewer repository list/read/search uses the immutable anchored session tree and rejects traversal/symlinks | [DONE] `TestRepositoryEvidenceReadsAndSearchesImmutableTree` + reviewer schema/query tests |
+| O10 | Busy follow-ups survive restart boundaries and are acknowledged only after marker-deduplicated worker delivery/task persistence | [DONE] durable inbox service tests + `TestSuperviseDeferredTaskIsBoundedAndMarkerDeduplicated` |
+| O11 | Premature prose/tool completion is detected, every plan step is required, and only served evidence citations can authorize advancement/completion | [DONE] completion matcher + service/reviewer authority tests |
+| O12 | Automatic context-recovery forks durably move the worker attachment and invalidate parent verdicts; manual session changes do not leak control tools | [DONE] `TestReattachSessionPreservesRootAndInvalidatesParentAuthority` + TUI detach/reload path |
+
 ---
 
 **Running:** `go test ./internal/tui/ -run TestUAT -v`
 
-**Coverage summary:** 50 UAT scenario tests across three files:
+**Coverage summary:** 50 legacy UAT scenario tests across three files plus the
+supervised-work unit/integration matrix above:
 - `internal/tui/uat_direct_test.go` (3) — dogfood-bug regression guards
 - `internal/tui/uat_scenarios_test.go` (23) — sections A/B/H/I/J/M/N
 - `internal/tui/uat_scenarios_extended_test.go` (24) — sections C/D/E/F/G

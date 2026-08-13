@@ -83,6 +83,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
 | 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Implemented |
 | 0061 | [Linked EP Relationship Metadata](./0061-linked-ep-relationship-metadata.md) | Process | Implemented |
+| 0062 | [Harness-Enforced Supervised Work](./0062-harness-enforced-supervised-work.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

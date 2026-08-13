@@ -1660,6 +1660,40 @@ cannot be automatically demoted.
 See [Adaptive context and learning](docs/adaptive-context.md) and EP-0052 through
 EP-0059 for the detailed contracts.
 
+### Harness-enforced supervised work
+
+`/supervise` attaches a durable host-owned state machine to the root TUI
+session. A trusted wizard seeds a fresh watchdog, the operator approves its
+objective/constraints/acceptance criteria/plan/definition of done/verification,
+and that baseline is re-injected on every worker turn. This is separate from
+EP-0033's `/supervisor` response lane.
+
+The worker has request-only control tools for evidence, pivots, and completion.
+Append-only `supervise` WAL snapshots enforce roles and CAS versions. The root
+session is immutable; a separate attachment identifies its current worker
+continuation. Automatic context-recovery forks move that attachment only while
+advancing the sequence/tree anchor, whereas manual forks do not inherit it.
+Every watchdog/verifier judgment binds root session, sequence, plan version,
+active step, and tree digest, so stale output cannot grant authority. Plan
+pivots are user-approved by default; objective/criteria, capabilities, budgets,
+destructive/external effects, merge/release/deploy, and contract pivots are
+always operator-only. Only a fresh independent verifier can accept completion
+after Verify Work gates.
+
+Event mode runs a fresh read-only watchdog for coalesced native signals; live
+mode adds every turn boundary. The reviewer can page/search/follow bounded
+state, plan, event, non-thinking transcript, tool, audited diff, verification,
+budget, child, and immutable anchored-repository evidence. It has no mutation,
+live arbitrary filesystem, shell, network, credential, or approval tool. Typed
+handoff and detector cooldowns are durable. Event failures follow bounded
+retry/streak policy; live failures retry with capped backoff until operator
+intervention. Repeated failed corrections pause according to bounded policy.
+Additional ordinary prompts stop at a safe boundary: directly related input is
+routed back to the worker and unrelated/uncertain input enters the existing
+shared task store. Nested supervision is not admitted; child activity remains
+the root worker's responsibility. See EP-0062 and
+`docs/features/supervise.md`.
+
 ---
 
 ## Extension points

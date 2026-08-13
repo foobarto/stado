@@ -357,6 +357,12 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   active-session-only policy for inactive sessions
 - `/subagents` — recent spawned child sessions with status, worktree,
   changed-file counts, scope violations, and adoption commands
+- `/supervise [objective]` — open the supervised-work wizard. A fresh read-only
+  watchdog proposes the baseline for explicit approval, event/live review keeps
+  the worker aligned, unrelated prompts become shared tasks, and a fresh
+  verifier owns completion. `/supervise status|resume|cancel` manages the
+  durable run. This is distinct from the responsive `/supervisor` lane; see the
+  [feature guide](../features/supervise.md)
 - `/adopt [child] [--apply]` — dry-run or explicitly apply worker
   subagent changes into the current parent session
 - `/tasks` — shared task manager for user/agent work items;

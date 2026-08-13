@@ -29,7 +29,8 @@ environment.
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
 > adaptive retrieval, trajectory learning, retained subagents, durable
-> mailboxes, and resumable broker automation are shipped. Main remaining gap: Windows sandbox
+> mailboxes, harness-enforced supervised work, and resumable broker automation
+> are shipped. Main remaining gap: Windows sandbox
 > v2. See
 > [PLAN.md](PLAN.md) for the phased roadmap.
 >
@@ -72,8 +73,10 @@ runtime. A few highlights from recently shipped capabilities and their EPs:
 | **Durable broker, events, and budgets** ([EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md)) | Give agents and automations resumable event delivery, explicit budgets, crash-safe coordination, and one shared substrate for supervision. |
 | **Verify Work command gates** ([EP-0046](docs/eps/0046-verify-work-phase.md)) | Run configured verification commands before completion and record their evidence; the EP's independent LLM judge remains deferred. |
 | **Programmable Lua lifecycle hooks** ([EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md)) | Inspect, deny, or mutate lifecycle events through a constrained scripting contract while stado retains the actual enforcement boundary. |
+| **Harness-enforced supervised work** ([EP-0062](docs/eps/0062-harness-enforced-supervised-work.md)) | Turn a complex objective into an explicitly approved contract, let a fresh read-only watchdog catch stalls, thrash, drift, regressions, risky boundaries, and child failures, defer unrelated prompts into tasks, and require an independent verifier before “done.” Event mode is selective by default; live mode follows every turn when quality justifies the extra tokens. |
 
-Together with native bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),
+Together with native bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md))
+and supervised work ([EP-0062](docs/eps/0062-harness-enforced-supervised-work.md)),
 these capabilities teach the model when to research, delegate, learn, resume,
 and coordinate while stado continues to own tools, policy, audit, and sandboxing.
 
@@ -100,7 +103,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.79.0
+  bash -s -- --dir /usr/local/bin --version v0.80.0
 ```
 
 ### Homebrew

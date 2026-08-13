@@ -44,6 +44,7 @@ taking over the screen.
 | `/clear` | | Wipe conversation state; cancels any in-flight stream |
 | `/exit` | `Ctrl+D` | Quit stado cleanly |
 | `/btw` | `Ctrl+X Ctrl+B` | Toggle off-band BTW mode for side questions |
+| `/supervise [objective]` | — | Start harness-enforced planned work; `status`, `resume`, and `cancel` manage its durable lifecycle |
 
 ## Session
 

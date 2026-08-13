@@ -1,35 +1,46 @@
-## v0.79.0 — bounded orchestration and feature showcase — 2026-08-12
+## v0.80.0 — harness-enforced supervised work — 2026-08-13
+
+### UX / CLI / TUI
+
+- **`/supervise` makes long-running work a host-enforced contract.** A trusted
+  basic/advanced wizard gathers requirements through a fresh watchdog and waits
+  for explicit baseline approval. Event mode reviews native warning signals by
+  default; live mode follows every turn. Anchored watchdog corrections can
+  interrupt or pause the worker, unrelated follow-ups become shared tasks, plan
+  pivots respect user/watchdog policy, human-only risk boundaries stop in a
+  trusted drawer, and a separate fresh verifier owns completion after Verify
+  Work gates. Reviewer citations bind to evidence actually served from bounded
+  session/activity and immutable repository views; all approved plan steps must
+  finish first. Durable `status`, `resume`, and `cancel` survive restarts, and
+  automatic context-recovery forks retain the immutable root while atomically
+  advancing the attached worker-session anchor.
+- **Supervision tradeoffs are repeatable.** `stado supervise-eval` validates six
+  local/Ollama Cloud quirk scenarios and scores paired JSONL observations for
+  criteria, defects, interventions, repetition, diff scope,
+  escalation/completion, per-role tokens, latency, and quality per token.
 
 ### Runtime
 
-- **Native bounded orchestration guidance.** Added guidance across TUI, CLI,
-  headless, ACP, and spawned-agent turns. Strong unreviewed mechanical signals
-  encourage candidate-only `stado learn`/`/learn`; fixed request shapes
-  recommend isolated memory/session research; active children and unread
-  mailboxes trigger coordination reminders. Guidance is capability-aware,
-  payload-free, capped, and repeated signal shapes aggregate during a bounded
-  cooldown to prevent learning bloat without hiding later recurrence.
+- **Deferred user follow-ups become shared tasks by default.** The default agent
+  instructions now preserve one active task, capture unrelated prompts in the
+  shared task store, and revisit only that conversation's deferred task IDs
+  after completion. The `tasks` tool is autoloaded so this policy remains
+  actionable without tool discovery; unavailable tools and failed writes
+  explicitly retain and disclose an unpersisted fallback instead of losing work.
 
 ### Docs
 
-- **Impact-focused feature reel.** Added it to the README and static landing page,
-  highlighting isolated research, retained subagents, durable mailboxes,
-  adaptive retrieval, trajectory learning, session signals, the durable
-  broker, Verify Work command gates, Lua lifecycle hooks, and native bounded
-  orchestration with links to their EPs.
-- **Navigable EP relationships.** Replaced bare numeric
-  `requires`, `extends`, `supersedes`, `superseded-by`, `extended-by`, and
-  `see-also` values with canonical labels and validated rendered links across
-  the full EP catalogue.
-- **Repository-wide documentation audit.** Added coverage for previously
-  unindexed operator commands, reconciled slash and lean-core guides, documented
-  the v0.78 adaptive-context architecture in `DESIGN.md`, repaired moved example
-  links, and completed `implemented-in` metadata for older implemented EPs.
+- **EP-0062 documents supervised-work authority and failure semantics.** Added
+  the feature/security/architecture/command guides, linked the Verify Work and
+  native-guidance predecessor EPs, and reconciled the README, landing-page reel,
+  roadmap, UAT catalogue, and evaluation protocol.
 
-### Infra
-
-- **Dependency and Actions refresh.** Consolidated Dependabot updates across the Go dependency graph and pinned
-  GitHub Actions. Notable upgrades include Anthropic SDK 1.62.0, MCP Go 0.57.0,
-  OpenTelemetry 1.45.0, go-git 5.19.2, Google API 0.292.0, gRPC 1.83.0,
-  checkout 7.0.1, setup-go 7.0.0, CodeQL 4.37.3, and Scorecard 2.4.4.
+- **Task-store maturity boundaries are explicit.** Documented the deferred-work
+  convention and clarified that the current global CRUD store is not yet a
+  repository-scoped scheduler or automatic dispatcher.
+- **WASM plugins join the feature reel.** Promoted stado's replaceable
+  plugin-first tool architecture, capability-gated WASM runtime, shared ABI,
+  distinct embedded-bundled versus signed-installed trust paths, and the
+  remaining native `tasks` bootstrap exception in the README and static landing
+  page.
 

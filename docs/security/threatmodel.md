@@ -175,6 +175,35 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - Telemetry is opt‑in (`STADO_OTEL_ENABLED` / config).
 - Hooks are operator‑configured; execution is time‑bounded and output is isolated to stderr.
 
+### Supervision reviewers
+
+`/supervise` watchdogs and verifiers consume untrusted repository, transcript,
+tool, diff, and child evidence. They are not a new trusted execution principal:
+their only tools are bounded read/search/follow views anchored to the current
+root/plan/tree state, including immutable repo-relative reads from the audited
+session tree rather than the moving worktree. Model JSON is a proposal; the host checks role, state,
+version, anchor, decision shape, and limits before any transition. Reviewers
+cannot mutate files, run shell/network calls, access credentials, approve their
+own baseline, change the contract, or accept completion outside their role.
+Automatic context-recovery forks must durably move the worker-session
+attachment and advance its sequence/tree anchor before adoption; otherwise the
+host stays on the parent. Manual forks receive no supervision authority by
+inheritance.
+
+The operator approval drawer remains required for contract and high-risk
+external boundaries. Native risk matching is defense in depth, not the sandbox
+or broker ceiling. A compromised reviewer can cause noisy corrections or a
+pause, but cannot widen capabilities, perform deployment, or forge an anchored
+completion verdict. Reviewer failure follows explicit retry/pause rules and
+never silently authorizes a pivot or completion. See
+[EP-0062](../eps/0062-harness-enforced-supervised-work.md).
+
+The selected reviewer provider receives requested evidence and is therefore a
+data-egress trust choice. This is particularly important when watchdog or
+verifier differs from the worker provider. Hook-mutated/redacted tool results
+remain mutated in the reviewer view, but stado does not claim it can identify
+arbitrary credentials pasted into source, diffs, or conversation text.
+
 **Out‑of‑scope / low‑relevance classes:** CSRF, XSS, SQL injection, and multi‑tenant authz are largely inapplicable because stado is a local CLI without a web server. The primary threats are local execution, data exfiltration, and trust boundary violations between untrusted content and privileged tooling.
 
 ## Criticality calibration (critical, high, medium, low)
