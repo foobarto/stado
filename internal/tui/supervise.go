@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -489,8 +490,7 @@ func onSuperviseGateResult(m *Model, msg verifyResultMsg) (tea.Model, tea.Cmd) {
 		// that requested verification.
 		return m, m.startSuperviseVerifier()
 	}
-	verificationPassed := false
-	review := m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerVerification, VerificationPassed: &verificationPassed})
+	review := m.observeSupervise(superviseVerificationEvent(false))
 	feedback := "Supervised completion was rejected by deterministic verification.\n" + textutil.TruncateRunes(textutil.SanitizeForTerminal(summary), 4000)
 	m.appendBlock(block{kind: "system", body: feedback})
 	if errors.Is(out.Err, context.Canceled) {
@@ -667,9 +667,12 @@ func onSuperviseVerifierResult(m *Model, msg superviseVerifierResultMsg) (tea.Mo
 	m.msgs = append(m.msgs, workerMsg)
 	m.persistMessage(workerMsg)
 	m.state = stateIdle
-	verificationPassed := true
-	review := m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerVerification, VerificationPassed: &verificationPassed})
+	review := m.observeSupervise(superviseVerificationEvent(false))
 	return m, tea.Batch(review, m.startStream())
+}
+
+func superviseVerificationEvent(passed bool) supervise.WorkerEvent {
+	return supervise.WorkerEvent{Kind: supervise.WorkerVerification, VerificationPassed: &passed}
 }
 
 func (m *Model) startSupervisePivotReview() tea.Cmd {
@@ -1310,15 +1313,16 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 		}
 	}
 	if executionTool {
+		for _, command := range superviseExecutionCommands(call.Input) {
+			if superviseDestructiveCommand(command, 0) {
+				return "destructive operation"
+			}
+		}
 		checks := []struct{ needle, label string }{
 			{"gh pr merge", "merge"}, {"git merge", "merge"},
 			{"git push", "push"},
 			{"gh release", "release"}, {"npm publish", "publish"}, {"cargo publish", "publish"},
 			{"kubectl apply", "deploy"}, {"terraform apply", "deploy"},
-			{"kubectl delete", "destructive operation"}, {"git reset --hard", "destructive operation"},
-			{"git clean", "destructive operation"}, {"rm -rf", "destructive operation"},
-			{"rm -fr", "destructive operation"}, {"rm --recursive", "destructive operation"},
-			{"rmdir ", "destructive operation"}, {"shred ", "destructive operation"},
 			{"drop table", "destructive operation"}, {"truncate table", "destructive operation"},
 		}
 		for _, check := range checks {
@@ -1349,6 +1353,171 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 		}
 	}
 	return ""
+}
+
+func superviseExecutionCommands(input json.RawMessage) []string {
+	var direct string
+	if json.Unmarshal(input, &direct) == nil && strings.TrimSpace(direct) != "" {
+		return []string{direct}
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(input, &envelope) != nil {
+		return nil
+	}
+	commands := make([]string, 0, 3)
+	for _, key := range []string{"command", "cmd", "script"} {
+		raw, ok := envelope[key]
+		if !ok {
+			continue
+		}
+		var command string
+		if json.Unmarshal(raw, &command) == nil && strings.TrimSpace(command) != "" {
+			commands = append(commands, command)
+		}
+	}
+	for _, key := range []string{"argv", "args"} {
+		raw, ok := envelope[key]
+		if !ok {
+			continue
+		}
+		var argv []string
+		if json.Unmarshal(raw, &argv) == nil && len(argv) > 0 {
+			commands = append(commands, strings.Join(argv, " "))
+		}
+	}
+	return commands
+}
+
+func superviseDestructiveCommand(command string, depth int) bool {
+	if depth > 4 {
+		return true
+	}
+	words := superviseShellWords(command)
+	for i, word := range words {
+		base := path.Base(strings.ToLower(word))
+		switch {
+		case base == "rm" || base == "rmdir" || base == "unlink" || base == "shred" || base == "truncate" || base == "wipefs" || base == "dd":
+			return true
+		case base == "mkfs" || strings.HasPrefix(base, "mkfs."):
+			return true
+		case base == "find" && superviseWordsContain(words[i+1:], "-delete"):
+			return true
+		case base == "git" && superviseDestructiveGitArgs(words[i+1:]):
+			return true
+		case (base == "kubectl" || base == "oc") && superviseWordsContain(words[i+1:], "delete"):
+			return true
+		case (base == "docker" || base == "podman") && superviseWordsContainAny(words[i+1:], "rm", "rmi", "prune"):
+			return true
+		case base == "drop" && superviseWordsContainAny(words[i+1:], "table", "database", "schema"):
+			return true
+		case base == "bash" || base == "dash" || base == "sh" || base == "zsh":
+			for j := i + 1; j < len(words); j++ {
+				flag := strings.ToLower(words[j])
+				if !strings.HasPrefix(flag, "-") {
+					break
+				}
+				if strings.Contains(flag, "c") {
+					payload := j + 1
+					if payload < len(words) && words[payload] == "--" {
+						payload++
+					}
+					if payload < len(words) && superviseDestructiveCommand(words[payload], depth+1) {
+						return true
+					}
+					break
+				}
+			}
+		}
+	}
+	return false
+}
+
+func superviseDestructiveGitArgs(args []string) bool {
+	if superviseWordsContain(args, "clean") {
+		return true
+	}
+	if superviseWordsContain(args, "reset") && superviseWordsContainAny(args, "--hard", "--merge", "--keep") {
+		return true
+	}
+	if superviseWordsContain(args, "branch") && superviseWordsContain(args, "-d") {
+		return true
+	}
+	if superviseWordsContain(args, "stash") && superviseWordsContainAny(args, "drop", "clear") {
+		return true
+	}
+	return false
+}
+
+func superviseWordsContain(words []string, want string) bool {
+	want = strings.ToLower(want)
+	for _, word := range words {
+		if strings.ToLower(word) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func superviseWordsContainAny(words []string, wants ...string) bool {
+	for _, want := range wants {
+		if superviseWordsContain(words, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func superviseShellWords(command string) []string {
+	words := make([]string, 0, 8)
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			words = append(words, current.String())
+			current.Reset()
+		}
+	}
+	for _, r := range command {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if quote == '\'' {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		switch {
+		case r == '\'' || r == '"':
+			quote = r
+		case unicode.IsSpace(r) || strings.ContainsRune(";|&()<>", r):
+			flush()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	flush()
+	return words
 }
 
 func superviseTriggerHas(trigger *supervise.Trigger, want supervise.TriggerType) bool {
@@ -1546,7 +1715,7 @@ func (m *Model) superviseDiffSnapshot(st supervise.State) (string, []string) {
 		return plumbing.NewHash(v)
 	}
 	from, to := parse(st.InitialTreeDigest), parse(m.superviseTreeDigest())
-	patch, err := m.session.PatchBetweenHeads(from, to)
+	patch, err := m.session.PatchBetweenHeads(from, to, 64<<10)
 	if err != nil {
 		return "", nil
 	}

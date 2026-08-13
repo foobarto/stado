@@ -127,10 +127,12 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 			cap = 0
 		}
 		cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
-			Kind:              supervise.WorkerTurnCompleted,
-			CriteriaCompleted: len(m.supervision.state.CompletedSteps),
-			TokenUsage:        uint64(used),
-			TokenBudget:       uint64(cap),
+			Kind:           supervise.WorkerTurnCompleted,
+			CompletedSteps: len(m.supervision.state.CompletedSteps),
+			EvidenceCount:  len(m.supervision.state.Evidence),
+			TreeDigest:     m.superviseTreeDigest(),
+			TokenUsage:     uint64(used),
+			TokenBudget:    uint64(cap),
 		}))
 		if superviseClaimsCompletion(m.turnText) && !superviseTurnUsesControl(m.turnToolCalls, superviseCompletionTool) {
 			cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCompletionClaimed}))

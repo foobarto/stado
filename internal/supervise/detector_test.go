@@ -29,7 +29,7 @@ func TestEventDetectorStaysQuietThenCoalescesThrash(t *testing.T) {
 
 func TestLiveDetectorReviewsEveryTurn(t *testing.T) {
 	d := NewDetector(ModeLive)
-	got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: 1, StepID: "build", CriteriaCompleted: 1}, detectorAnchor(1))
+	got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: 1, StepID: "build", CompletedSteps: 1}, detectorAnchor(1))
 	if got == nil || len(got.Signals) != 1 || got.Signals[0].Type != TriggerLiveTurn {
 		t.Fatalf("live turn trigger = %+v", got)
 	}
@@ -112,13 +112,38 @@ func TestDetectorFindsStepCorrectionNoProgressAndBudget(t *testing.T) {
 		t.Fatalf("correction trigger = %+v", got)
 	}
 	for seq := uint64(3); seq <= 5; seq++ {
-		if got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: seq, At: base.Add(time.Duration(seq) * time.Second), StepID: "build", CriteriaCompleted: 0}, detectorAnchor(seq)); got != nil {
+		if got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: seq, At: base.Add(time.Duration(seq) * time.Second), StepID: "build", TreeDigest: "tree-a"}, detectorAnchor(seq)); got != nil {
 			t.Fatalf("early no-progress trigger at %d = %+v", seq, got)
 		}
 	}
-	got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: 6, At: base.Add(6 * time.Second), StepID: "build", CriteriaCompleted: 0, TokenUsage: 80, TokenBudget: 100}, detectorAnchor(6))
+	got := d.Observe(WorkerEvent{Kind: WorkerTurnCompleted, Sequence: 6, At: base.Add(6 * time.Second), StepID: "build", TreeDigest: "tree-a", TokenUsage: 80, TokenBudget: 100}, detectorAnchor(6))
 	if got == nil || len(got.Signals) != 2 || got.Signals[0].Type != TriggerBudgetBurn || got.Signals[1].Type != TriggerNoProgress {
 		t.Fatalf("progress/budget trigger = %+v", got)
+	}
+}
+
+func TestDetectorNoProgressResetsOnHostObservedProgress(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*WorkerEvent)
+	}{
+		{"completed step", func(ev *WorkerEvent) { ev.CompletedSteps++ }},
+		{"evidence", func(ev *WorkerEvent) { ev.EvidenceCount++ }},
+		{"tree", func(ev *WorkerEvent) { ev.TreeDigest = "tree-b" }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewDetector(ModeEvent)
+			for seq := uint64(1); seq <= 4; seq++ {
+				ev := WorkerEvent{Kind: WorkerTurnCompleted, Sequence: seq, StepID: "build", TreeDigest: "tree-a"}
+				if seq == 4 {
+					tc.change(&ev)
+				}
+				if got := d.Observe(ev, detectorAnchor(seq)); got != nil {
+					t.Fatalf("turn %d produced no-progress despite %s progress: %+v", seq, tc.name, got)
+				}
+			}
+		})
 	}
 }
 

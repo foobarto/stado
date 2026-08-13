@@ -28,3 +28,19 @@ func TestCompareRequiresPairedArms(t *testing.T) {
 		t.Fatal("unpaired observation accepted")
 	}
 }
+
+func TestCompareRejectsMismatchedCriteriaTotals(t *testing.T) {
+	observations := []Observation{
+		{ScenarioID: "x", Arm: ArmUnsupervised, Provider: "p", Model: "m", RunID: "u", Trial: "seed-1", CriteriaTotal: 2},
+		{ScenarioID: "x", Arm: ArmSupervised, Provider: "p", Model: "m", RunID: "s", Trial: "seed-1", CriteriaTotal: 3},
+	}
+	_, err := Compare(observations)
+	if err == nil {
+		t.Fatal("mismatched criteria totals accepted")
+	}
+	for _, want := range []string{"different criteria totals", "2 != 3"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+}

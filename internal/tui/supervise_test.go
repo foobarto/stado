@@ -22,6 +22,10 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"git merge feature"}`)}, "merge"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh issue comment 42 --body shipped"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "shell", Input: []byte(`{"command":"rm --recursive --force build"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "shell", Input: []byte(`{"command":"rm -r -f build"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"/bin/rm -R --force build"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"find build -type f -delete"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"bash -lc 'rm -r -f build'"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "github.pr.merge", Input: []byte(`{"number":42}`)}, "merge"},
 		{agent.ToolUseBlock{Name: "fs.delete", Input: []byte(`{"path":"tmp.txt"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl apply -f deploy.yaml"}`)}, "deploy"},
@@ -37,6 +41,13 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		if got := superviseRiskBoundary(tc.call); got != tc.want {
 			t.Fatalf("risk boundary for %s = %q, want %q", tc.call.Name, got, tc.want)
 		}
+	}
+}
+
+func TestSuperviseVerificationRejectionEventHasFailurePolarity(t *testing.T) {
+	event := superviseVerificationEvent(false)
+	if event.VerificationPassed == nil || *event.VerificationPassed {
+		t.Fatalf("verification rejection event = %+v, want explicit false", event)
 	}
 }
 

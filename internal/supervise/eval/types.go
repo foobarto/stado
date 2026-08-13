@@ -185,6 +185,9 @@ func Compare(observations []Observation) ([]Comparison, error) {
 		if p.plain == nil || p.supervised == nil {
 			return nil, errors.New("supervise eval: each scenario/provider/model requires both unsupervised and supervised observations")
 		}
+		if p.plain.CriteriaTotal != p.supervised.CriteriaTotal {
+			return nil, fmt.Errorf("supervise eval: paired arms for %s/%s/%s use different criteria totals: %d != %d", p.plain.ScenarioID, p.plain.Model, p.plain.Trial, p.plain.CriteriaTotal, p.supervised.CriteriaTotal)
+		}
 		u, s := metrics(*p.plain), metrics(*p.supervised)
 		c := Comparison{ScenarioID: p.plain.ScenarioID, Provider: p.plain.Provider, Model: p.plain.Model, Trial: p.plain.Trial, Unsupervised: u, Supervised: s}
 		c.Delta.CriteriaRate = s.CriteriaRate - u.CriteriaRate

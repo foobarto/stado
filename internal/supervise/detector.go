@@ -50,12 +50,16 @@ type WorkerEvent struct {
 	DiffBytes          int64           `json:"diff_bytes,omitempty"`
 	ChangedPaths       []string        `json:"changed_paths,omitempty"`
 	OutOfScopePaths    []string        `json:"out_of_scope_paths,omitempty"`
-	CriteriaCompleted  int             `json:"criteria_completed,omitempty"`
-	TokenUsage         uint64          `json:"token_usage,omitempty"`
-	TokenBudget        uint64          `json:"token_budget,omitempty"`
-	ChildID            string          `json:"child_id,omitempty"`
-	ChildStatus        string          `json:"child_status,omitempty"`
-	Boundary           string          `json:"boundary,omitempty"`
+	CompletedSteps     int             `json:"completed_steps,omitempty"`
+	EvidenceCount      int             `json:"evidence_count,omitempty"`
+	// CriteriaCompleted is retained only to decode detector snapshots written
+	// before completed-step progress became explicit.
+	CriteriaCompleted int    `json:"criteria_completed,omitempty"`
+	TokenUsage        uint64 `json:"token_usage,omitempty"`
+	TokenBudget       uint64 `json:"token_budget,omitempty"`
+	ChildID           string `json:"child_id,omitempty"`
+	ChildStatus       string `json:"child_status,omitempty"`
+	Boundary          string `json:"boundary,omitempty"`
 }
 
 type TriggerType string
@@ -317,6 +321,12 @@ func (d *Detector) detect(prior []WorkerEvent, ev WorkerEvent) []TriggerSignal {
 		}
 	case WorkerTurnCompleted:
 		turns := []WorkerEvent{ev}
+		completedSteps := func(event WorkerEvent) int {
+			if event.CompletedSteps == 0 && event.CriteriaCompleted != 0 {
+				return event.CriteriaCompleted
+			}
+			return event.CompletedSteps
+		}
 		for i := len(prior) - 1; i >= 0 && len(turns) < 4; i-- {
 			if prior[i].Kind == WorkerTurnCompleted {
 				turns = append(turns, prior[i])
@@ -325,13 +335,18 @@ func (d *Detector) detect(prior []WorkerEvent, ev WorkerEvent) []TriggerSignal {
 		if len(turns) == 4 {
 			unchanged := true
 			for _, p := range turns[1:] {
-				if p.CriteriaCompleted != ev.CriteriaCompleted || p.StepID != ev.StepID {
+				if completedSteps(p) != completedSteps(ev) ||
+					p.EvidenceCount != ev.EvidenceCount ||
+					p.TreeDigest != ev.TreeDigest ||
+					p.StepID != ev.StepID {
 					unchanged = false
 					break
 				}
 			}
 			if unchanged {
-				out = append(out, TriggerSignal{Type: TriggerNoProgress, Severity: "warning", EvidenceRefs: ref(turns[3], turns[2], turns[1], turns[0]), Attributes: map[string]string{"step": ev.StepID, "criteria_completed": fmt.Sprint(ev.CriteriaCompleted)}})
+				out = append(out, TriggerSignal{Type: TriggerNoProgress, Severity: "warning", EvidenceRefs: ref(turns[3], turns[2], turns[1], turns[0]), Attributes: map[string]string{
+					"step": ev.StepID, "completed_steps": fmt.Sprint(completedSteps(ev)), "evidence_count": fmt.Sprint(ev.EvidenceCount), "tree_digest": ev.TreeDigest,
+				}})
 			}
 		}
 		if ev.TokenBudget > 0 && ev.TokenUsage*100 >= ev.TokenBudget*80 {

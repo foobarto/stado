@@ -351,7 +351,7 @@ func TestPatchBetweenHeadsUsesAuditedSessionTrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	patch, err := sess.PatchBetweenHeads(head1, head2)
+	patch, err := sess.PatchBetweenHeads(head1, head2, 64<<10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +359,49 @@ func TestPatchBetweenHeadsUsesAuditedSessionTrees(t *testing.T) {
 		if !strings.Contains(patch, want) {
 			t.Fatalf("patch missing %q:\n%s", want, patch)
 		}
+	}
+}
+
+func TestPatchBetweenHeadsBoundsConstruction(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	sess, err := CreateSession(sc, t.TempDir(), "patch-bounded", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sess.WorktreePath, "large.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("before\n", 512)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree1, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head1, err := sess.commitOnRef(TreeRef(sess.ID), tree1, CommitMeta{Tool: "test", Summary: "before"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Repeat("after\n", 512)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree2, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head2, err := sess.commitOnRef(TreeRef(sess.ID), tree2, CommitMeta{Tool: "test", Summary: "after"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const maxBytes = 512
+	patch, err := sess.PatchBetweenHeads(head1, head2, maxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(patch) > maxBytes {
+		t.Fatalf("bounded patch bytes = %d, want <= %d", len(patch), maxBytes)
+	}
+	if !strings.HasSuffix(patch, patchTruncatedMarker) {
+		t.Fatalf("bounded patch missing truncation marker: %q", patch)
 	}
 }
 
