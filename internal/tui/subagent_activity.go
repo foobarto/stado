@@ -22,6 +22,7 @@ type subagentEventMsg struct {
 }
 
 type subagentActivity struct {
+	ParentSession   string
 	ChildSession    string
 	Worktree        string
 	Role            string
@@ -43,6 +44,9 @@ func (m *Model) recordSubagentEvent(ev runtime.SubagentEvent) {
 	}
 	now := time.Now()
 	act := m.upsertSubagentActivity(child, now)
+	if ev.ParentSession != "" {
+		act.ParentSession = ev.ParentSession
+	}
 	if ev.Worktree != "" {
 		act.Worktree = ev.Worktree
 	}
@@ -101,8 +105,11 @@ func (m *Model) recordSubagentResult(res subagent.Result) {
 	if m.session != nil {
 		parent = m.session.ID
 	}
+	if act.ParentSession == "" {
+		act.ParentSession = parent
+	}
 	act.AdoptionCommand = runtime.SubagentEvent{
-		ParentSession: parent,
+		ParentSession: act.ParentSession,
 		ChildSession:  child,
 		ForkTree:      res.ForkTree,
 		ChangedFiles:  res.ChangedFiles,

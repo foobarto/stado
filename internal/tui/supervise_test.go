@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,7 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh --repo=owner/repo issue close 42"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh issue -Rowner/repo edit 42 --title fixed"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh -R owner/repo issue delete 42 --yes"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh --repo owner/repo repo delete owner/repo --yes"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh -R owner/repo pr review 42 --approve"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh release create v1.2.3"}`)}, "release"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh -R owner/repo issue view 42"}`)}, ""},
@@ -443,6 +445,63 @@ func TestSuperviseEvidenceContentIsByteBoundedAndUTF8Safe(t *testing.T) {
 	}
 }
 
+func TestSuperviseEvidenceSummaryIsPageSafeAndUTF8Safe(t *testing.T) {
+	got := boundedSuperviseEvidenceSummary(strings.Repeat("ż-path/", 1_000))
+	if len(got) > 4096 || !utf8.ValidString(got) || !strings.HasSuffix(got, "[summary truncated by host boundary]") {
+		t.Fatalf("bounded summary bytes=%d valid=%t suffix=%q", len(got), utf8.ValidString(got), got[max(0, len(got)-64):])
+	}
+}
+
+func TestSuperviseRecordedEvidenceSummaryIsPageSafe(t *testing.T) {
+	m := scenarioModel(t)
+	m.session = nil
+	snapshot := m.superviseEvidenceSnapshot(supervise.State{
+		RootSessionID: "root-recorded-summary", TreeDigest: "unavailable",
+		Evidence: []supervise.Evidence{{Kind: "test", Summary: strings.Repeat("ż", 2_048)}},
+	})
+	items := snapshot.bySection[supervise.EvidenceState]
+	if len(items) != 2 || len(items[1].Summary) > 4096 || !utf8.ValidString(items[1].Summary) {
+		t.Fatalf("recorded evidence summary is not page-safe: %+v", items)
+	}
+}
+
+func TestSuperviseEvidenceStateRedactsQueuedFollowupText(t *testing.T) {
+	m := scenarioModel(t)
+	m.session = nil
+	st := supervise.State{
+		RootSessionID: "root-followup-evidence", SessionSequence: 1, TreeDigest: "unavailable",
+		PendingFollowups: []supervise.Followup{{ID: "f1", Text: "secret unrelated operator request"}},
+	}
+	snapshot := m.superviseEvidenceSnapshot(st)
+	page, err := snapshot.Read(context.Background(), supervise.EvidenceQuery{Section: supervise.EvidenceState})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || strings.Contains(page.Items[0].Content, "secret unrelated operator request") || !strings.Contains(page.Items[0].Content, `"pending_followup_count":1`) {
+		t.Fatalf("state evidence leaked or lost queue metadata: %+v", page.Items)
+	}
+}
+
+func TestSuperviseChildEvidenceIncludesOnlyOwnedSessionTree(t *testing.T) {
+	st := supervise.State{RootSessionID: "root-owned", AttachedSessionID: "root-recovery"}
+	fleet, recent := superviseOwnedChildEvidence(st, []runtime.FleetEntry{
+		{FleetID: "owned", ParentSessionID: "root-owned", SessionID: "child-owned"},
+		{FleetID: "owned-descendant", ParentSessionID: "child-owned", SessionID: "grandchild-owned"},
+		{FleetID: "recovery", ParentSessionID: "root-recovery", SessionID: "child-recovery"},
+		{FleetID: "foreign", ParentSessionID: "other-root", SessionID: "foreign-child"},
+		{FleetID: "unknown", SessionID: "unattributed-child"},
+	}, []subagentActivity{
+		{ParentSession: "grandchild-owned", ChildSession: "recent-descendant"},
+		{ParentSession: "foreign-child", ChildSession: "foreign-recent"},
+	})
+	if len(fleet) != 3 || fleet[0].FleetID != "owned" || fleet[1].FleetID != "owned-descendant" || fleet[2].FleetID != "recovery" {
+		t.Fatalf("owned fleet projection = %+v", fleet)
+	}
+	if len(recent) != 1 || recent[0].ChildSession != "recent-descendant" {
+		t.Fatalf("owned recent projection = %+v", recent)
+	}
+}
+
 func TestSuperviseEvidenceSnapshotLazilyPagesImmutableBlocks(t *testing.T) {
 	m := scenarioModel(t)
 	m.session = nil
@@ -584,6 +643,210 @@ func TestSuperviseEventVerdictResyncsAfterAsyncEvidenceWrite(t *testing.T) {
 	}
 }
 
+func TestStaleSuperviseVerdictsUseAsymmetricPolicy(t *testing.T) {
+	newRun := func(t *testing.T, root string) (*supervise.Service, supervise.State, supervise.Anchor, *supervise.Trigger) {
+		t.Helper()
+		svc, st := newSuperviseTaintTestRun(t, root)
+		var err error
+		st, err = svc.ApproveBaseline(context.Background(), st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := st.Anchor()
+		current := old
+		current.SessionSequence++
+		current.TreeDigest = "tree-current"
+		st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, supervise.RoleHost, current, "test", "host", "advance")
+		if err != nil {
+			t.Fatal(err)
+		}
+		trigger := &supervise.Trigger{ID: "trigger-old", Anchor: old, Signals: []supervise.TriggerSignal{{
+			Type: supervise.TriggerNoProgress, Severity: "high", EvidenceRefs: []string{"worker-event:old"},
+		}}}
+		return svc, st, old, trigger
+	}
+
+	t.Run("positive is discarded", func(t *testing.T) {
+		svc, st, old, trigger := newRun(t, "root-stale-positive")
+		m := scenarioModel(t)
+		m.state = stateIdle
+		m.supervision = &superviseRuntime{service: svc, state: st, reviewing: true, reviewGeneration: 1}
+		_, cmd := onSuperviseEventReview(m, superviseEventReviewMsg{generation: 1, trigger: trigger, result: supervise.ReviewResult{Verdict: &supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictContinue, Anchor: old, Rationale: "the old state looked fine",
+		}}})
+		if cmd != nil {
+			t.Fatal("stale positive scheduled more work")
+		}
+		if m.supervision.pendingTrigger != nil || m.supervision.interventionHold || m.supervision.advisorySteering != "" {
+			t.Fatalf("stale positive changed runtime policy state: %+v", m.supervision)
+		}
+		current, err := svc.State(st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.LastVerdict != nil || current.PendingIntervention != nil {
+			t.Fatalf("stale positive acquired durable meaning: %+v", current)
+		}
+	})
+
+	t.Run("correction becomes advisory steering", func(t *testing.T) {
+		svc, st, old, trigger := newRun(t, "root-stale-correction")
+		m := scenarioModel(t)
+		m.state = stateStreaming
+		m.supervision = &superviseRuntime{service: svc, state: st, reviewing: true, reviewGeneration: 1}
+		_, cmd := onSuperviseEventReview(m, superviseEventReviewMsg{generation: 1, trigger: trigger, result: supervise.ReviewResult{Verdict: &supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictCorrect, Anchor: old,
+			Rationale: "the previous tactic was weak", Correction: "inspect the repository guidance before retrying", EvidenceRefs: []string{"worker-event:old"},
+		}}})
+		if cmd != nil {
+			t.Fatal("streaming stale correction scheduled an immediate worker or review command")
+		}
+		if m.supervision.interventionHold || m.supervision.correctionPending || !strings.Contains(m.supervision.advisorySteering, "earlier worker anchor") {
+			t.Fatalf("stale correction policy state: %+v", m.supervision)
+		}
+		if !m.drainSuperviseAdvisorySteering() || len(m.msgs) == 0 || !strings.Contains(m.msgs[len(m.msgs)-1].Content[0].Text.Text, "inspect the repository guidance") {
+			t.Fatal("stale correction was not delivered as bounded worker steering")
+		}
+		current, err := svc.State(st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.LastVerdict != nil || current.PendingIntervention != nil || current.Status != supervise.StatusRunning {
+			t.Fatalf("stale correction changed durable authority: %+v", current)
+		}
+	})
+
+	t.Run("pause holds worker for a fresh verdict", func(t *testing.T) {
+		svc, st, old, trigger := newRun(t, "root-stale-pause")
+		m := scenarioModel(t)
+		m.state = stateIdle
+		m.supervision = &superviseRuntime{service: svc, state: st, reviewing: true, reviewGeneration: 1}
+		_, reviewCmd := onSuperviseEventReview(m, superviseEventReviewMsg{generation: 1, trigger: trigger, result: supervise.ReviewResult{Verdict: &supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictPause, Anchor: old,
+			Rationale: "the old trajectory should pause", EvidenceRefs: []string{"worker-event:old"},
+		}}})
+		if reviewCmd == nil || !m.supervision.interventionHold || !m.supervision.reviewing {
+			t.Fatalf("stale pause did not start a held fresh review: %+v", m.supervision)
+		}
+		held, err := svc.State(st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if held.Status != supervise.StatusRunning || held.PendingIntervention == nil || held.LastVerdict != nil {
+			t.Fatalf("stale pause was applied instead of held: %+v", held)
+		}
+
+		freshTrigger := superviseInterventionReviewTrigger(held)
+		_, _ = onSuperviseEventReview(m, superviseEventReviewMsg{generation: m.supervision.reviewGeneration, trigger: freshTrigger, result: supervise.ReviewResult{Verdict: &supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictContinue, Anchor: held.Anchor(), Rationale: "current evidence does not support pausing",
+		}}})
+		current, err := svc.State(st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.PendingIntervention != nil || current.Status != supervise.StatusRunning || m.supervision.interventionHold {
+			t.Fatalf("fresh positive did not release held worker: runtime=%+v durable=%+v", m.supervision, current)
+		}
+		if len(m.msgs) == 0 || !strings.Contains(m.msgs[len(m.msgs)-1].Content[0].Text.Text, "did not confirm") {
+			t.Fatal("released worker did not receive fresh-review context")
+		}
+	})
+
+	t.Run("durable hold takes priority over operator follow-up classification", func(t *testing.T) {
+		svc, st, old, trigger := newRun(t, "root-held-followup")
+		var err error
+		st, err = svc.HoldStaleIntervention(context.Background(), st.ID, st.Version, supervise.RoleHost, supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictStop, Anchor: old,
+			Rationale: "the old trajectory should stop", EvidenceRefs: []string{"worker-event:old"},
+		}, trigger, "test", "host", "hold-before-followup")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := scenarioModel(t)
+		m.state = stateIdle
+		m.supervision = &superviseRuntime{
+			service: svc, state: st, interventionHold: true,
+			pendingTrigger: superviseInterventionReviewTrigger(st),
+		}
+		cmd := m.enqueueSuperviseFollowup("also check the operator note")
+		if cmd == nil || !m.supervision.reviewing || m.supervision.followupReviewing {
+			t.Fatalf("held follow-up bypassed intervention review: %+v", m.supervision)
+		}
+		if len(m.supervision.followupQueue) != 1 {
+			t.Fatalf("operator follow-up was not retained behind hold: %+v", m.supervision.followupQueue)
+		}
+	})
+
+	t.Run("pause closes an in-flight tool approval before fresh review", func(t *testing.T) {
+		svc, st, old, trigger := newRun(t, "root-stale-pause-approval")
+		response := make(chan bool, 1)
+		m := scenarioModel(t)
+		m.state = stateApproval
+		m.approval = &approvalRequest{response: response}
+		m.supervision = &superviseRuntime{service: svc, state: st, reviewing: true, reviewGeneration: 1}
+		_, cmd := onSuperviseEventReview(m, superviseEventReviewMsg{generation: 1, trigger: trigger, result: supervise.ReviewResult{Verdict: &supervise.Verdict{
+			Kind: supervise.ReviewEvent, Decision: supervise.VerdictPause, Anchor: old,
+			Rationale: "pause before approving more effects", EvidenceRefs: []string{"worker-event:old"},
+		}}})
+		if cmd != nil || m.approval != nil || m.state != stateStreaming || !m.supervision.interventionHold || m.supervision.reviewing {
+			t.Fatalf("approval boundary was not closed before held review: state=%v runtime=%+v approval=%+v", m.state, m.supervision, m.approval)
+		}
+		select {
+		case allowed := <-response:
+			if allowed {
+				t.Fatal("stale pause allowed an in-flight tool approval")
+			}
+		default:
+			t.Fatal("tool approval did not receive denial")
+		}
+		m.state = stateIdle // emulates the cancelled tool result reaching its boundary
+		if fresh := m.nextSuperviseHostAction(); fresh == nil || !m.supervision.reviewing {
+			t.Fatal("fresh intervention review did not start after tool cleanup")
+		}
+	})
+}
+
+func TestSuperviseInterventionHoldRejectsQueuedTools(t *testing.T) {
+	m := scenarioModel(t)
+	m.supervision = &superviseRuntime{
+		state:            supervise.State{Status: supervise.StatusRunning, PendingIntervention: &supervise.InterventionHold{}},
+		interventionHold: true,
+	}
+	m.pendingCalls = []agent.ToolUseBlock{{ID: "one", Name: "bash"}, {ID: "two", Name: "fs.write"}}
+	cmd := m.advanceToolQueue()
+	if cmd == nil {
+		t.Fatal("held tool queue did not emit blocked results")
+	}
+	msg, ok := cmd().(toolsExecutedMsg)
+	if !ok || len(msg.results) != 2 {
+		t.Fatalf("held tool results = %#v", msg)
+	}
+	for _, result := range msg.results {
+		if !result.IsError || !strings.Contains(result.Content, "fresh watchdog review") {
+			t.Fatalf("held tool result = %+v", result)
+		}
+	}
+}
+
+func TestSuperviseInterventionHoldGuardsDirectStreamStart(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateIdle
+	m.supervision = &superviseRuntime{
+		state: supervise.State{Status: supervise.StatusRunning, PendingIntervention: &supervise.InterventionHold{ID: "intervention-test"}},
+	}
+	if cmd := m.startStream(); cmd != nil {
+		t.Fatal("direct stream start bypassed intervention hold")
+	}
+	if m.state != stateIdle || !m.supervision.interventionHold {
+		t.Fatalf("stream guard state=%v runtime=%+v", m.state, m.supervision)
+	}
+	toolCmd := m.executeCallAsync(agent.ToolUseBlock{ID: "direct-tool", Name: "bash"})
+	toolMsg, ok := toolCmd().(toolResultMsg)
+	if !ok || !toolMsg.result.IsError || toolMsg.result.ToolUseID != "direct-tool" || !strings.Contains(toolMsg.result.Content, "fresh watchdog review") {
+		t.Fatalf("direct tool guard result = %#v", toolMsg)
+	}
+}
+
 func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
 	store, err := wal.Open(t.TempDir())
 	if err != nil {
@@ -626,6 +889,64 @@ func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
 	}
 	if attempts != 2 || len(got.PendingFollowups) != 1 || len(got.Evidence) != 1 {
 		t.Fatalf("attempts=%d state=%+v", attempts, got)
+	}
+}
+
+func TestObserveSupervisePreservesVersionOnlyConcurrentMutation(t *testing.T) {
+	svc, st := newSuperviseTaintTestRun(t, "root-observe-version")
+	var err error
+	st, err = svc.ApproveBaseline(context.Background(), st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrent, _, err := svc.EnqueueFollowup(context.Background(), st.ID, st.Version, supervise.RoleOperator, "concurrent note", "test", "operator", "followup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := scenarioModel(t)
+	m.session = nil
+	m.supervision = &superviseRuntime{service: svc, state: st, sequence: st.SessionSequence, detector: supervise.RestoreDetector(st.Detector)}
+	if cmd := m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerToolOutcome, Tool: "read", Succeeded: true}); cmd != nil {
+		t.Fatal("ordinary event unexpectedly started a review")
+	}
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != supervise.StatusRunning || current.Version != concurrent.Version+2 || current.SessionSequence != st.SessionSequence+1 || len(current.PendingFollowups) != 1 || len(current.Detector.History) != 1 {
+		t.Fatalf("observation lost concurrent state or detector history: stale=%+v concurrent=%+v current=%+v", st, concurrent, current)
+	}
+}
+
+func TestObserveSuperviseChangedAnchorFailsClosed(t *testing.T) {
+	svc, st := newSuperviseTaintTestRun(t, "root-observe-stale")
+	var err error
+	st, err = svc.ApproveBaseline(context.Background(), st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancedAnchor := st.Anchor()
+	advancedAnchor.SessionSequence++
+	advanced, err := svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, supervise.RoleHost, advancedAnchor, "test", "host", "concurrent-anchor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.pendingCalls = []agent.ToolUseBlock{{ID: "queued-after-lost-observation", Name: "read"}}
+	m.supervision = &superviseRuntime{service: svc, state: st, sequence: st.SessionSequence, detector: supervise.RestoreDetector(st.Detector)}
+	if cmd := m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerToolOutcome, Tool: "read", Succeeded: true}); cmd != nil {
+		t.Fatal("failed observation scheduled more work")
+	}
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != supervise.StatusPaused || current.ResumeStatus != supervise.StatusRunning || current.Version != advanced.Version+1 || len(current.Detector.History) != 0 {
+		t.Fatalf("changed-anchor observation did not pause durably: advanced=%+v current=%+v", advanced, current)
+	}
+	if m.state != stateIdle || len(m.pendingCalls) != 0 || !m.turnCancelled || !strings.Contains(current.PauseReason, "runtime anchor") {
+		t.Fatalf("in-memory dispatch was not stopped: state=%v pending=%d cancelled=%t reason=%q", m.state, len(m.pendingCalls), m.turnCancelled, current.PauseReason)
 	}
 }
 
@@ -840,7 +1161,57 @@ func TestRegisterSuperviseControlToolsCapturesImmutableRunIdentity(t *testing.T)
 		t.Fatalf("registered tool type = %T", registered)
 	}
 	m.supervision.state.ID = "mutated-runtime-id"
-	if control.service != service || control.runID != st.ID {
-		t.Fatalf("captured control tool identity = service:%p run:%q, want service:%p run:%q", control.service, control.runID, service, st.ID)
+	if control.service != service || control.runID != st.ID || control.anchor != st.Anchor() {
+		t.Fatalf("captured control tool identity = service:%p run:%q anchor:%+v, want service:%p run:%q anchor:%+v", control.service, control.runID, control.anchor, service, st.ID, st.Anchor())
+	}
+}
+
+func TestSuperviseControlToolRetriesVersionOnlyMutationButRejectsNewAnchor(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-control-anchor", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-control-anchor", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	control := &superviseControlTool{name: superviseProgressTool, service: svc, runID: st.ID, anchor: st.Anchor()}
+	concurrent, _, err := svc.EnqueueFollowup(ctx, st.ID, st.Version, supervise.RoleOperator, "version-only operator note", "test", "operator", "followup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.Run(ctx, json.RawMessage(`{"kind":"test","summary":"anchored progress"}`), nil); err != nil {
+		t.Fatalf("version-only retry failed: %v", err)
+	}
+	current, err := svc.State(st.ID)
+	if err != nil || current.Version != concurrent.Version+1 || len(current.Evidence) != 1 || len(current.PendingFollowups) != 1 {
+		t.Fatalf("version-only mutation was not preserved: state=%+v err=%v", current, err)
+	}
+
+	advanced := current.Anchor()
+	advanced.SessionSequence++
+	current, err = svc.UpdateRuntimeAnchor(ctx, current.ID, current.Version, supervise.RoleHost, advanced, "test", "host", "advance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.Run(ctx, json.RawMessage(`{"kind":"test","summary":"must not move forward"}`), nil); !errors.Is(err, supervise.ErrStaleVerdict) {
+		t.Fatalf("changed-anchor control error = %v, want stale verdict", err)
+	}
+	after, err := svc.State(st.ID)
+	if err != nil || after.Version != current.Version || len(after.Evidence) != 1 {
+		t.Fatalf("stale control mutated current state: before=%+v after=%+v err=%v", current, after, err)
 	}
 }

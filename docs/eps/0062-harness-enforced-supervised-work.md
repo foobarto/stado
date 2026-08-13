@@ -231,7 +231,11 @@ and does not inherit supervision implicitly.
 
 - Baseline/watchdog/verifier provider failure is visible; work never begins
   without baseline approval and never completes without verification.
-- Stale model responses are discarded by anchor comparison.
+- Stale model responses cannot authorize current-state transitions. Stale
+  positive event verdicts are discarded; stale corrections may be delivered
+  as explicitly earlier-anchor advisory steering; stale pause/stop proposals
+  create a durable worker-scheduling hold and require a fresh current-anchor
+  watchdog verdict before work can resume.
 - Provider teardown is resource cleanup, not verdict authority: a teardown
   error does not replace a successfully parsed and anchored verdict.
 - Hard token preflight includes provider-declared output headroom for native

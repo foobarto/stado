@@ -46,6 +46,9 @@ type superviseRuntime struct {
 	reviewGeneration   uint64
 	reviewing          bool
 	pendingTrigger     *supervise.Trigger
+	interventionHold   bool
+	resumeAfterHold    bool
+	advisorySteering   string
 	correctionPending  bool
 	riskCall           *agent.ToolUseBlock
 	followupQueue      []supervise.Followup
@@ -159,7 +162,11 @@ func (m *Model) loadSupervision() error {
 	m.supervision = &superviseRuntime{
 		service: svc, store: store, state: st, detector: detector,
 		sequence: st.SessionSequence, generation: 1,
-		followupQueue: append([]supervise.Followup(nil), st.PendingFollowups...),
+		followupQueue:    append([]supervise.Followup(nil), st.PendingFollowups...),
+		interventionHold: st.PendingIntervention != nil,
+	}
+	if st.PendingIntervention != nil {
+		m.supervision.pendingTrigger = superviseInterventionReviewTrigger(st)
 	}
 	if st.Status != supervise.StatusSetup && st.Status != supervise.StatusAwaitingApproval && !superviseTerminal(st.Status) {
 		m.registerSuperviseControlTools()
@@ -279,6 +286,8 @@ func (m *Model) resumeSupervision() tea.Cmd {
 			return nil
 		}
 		rt.state = st
+		rt.interventionHold = false
+		rt.pendingTrigger = nil
 		rt.detector = supervise.RestoreDetector(st.Detector)
 		m.registerSuperviseControlTools()
 		m.appendBlock(block{kind: "system", body: "supervise: run resumed by operator"})
@@ -312,6 +321,13 @@ func (m *Model) resumeSupervision() tea.Cmd {
 		}
 		return m.startStream()
 	case supervise.StatusRunning:
+		if rt.state.PendingIntervention != nil {
+			rt.interventionHold = true
+			rt.pendingTrigger = coalesceSuperviseTriggers(superviseInterventionReviewTrigger(rt.state), rt.pendingTrigger)
+			m.state = stateIdle
+			m.appendBlock(block{kind: "system", body: "supervise: resuming the fresh watchdog review required by a stale pause/stop proposal"})
+			return m.nextSuperviseHostAction()
+		}
 		if len(rt.followupQueue) > 0 {
 			m.appendBlock(block{kind: "system", body: "supervise: resuming durable follow-up inbox classification"})
 			return m.startNextSuperviseFollowupReview()
@@ -892,14 +908,14 @@ func (m *Model) enqueueSuperviseFollowup(text string) tea.Cmd {
 	m.appendBlock(block{kind: "system", body: "supervise inbox: follow-up held until the next safe boundary; the watchdog will route related input to the active step and persist unrelated work as a task"})
 	m.renderBlocks()
 	if m.state == stateIdle && rt.state.Status == supervise.StatusRunning {
-		return m.startNextSuperviseFollowupReview()
+		return m.nextSuperviseHostAction()
 	}
 	return nil
 }
 
 func (m *Model) startNextSuperviseFollowupReview() tea.Cmd {
 	rt := m.supervision
-	if rt == nil || rt.reviewing || rt.followupReviewing || len(rt.followupQueue) == 0 || rt.state.Status != supervise.StatusRunning {
+	if rt == nil || rt.reviewing || rt.followupReviewing || len(rt.followupQueue) == 0 || rt.state.Status != supervise.StatusRunning || rt.interventionHold || rt.state.PendingIntervention != nil {
 		return nil
 	}
 	rt.followupCurrent = rt.followupQueue[0]
@@ -1080,25 +1096,58 @@ func (m *Model) observeSupervise(ev supervise.WorkerEvent) tea.Cmd {
 	if rt == nil || rt.state.Status != supervise.StatusRunning {
 		return nil
 	}
-	rt.sequence++
-	ev.Sequence, ev.StepID = rt.sequence, rt.state.ActiveStep
-	anchor := rt.state.Anchor()
-	anchor.SessionSequence = rt.sequence
+	// The event belongs to the worker anchor held by the TUI when the host
+	// observed it. A version-only mutation (for example an operator follow-up)
+	// may be absorbed by CAS retry; a changed anchor means rebinding would
+	// misattribute old work and therefore fails closed.
+	observedAnchor := rt.state.Anchor()
+	nextSequence := max(rt.sequence, observedAnchor.SessionSequence) + 1
+	anchor := observedAnchor
+	anchor.SessionSequence = nextSequence
 	anchor.TreeDigest = m.superviseTreeDigest()
-	st, err := rt.service.UpdateRuntimeAnchor(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, anchor, trajectory.LocalPrincipal(), "tui-host", "supervise-event:"+rt.state.ID+":"+strconv.FormatUint(rt.sequence, 10))
+	service, runID := rt.service, rt.state.ID
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Anchor() != observedAnchor {
+				return supervise.State{}, supervise.ErrStaleVerdict
+			}
+			return service.UpdateRuntimeAnchor(m.rootCtx, runID, current.Version, supervise.RoleHost, anchor, trajectory.LocalPrincipal(), "tui-host", "supervise-event:"+runID+":"+strconv.FormatUint(nextSequence, 10))
+		},
+	)
 	if err != nil {
-		m.appendBlock(block{kind: "system", body: "supervise event state: " + err.Error()})
+		m.pauseSupervisionAfterObservationFailure(rt, "runtime anchor", err)
 		return nil
 	}
-	rt.state = st
+	rt.state, rt.sequence = st, st.SessionSequence
+	ev.Sequence, ev.StepID = st.SessionSequence, st.ActiveStep
 	trigger := rt.detector.Observe(ev, st.Anchor())
-	st, err = rt.service.RecordDetectorSnapshot(m.rootCtx, st.ID, st.Version, supervise.RoleHost, rt.detector.Snapshot(), trajectory.LocalPrincipal(), "tui-host", "supervise-detector:"+st.ID+":"+strconv.FormatUint(rt.sequence, 10))
+	detectorAnchor := st.Anchor()
+	snapshot := rt.detector.Snapshot()
+	st, err = retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Anchor() != detectorAnchor {
+				return supervise.State{}, supervise.ErrStaleVerdict
+			}
+			return service.RecordDetectorSnapshot(m.rootCtx, runID, current.Version, supervise.RoleHost, snapshot, trajectory.LocalPrincipal(), "tui-host", "supervise-detector:"+runID+":"+strconv.FormatUint(nextSequence, 10))
+		},
+	)
 	if err != nil {
-		m.appendBlock(block{kind: "system", body: "supervise detector state: " + err.Error()})
+		m.pauseSupervisionAfterObservationFailure(rt, "detector snapshot", err)
 		return nil
 	}
 	rt.state = st
 	if trigger == nil || st.Status != supervise.StatusRunning {
+		return nil
+	}
+	// Once a stale pause/stop has raised a durable intervention hold, later
+	// cleanup events may still advance the anchor, but they may not start a
+	// competing review or another worker turn. Coalesce them into the single
+	// fresh review that will run after the worker reaches an idle boundary.
+	if rt.interventionHold || st.PendingIntervention != nil {
+		rt.interventionHold = true
+		rt.pendingTrigger = coalesceSuperviseTriggers(rt.pendingTrigger, trigger)
 		return nil
 	}
 	if rt.reviewing || rt.followupReviewing {
@@ -1124,13 +1173,63 @@ func (m *Model) recordSuperviseControlEvent(kind supervise.WorkerEventKind) {
 		StepID:   rt.state.ActiveStep,
 		At:       time.Now().UTC(),
 	}
-	_ = rt.detector.Observe(ev, rt.state.Anchor())
-	st, err := rt.service.RecordDetectorSnapshot(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, rt.detector.Snapshot(), trajectory.LocalPrincipal(), "tui-host", "supervise-control-event:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version))
+	anchor := rt.state.Anchor()
+	_ = rt.detector.Observe(ev, anchor)
+	snapshot := rt.detector.Snapshot()
+	service, runID := rt.service, rt.state.ID
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Anchor() != anchor {
+				return supervise.State{}, supervise.ErrStaleVerdict
+			}
+			return service.RecordDetectorSnapshot(m.rootCtx, runID, current.Version, supervise.RoleHost, snapshot, trajectory.LocalPrincipal(), "tui-host", "supervise-control-event:"+runID+":"+strconvVersionUI(current.Version))
+		},
+	)
 	if err != nil {
-		m.appendBlock(block{kind: "system", body: "supervise detector state: " + err.Error()})
+		m.pauseSupervisionAfterObservationFailure(rt, "control-event detector snapshot", err)
 		return
 	}
 	rt.state = st
+}
+
+// pauseSupervisionAfterObservationFailure is the fail-closed half of durable
+// host observation. A detector event that exists only in TUI memory cannot be
+// silently skipped while the worker keeps running: later quality judgments
+// would be based on an incomplete history. Persist an operator-resumable pause
+// and stop all current/follow-on worker dispatch.
+func (m *Model) pauseSupervisionAfterObservationFailure(rt *superviseRuntime, phase string, observationErr error) {
+	if rt == nil || rt.service == nil || rt.state.ID == "" {
+		m.state = stateError
+		m.cancelRunningStream()
+		m.cancelRunningTool()
+		m.clearPendingToolQueue()
+		m.appendBlock(block{kind: "system", body: "supervise: host observation failed: " + observationErr.Error()})
+		m.renderBlocks()
+		return
+	}
+	reason := textutil.TruncateRunes("host observation persistence failed during "+phase+": "+observationErr.Error(), 4096)
+	service, runID := rt.service, rt.state.ID
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Status == supervise.StatusPaused || superviseTerminal(current.Status) {
+				return current, nil
+			}
+			idem := "supervise-observation-failure:" + runID + ":" + strconvVersionUI(current.Version)
+			return service.Pause(m.rootCtx, runID, current.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", idem)
+		},
+	)
+	m.cancelSupervisedWorker()
+	if err != nil {
+		m.state = stateError
+		m.appendBlock(block{kind: "system", body: "supervise: worker stopped, but host observation failure could not be durably paused: " + err.Error()})
+	} else {
+		rt.state = st
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "supervise paused because host observation could not be persisted; inspect the failure and use /supervise resume: " + observationErr.Error()})
+	}
+	m.renderBlocks()
 }
 
 func (m *Model) startSuperviseEventReview(trigger *supervise.Trigger) tea.Cmd {
@@ -1206,12 +1305,53 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	// compare-and-swap race.
 	m.syncSuperviseState()
 	if msg.result.Verdict.Anchor != rt.state.Anchor() {
-		// The worker is allowed to keep moving while an event review runs.
-		// Preserve the reviewed signal and coalesce it with newer signals so
-		// an ordinary tool boundary cannot silently erase an intervention.
-		rt.pendingTrigger = coalesceSuperviseTriggers(msg.trigger, rt.pendingTrigger)
-		return m, startPending()
+		// EP-0062 treats stale event verdicts asymmetrically. A stale positive
+		// has no remaining work to do. A stale correction is useful advice but
+		// cannot become a current authority-bearing verdict. A stale pause/stop
+		// is serious enough to halt scheduling, but must be confirmed against
+		// the state that now exists before it can pause the durable run.
+		switch msg.result.Verdict.Decision {
+		case supervise.VerdictContinue, supervise.VerdictApprove:
+			return m, startPending()
+		case supervise.VerdictCorrect:
+			m.queueStaleWatchdogSteering(*msg.result.Verdict)
+			return m, startPending()
+		case supervise.VerdictPause, supervise.VerdictStop:
+			st, err := m.recordSuperviseInterventionHold(msg)
+			if err != nil {
+				m.failClosedSuperviseInterventionHold(err)
+				return m, nil
+			}
+			rt.state = st
+			rt.interventionHold = true
+			rt.pendingTrigger = coalesceSuperviseTriggers(superviseInterventionReviewTrigger(st), rt.pendingTrigger)
+			// Stop the active provider/tool, but leave not-yet-run tool calls in
+			// the queue. advanceToolQueue rejects them under the hold and emits
+			// matching tool results, preserving provider history invariants.
+			modalClosed := false
+			if m.approval != nil {
+				m.resolveApproval(false)
+				modalClosed = true
+			}
+			if m.choice != nil {
+				m.resolveChoiceCancel()
+				modalClosed = true
+			}
+			m.cancelRunningStream()
+			m.cancelRunningTool()
+			if modalClosed {
+				// The denial/cancellation response still has to return through the
+				// tool handler and advance the durable anchor before fresh review.
+				m.state = stateStreaming
+			}
+			m.appendBlock(block{kind: "system", body: "supervise: stale watchdog " + string(msg.result.Verdict.Decision) + " requested a fresh current-state review; worker scheduling is held"})
+			m.renderBlocks()
+			return m, startPending()
+		default:
+			return m, startPending()
+		}
 	}
+	heldReview := rt.interventionHold || rt.state.PendingIntervention != nil
 	if rt.correctionPending && (msg.result.Verdict.Decision == supervise.VerdictContinue || msg.result.Verdict.Decision == supervise.VerdictApprove) {
 		if err := m.recordSuperviseCorrectionResult(true, msg.result.Verdict.Anchor); err == nil {
 			rt.correctionPending = false
@@ -1237,6 +1377,9 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 		return m, startPending()
 	}
 	rt.state = st
+	if heldReview {
+		rt.interventionHold = false
+	}
 	if msg.result.Verdict.Decision == supervise.VerdictApprove && superviseTriggerHas(msg.trigger, supervise.TriggerStepCompletion) {
 		if advanced, advanceErr := m.advanceSuperviseApprovedStep(); advanceErr == nil {
 			rt.state = advanced
@@ -1247,14 +1390,68 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	}
 	switch msg.result.Verdict.Decision {
 	case supervise.VerdictCorrect:
+		rt.resumeAfterHold = false
 		rt.correctionPending = true
 		m.injectWatchdogCorrection(msg.result.Verdict.Correction, msg.result.Verdict.Rationale)
 	case supervise.VerdictPause, supervise.VerdictStop:
+		rt.resumeAfterHold = false
 		m.cancelSupervisedWorker()
 		m.appendBlock(block{kind: "system", body: "supervise paused by watchdog: " + textutil.SanitizeForTerminal(msg.result.Verdict.Rationale)})
+	case supervise.VerdictContinue, supervise.VerdictApprove:
+		if heldReview {
+			feedback := "[Host-authenticated supervision decision]\nA fresh watchdog review at the current anchor did not confirm the earlier stale pause/stop proposal. Continue from the active step and re-evaluate any interrupted tool plan.\nReason: " + textutil.TruncateRunes(textutil.SanitizeForTerminal(msg.result.Verdict.Rationale), 2048)
+			workerMsg := agent.Text(agent.RoleUser, feedback)
+			m.msgs = append(m.msgs, workerMsg)
+			m.persistMessage(workerMsg)
+			m.appendBlock(block{kind: "system", body: feedback})
+			rt.resumeAfterHold = true
+		}
 	}
 	m.renderBlocks()
 	return m, startPending()
+}
+
+func (m *Model) recordSuperviseInterventionHold(msg superviseEventReviewMsg) (supervise.State, error) {
+	rt := m.supervision
+	if rt == nil || msg.result.Verdict == nil || msg.trigger == nil {
+		return supervise.State{}, supervise.ErrInvalidState
+	}
+	service, runID := rt.service, rt.state.ID
+	return retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			idem := "supervise-stale-intervention:" + runID + ":" + strconvVersionUI(current.Version)
+			return service.HoldStaleIntervention(m.rootCtx, runID, current.Version, supervise.RoleHost, *msg.result.Verdict, msg.trigger, trajectory.LocalPrincipal(), "tui-host", idem)
+		},
+	)
+}
+
+func (m *Model) failClosedSuperviseInterventionHold(holdErr error) {
+	rt := m.supervision
+	if rt == nil || rt.service == nil {
+		return
+	}
+	reason := textutil.TruncateRunes("could not persist the fresh-review hold requested by a stale watchdog intervention: "+holdErr.Error(), 4096)
+	service, runID := rt.service, rt.state.ID
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Status == supervise.StatusPaused {
+				return current, nil
+			}
+			idem := "supervise-stale-intervention-failed:" + runID + ":" + strconvVersionUI(current.Version)
+			return service.Pause(m.rootCtx, runID, current.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", idem)
+		},
+	)
+	if err != nil {
+		m.state = stateError
+		m.appendBlock(block{kind: "system", body: "supervise: worker stopped, but the intervention hold could not be persisted: " + err.Error()})
+	} else {
+		rt.state = st
+		m.appendBlock(block{kind: "system", body: "supervise paused because a stale watchdog intervention could not be held for fresh review: " + holdErr.Error()})
+	}
+	m.cancelSupervisedWorker()
+	m.renderBlocks()
 }
 
 func (m *Model) recordSuperviseEventVerdict(msg superviseEventReviewMsg) (supervise.State, error) {
@@ -1329,6 +1526,25 @@ func (m *Model) nextSuperviseHostAction() tea.Cmd {
 	if rt == nil || rt.state.Status != supervise.StatusRunning || rt.reviewing || rt.followupReviewing {
 		return nil
 	}
+	if rt.interventionHold || rt.state.PendingIntervention != nil {
+		rt.interventionHold = true
+		// A serious stale verdict creates a boundary, not an asynchronous
+		// chase. Wait for cancellation/tool cleanup to make the worker idle,
+		// then review the latest anchor while all further work stays gated.
+		if m.state != stateIdle {
+			return nil
+		}
+		if rt.pendingTrigger == nil {
+			rt.pendingTrigger = superviseInterventionReviewTrigger(rt.state)
+		}
+		pending := rt.pendingTrigger
+		if pending == nil {
+			return nil
+		}
+		rt.pendingTrigger = nil
+		pending.Anchor = rt.state.Anchor()
+		return m.startSuperviseEventReview(pending)
+	}
 	if m.state == stateIdle && m.queuedPrompt != "" {
 		return m.promoteQueuedPrompt()
 	}
@@ -1341,8 +1557,12 @@ func (m *Model) nextSuperviseHostAction() tea.Cmd {
 	if len(rt.followupQueue) > 0 {
 		return m.startNextSuperviseFollowupReview()
 	}
-	if m.state == stateIdle && (rt.followupResume || rt.followupRelated) {
-		rt.followupResume, rt.followupRelated = false, false
+	if m.state == stateIdle && rt.advisorySteering != "" {
+		m.drainSuperviseAdvisorySteering()
+		return m.startStream()
+	}
+	if m.state == stateIdle && (rt.followupResume || rt.followupRelated || rt.resumeAfterHold) {
+		rt.followupResume, rt.followupRelated, rt.resumeAfterHold = false, false, false
 		return m.startStream()
 	}
 	return nil
@@ -1374,6 +1594,88 @@ func (m *Model) injectWatchdogCorrection(correction, rationale string) {
 	m.appendBlock(block{kind: "user", body: text, queued: true, source: "watchdog"})
 }
 
+func (m *Model) queueStaleWatchdogSteering(verdict supervise.Verdict) {
+	rt := m.supervision
+	if rt == nil {
+		return
+	}
+	anchor, _ := json.Marshal(verdict.Anchor)
+	text := "[Host-authenticated stado watchdog steering]\nThis advisory was produced against an earlier worker anchor (" + string(anchor) + "). Reconcile it with the current state before acting; it does not pause the run or carry current-verdict authority.\n" + textutil.TruncateRunes(textutil.SanitizeForTerminal(verdict.Correction), 8192)
+	if strings.TrimSpace(verdict.Rationale) != "" {
+		text += "\nReason: " + textutil.TruncateRunes(textutil.SanitizeForTerminal(verdict.Rationale), 2048)
+	}
+	if rt.advisorySteering != "" {
+		text = "\n\n" + text
+	}
+	rt.advisorySteering = textutil.AppendWithinBytes(rt.advisorySteering, text, 16<<10)
+	m.appendBlock(block{kind: "btw", body: "supervise: earlier-anchor watchdog steering will be injected at the next worker boundary"})
+	m.renderBlocks()
+}
+
+func (m *Model) drainSuperviseAdvisorySteering() bool {
+	rt := m.supervision
+	if rt == nil || rt.interventionHold || rt.state.PendingIntervention != nil || rt.advisorySteering == "" {
+		return false
+	}
+	steering := rt.advisorySteering
+	rt.advisorySteering = ""
+	msg := agent.Text(agent.RoleUser, steering)
+	m.msgs = append(m.msgs, msg)
+	m.persistMessage(msg)
+	m.appendBlock(block{kind: "user", body: steering, source: "watchdog"})
+	return true
+}
+
+func superviseInterventionReviewTrigger(st supervise.State) *supervise.Trigger {
+	hold := st.PendingIntervention
+	if hold == nil {
+		return nil
+	}
+	refs := make([]string, 0, 64)
+	seen := map[string]bool{}
+	appendRef := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || len(ref) > 256 || seen[ref] || len(refs) >= 64 {
+			return
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	for _, ref := range hold.Verdict.EvidenceRefs {
+		appendRef(ref)
+	}
+	for _, signal := range hold.Trigger.Signals {
+		for _, ref := range signal.EvidenceRefs {
+			appendRef(ref)
+		}
+	}
+	// Authority-bearing pause/stop verdicts already require evidence refs,
+	// so this is only a compatibility guard for a partially written record.
+	if len(refs) == 0 {
+		appendRef(textutil.AppendWithinBytes("", "watchdog-trigger:"+hold.Trigger.ID, 256))
+	}
+	oldAnchor, _ := json.Marshal(hold.Verdict.Anchor)
+	severity := "high"
+	if hold.Verdict.Decision == supervise.VerdictStop {
+		severity = "critical"
+	}
+	attributes := map[string]string{
+		"intervention_id": hold.ID,
+		"prior_decision":  string(hold.Verdict.Decision),
+		"prior_rationale": textutil.AppendWithinBytes("", textutil.SanitizeForTerminal(hold.Verdict.Rationale), 4096),
+		"reviewed_anchor": string(oldAnchor),
+	}
+	key, _ := json.Marshal(struct {
+		Run     string
+		Trigger string
+		Anchor  supervise.Anchor
+	}{st.ID, hold.ID, st.Anchor()})
+	return &supervise.Trigger{
+		ID: "trigger_stale_intervention_" + digestBytes(key), Anchor: st.Anchor(), CreatedAt: hold.HeldAt,
+		Signals: []supervise.TriggerSignal{{Type: supervise.TriggerStaleIntervention, Severity: severity, EvidenceRefs: refs, Attributes: attributes}},
+	}
+}
+
 func (m *Model) cancelSupervisedWorker() {
 	if m.supervision != nil {
 		if m.supervision.cancel != nil {
@@ -1389,6 +1691,9 @@ func (m *Model) cancelSupervisedWorker() {
 		m.supervision.followupGeneration++
 		m.supervision.reviewing = false
 		m.supervision.followupReviewing = false
+		m.supervision.interventionHold = false
+		m.supervision.resumeAfterHold = false
+		m.supervision.advisorySteering = ""
 	}
 	m.cancelRunningStream()
 	m.cancelRunningTool()
@@ -1423,6 +1728,13 @@ func onSuperviseRiskDecision(m *Model, msg superviseRiskDecisionMsg) (tea.Model,
 	call := *rt.riskCall
 	rt.riskCall = nil
 	review := m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerRiskBoundary, Boundary: msg.boundary, Succeeded: msg.approved})
+	if rt.interventionHold || rt.state.PendingIntervention != nil {
+		// Human approval is bound to the exact call, but it is not permission
+		// to bypass a later host scheduling hold. Return a paired rejection and
+		// let the worker reconsider the call after the fresh watchdog verdict.
+		m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{ToolUseID: call.ID, Content: "blocked after operator decision because supervised work is held for fresh watchdog review", IsError: true})
+		return m, tea.Batch(review, m.advanceToolQueue())
+	}
 	if msg.approved {
 		return m, tea.Batch(review, m.executeCallAsync(call))
 	}
@@ -1822,6 +2134,11 @@ func superviseGHCommandBoundary(args []string) string {
 		switch action {
 		case "create", "delete", "delete-asset", "edit", "upload":
 			return "release"
+		}
+	case "repo":
+		action, _ := superviseGHCommandPart(tail)
+		if action == "delete" {
+			return "destructive operation"
 		}
 	}
 	return ""
@@ -2331,6 +2648,9 @@ func renderSuperviseStatus(st supervise.State) string {
 	if len(st.PendingFollowups) > 0 {
 		fmt.Fprintf(&out, "\npending follow-ups: %d (durable inbox)", len(st.PendingFollowups))
 	}
+	if st.PendingIntervention != nil {
+		out.WriteString("\nworker scheduling: held for a fresh watchdog review of stale " + string(st.PendingIntervention.Verdict.Decision) + " proposal")
+	}
 	return textutil.SanitizeForTerminal(out.String())
 }
 
@@ -2381,9 +2701,19 @@ func (m *Model) superviseEvidenceSnapshot(st supervise.State) *staticSuperviseEv
 	}
 	addJSON := func(section supervise.EvidenceSection, id, summary string, value any) {
 		raw, _ := json.Marshal(value)
-		s.bySection[section] = append(s.bySection[section], supervise.EvidenceItem{ID: id, Section: section, Summary: summary, Content: boundedSuperviseEvidenceContent(string(raw), 64<<10)})
+		s.bySection[section] = append(s.bySection[section], supervise.EvidenceItem{ID: id, Section: section, Summary: boundedSuperviseEvidenceSummary(summary), Content: boundedSuperviseEvidenceContent(string(raw), 64<<10)})
 	}
-	addJSON(supervise.EvidenceState, "state", "Current host-owned supervision state", st)
+	// A review receives its one classified follow-up explicitly in ReviewPacket.
+	// Exposing every other queued follow-up here would let unrelated operator
+	// requests bleed across item boundaries. Preserve only the queue size as
+	// workflow context; the durable state itself remains unchanged.
+	evidenceState := st
+	pendingFollowupCount := len(evidenceState.PendingFollowups)
+	evidenceState.PendingFollowups = nil
+	addJSON(supervise.EvidenceState, "state", "Current host-owned supervision state", struct {
+		supervise.State
+		PendingFollowupCount int `json:"pending_followup_count,omitempty"`
+	}{State: evidenceState, PendingFollowupCount: pendingFollowupCount})
 	addJSON(supervise.EvidenceContract, "contract", "Approved or proposed contract", st.Baseline)
 	addJSON(supervise.EvidencePlan, "plan", "Current plan", st.Baseline.Plan)
 	addJSON(supervise.EvidenceBudgets, "budgets", "Worker and review budgets", map[string]any{"worker_tokens": m.totalTokens(), "worker_hard_tokens": m.budgetHardTokens, "watchdog": st.Config.WatchdogBudget, "verifier": st.Config.VerifierBudget})
@@ -2399,7 +2729,7 @@ func (m *Model) superviseEvidenceSnapshot(st supervise.State) *staticSuperviseEv
 	}
 	if patch, paths := m.superviseDiffSnapshot(st); patch != "" || len(paths) > 0 {
 		content := boundedSuperviseEvidenceContent(patch, 64<<10)
-		s.bySection[supervise.EvidenceDiff] = append(s.bySection[supervise.EvidenceDiff], supervise.EvidenceItem{ID: "worker-diff", Section: supervise.EvidenceDiff, Summary: strings.Join(paths, ", "), Content: content})
+		s.bySection[supervise.EvidenceDiff] = append(s.bySection[supervise.EvidenceDiff], supervise.EvidenceItem{ID: "worker-diff", Section: supervise.EvidenceDiff, Summary: boundedSuperviseEvidenceSummary(strings.Join(paths, ", ")), Content: content})
 	}
 	s.blocks = make([]staticSuperviseBlock, 0, len(m.blocks))
 	for i, b := range m.blocks {
@@ -2414,13 +2744,70 @@ func (m *Model) superviseEvidenceSnapshot(st supervise.State) *staticSuperviseEv
 			toolArgs: b.toolArgs, toolResult: b.toolResult,
 		})
 	}
+	var fleetEntries []runtime.FleetEntry
 	if m.fleet != nil {
-		addJSON(supervise.EvidenceChildren, "children:fleet", "Root-owned background-subworker lifecycle and bounded progress/results", m.fleet.List())
+		fleetEntries = m.fleet.List()
 	}
-	if len(m.subagents) > 0 {
-		addJSON(supervise.EvidenceChildren, "children:recent", "Recent root-owned synchronous subworker lifecycle and scope summary", m.subagents)
+	ownedFleet, ownedRecent := superviseOwnedChildEvidence(st, fleetEntries, m.subagents)
+	if len(ownedFleet) > 0 {
+		addJSON(supervise.EvidenceChildren, "children:fleet", "Root-owned background-subworker lifecycle and bounded progress/results", ownedFleet)
+	}
+	if len(ownedRecent) > 0 {
+		addJSON(supervise.EvidenceChildren, "children:recent", "Recent root-owned synchronous subworker lifecycle and scope summary", ownedRecent)
 	}
 	return s
+}
+
+// superviseOwnedChildEvidence projects process-wide child activity onto the
+// one durable supervised session tree. Root and recovery-attached sessions are
+// initial owners; selecting their children expands the set so descendants are
+// included without admitting siblings from another interactive session.
+func superviseOwnedChildEvidence(st supervise.State, fleet []runtime.FleetEntry, recent []subagentActivity) ([]runtime.FleetEntry, []subagentActivity) {
+	ownedSessions := map[string]bool{}
+	if st.RootSessionID != "" {
+		ownedSessions[st.RootSessionID] = true
+	}
+	if st.AttachedSessionID != "" {
+		ownedSessions[st.AttachedSessionID] = true
+	}
+	fleetOwned := make([]bool, len(fleet))
+	recentOwned := make([]bool, len(recent))
+	for changed := true; changed; {
+		changed = false
+		for i, entry := range fleet {
+			if fleetOwned[i] || entry.ParentSessionID == "" || !ownedSessions[entry.ParentSessionID] {
+				continue
+			}
+			fleetOwned[i] = true
+			changed = true
+			if entry.SessionID != "" {
+				ownedSessions[entry.SessionID] = true
+			}
+		}
+		for i, entry := range recent {
+			if recentOwned[i] || entry.ParentSession == "" || !ownedSessions[entry.ParentSession] {
+				continue
+			}
+			recentOwned[i] = true
+			changed = true
+			if entry.ChildSession != "" {
+				ownedSessions[entry.ChildSession] = true
+			}
+		}
+	}
+	ownedFleet := make([]runtime.FleetEntry, 0, len(fleet))
+	for i, entry := range fleet {
+		if fleetOwned[i] {
+			ownedFleet = append(ownedFleet, entry)
+		}
+	}
+	ownedRecent := make([]subagentActivity, 0, len(recent))
+	for i, entry := range recent {
+		if recentOwned[i] {
+			ownedRecent = append(ownedRecent, entry)
+		}
+	}
+	return ownedFleet, ownedRecent
 }
 
 func boundedSuperviseEvidenceContent(content string, maxBytes int) string {
@@ -2429,6 +2816,17 @@ func boundedSuperviseEvidenceContent(content string, maxBytes int) string {
 	}
 	const marker = "\n[evidence truncated by host boundary]"
 	return textutil.AppendWithinBytes("", content, maxBytes-len(marker)) + marker
+}
+
+func boundedSuperviseEvidenceSummary(summary string) string {
+	const (
+		maxBytes = 4096
+		marker   = " … [summary truncated by host boundary]"
+	)
+	if len(summary) <= maxBytes {
+		return summary
+	}
+	return textutil.AppendWithinBytes("", summary, maxBytes-len(marker)) + marker
 }
 
 func (s *staticSuperviseEvidence) Read(_ context.Context, q supervise.EvidenceQuery) (supervise.EvidencePage, error) {

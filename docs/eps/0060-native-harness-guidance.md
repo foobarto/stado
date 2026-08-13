@@ -146,5 +146,5 @@ rules.
 
 ## Related
 
-- [Adaptive context and learning](../adaptive-context.md)
+- [What Survives the Window](../articles/adaptive-context.md)
 - [Lua lifecycle hooks](../features/lifecycle-hooks.md)

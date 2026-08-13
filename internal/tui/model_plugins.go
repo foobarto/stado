@@ -593,6 +593,9 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.input.SetValue(mergeRecoveryInput("", queued, draft))
 		m.appendBlock(block{kind: "system", body: body})
 		m.renderBlocks()
+		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+			return m.nextSuperviseHostAction()
+		}
 		return nil
 	}
 	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
@@ -613,6 +616,9 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.input.Reset()
 	}
 	m.renderBlocks()
+	if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+		return m.nextSuperviseHostAction()
+	}
 	return m.startStream()
 }
 

@@ -239,6 +239,154 @@ func TestServiceRequiresHumanBaselineApprovalAndBindsVerdicts(t *testing.T) {
 	}
 }
 
+func TestStalePauseCreatesDurableHoldUntilFreshVerdict(t *testing.T) {
+	svc, _ := openTestService(t)
+	st := createRunning(t, svc, DefaultConfig())
+	staleAnchor := st.Anchor()
+	currentAnchor := staleAnchor
+	currentAnchor.SessionSequence++
+	currentAnchor.TreeDigest = "sha256:new-tree"
+	var err error
+	st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, RoleHost, currentAnchor, "user", "host", "advance-before-stale-verdict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleTrigger := &Trigger{ID: "trigger-stale-pause", Anchor: staleAnchor, Signals: []TriggerSignal{{
+		Type: TriggerNoProgress, Severity: "high", EvidenceRefs: []string{"worker-event:old"},
+	}}}
+	staleVerdict := Verdict{
+		Kind: ReviewEvent, Decision: VerdictPause, Anchor: staleAnchor,
+		Rationale: "the reviewed trajectory should stop", EvidenceRefs: []string{"worker-event:old"},
+	}
+	st, err = svc.HoldStaleIntervention(context.Background(), st.ID, st.Version, RoleHost, staleVerdict, staleTrigger, "user", "host", "hold-stale-pause")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != StatusRunning || st.PendingIntervention == nil {
+		t.Fatalf("held state = %+v", st)
+	}
+	restored, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.PendingIntervention == nil || restored.PendingIntervention.Verdict.Anchor != staleAnchor {
+		t.Fatalf("restored intervention = %+v", restored.PendingIntervention)
+	}
+	settledAnchor := st.Anchor()
+	settledAnchor.SessionSequence++
+	settledAnchor.TreeDigest = "sha256:settled-tree"
+	st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, RoleHost, settledAnchor, "user", "host", "settle-held-worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.PendingIntervention == nil {
+		t.Fatal("worker cleanup anchor update cleared intervention hold")
+	}
+	if _, err = svc.RequestPivot(context.Background(), st.ID, st.Version, RoleWorker, PivotRequest{
+		Kind: PivotPlan, Reason: "change plan while held", ProposedPlan: []Step{{ID: "other", Title: "Other", DoneWhen: "done"}}, Anchor: st.Anchor(),
+	}, "user", "worker", "pivot-while-held"); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("worker pivot while held error = %v", err)
+	}
+	ordinaryTrigger := &Trigger{ID: "trigger-unrelated-current", Anchor: st.Anchor(), Signals: []TriggerSignal{{
+		Type: TriggerLiveTurn, Severity: "info", EvidenceRefs: []string{"worker-event:current"},
+	}}}
+	if _, err = svc.RecordEventVerdict(context.Background(), st.ID, st.Version, RoleWatchdog, Verdict{
+		Kind: ReviewEvent, Decision: VerdictContinue, Anchor: st.Anchor(), Rationale: "an unrelated current review passed",
+	}, ordinaryTrigger, "user", "watchdog", "unrelated-current-verdict"); err == nil || !strings.Contains(err.Error(), "intervention hold") {
+		t.Fatalf("unrelated current verdict released hold: %v", err)
+	}
+	forgedTrigger := &Trigger{ID: "trigger-wrong-intervention", Anchor: st.Anchor(), Signals: []TriggerSignal{{
+		Type: TriggerStaleIntervention, Severity: "high", EvidenceRefs: []string{"worker-event:old"}, Attributes: map[string]string{"intervention_id": "some-other-hold"},
+	}}}
+	if _, err = svc.RecordEventVerdict(context.Background(), st.ID, st.Version, RoleWatchdog, Verdict{
+		Kind: ReviewEvent, Decision: VerdictContinue, Anchor: st.Anchor(), Rationale: "wrong hold id",
+	}, forgedTrigger, "user", "watchdog", "wrong-intervention-verdict"); err == nil || !strings.Contains(err.Error(), "intervention hold") {
+		t.Fatalf("wrong intervention trigger released hold: %v", err)
+	}
+
+	freshTrigger := &Trigger{ID: "trigger-fresh-intervention", Anchor: st.Anchor(), Signals: []TriggerSignal{{
+		Type: TriggerStaleIntervention, Severity: "high", EvidenceRefs: []string{"worker-event:old"}, Attributes: map[string]string{"intervention_id": st.PendingIntervention.ID},
+	}}}
+	st, err = svc.RecordEventVerdict(context.Background(), st.ID, st.Version, RoleWatchdog, Verdict{
+		Kind: ReviewEvent, Decision: VerdictContinue, Anchor: st.Anchor(), Rationale: "current evidence no longer supports pausing",
+	}, freshTrigger, "user", "watchdog", "fresh-intervention-verdict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.PendingIntervention != nil || st.Status != StatusRunning || st.LastVerdict == nil || st.LastVerdict.Decision != VerdictContinue {
+		t.Fatalf("fresh verdict did not release hold: %+v", st)
+	}
+}
+
+func TestStaleInterventionReviewFailurePausesWithoutAdvisoryFallback(t *testing.T) {
+	svc, _ := openTestService(t)
+	st := createRunning(t, svc, DefaultConfig())
+	staleAnchor := st.Anchor()
+	currentAnchor := staleAnchor
+	currentAnchor.SessionSequence++
+	currentAnchor.TreeDigest = "sha256:new-tree"
+	var err error
+	st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, RoleHost, currentAnchor, "user", "host", "advance-before-held-failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger := &Trigger{ID: "trigger-stale-stop", Anchor: staleAnchor, Signals: []TriggerSignal{{
+		Type: TriggerNoProgress, Severity: "critical", EvidenceRefs: []string{"worker-event:old"},
+	}}}
+	st, err = svc.HoldStaleIntervention(context.Background(), st.ID, st.Version, RoleHost, Verdict{
+		Kind: ReviewEvent, Decision: VerdictStop, Anchor: staleAnchor,
+		Rationale: "stop the reviewed trajectory", EvidenceRefs: []string{"worker-event:old"},
+	}, trigger, "user", "host", "hold-stale-stop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.RecordReviewFailure(context.Background(), st.ID, st.Version, RoleHost, "fresh intervention review unavailable", "user", "host", "held-review-failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != StatusPaused || st.PendingIntervention == nil {
+		t.Fatalf("failed held review must pause durably: %+v", st)
+	}
+}
+
+func TestNewerStaleStopReplacesHeldPause(t *testing.T) {
+	svc, _ := openTestService(t)
+	st := createRunning(t, svc, DefaultConfig())
+	firstAnchor := st.Anchor()
+	secondAnchor := firstAnchor
+	secondAnchor.SessionSequence++
+	secondAnchor.TreeDigest = "sha256:second"
+	var err error
+	st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, RoleHost, secondAnchor, "user", "host", "advance-to-second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTrigger := &Trigger{ID: "trigger-first-pause", Anchor: firstAnchor, Signals: []TriggerSignal{{Type: TriggerNoProgress, Severity: "high", EvidenceRefs: []string{"worker-event:first"}}}}
+	st, err = svc.HoldStaleIntervention(context.Background(), st.ID, st.Version, RoleHost, Verdict{
+		Kind: ReviewEvent, Decision: VerdictPause, Anchor: firstAnchor, Rationale: "pause old state", EvidenceRefs: []string{"worker-event:first"},
+	}, firstTrigger, "user", "host", "hold-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdAnchor := secondAnchor
+	thirdAnchor.SessionSequence++
+	thirdAnchor.TreeDigest = "sha256:third"
+	st, err = svc.UpdateRuntimeAnchor(context.Background(), st.ID, st.Version, RoleHost, thirdAnchor, "user", "host", "settle-to-third")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTrigger := &Trigger{ID: "trigger-newer-stop", Anchor: secondAnchor, Signals: []TriggerSignal{{Type: TriggerNoProgress, Severity: "critical", EvidenceRefs: []string{"worker-event:second"}}}}
+	st, err = svc.HoldStaleIntervention(context.Background(), st.ID, st.Version, RoleHost, Verdict{
+		Kind: ReviewEvent, Decision: VerdictStop, Anchor: secondAnchor, Rationale: "stop newer state", EvidenceRefs: []string{"worker-event:second"},
+	}, secondTrigger, "user", "host", "hold-newer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.PendingIntervention == nil || st.PendingIntervention.Verdict.Decision != VerdictStop || st.PendingIntervention.Verdict.Anchor != secondAnchor {
+		t.Fatalf("newer stale intervention did not replace held proposal: %+v", st.PendingIntervention)
+	}
+}
+
 func TestPlanPivotAuthorityAndContractPivotRemainHumanOnly(t *testing.T) {
 	svc, _ := openTestService(t)
 	cfg := DefaultConfig()

@@ -13,7 +13,7 @@ them, pin a cheaper model for a class of turns, append a compliance banner
 to every reply, etc.
 
 Core memory/research/mailbox workflow nudges are implemented by stado's native
-[harness guidance](../adaptive-context.md#native-harness-guidance), which can
+[harness guidance](../articles/adaptive-context.md#native-harness-guidance), which can
 read typed broker projections safely and consistently across surfaces. Use Lua
 to experiment with operator-specific policy or further narrowing; do not append
 a generic learn/research reminder on every `pre_llm`, because it duplicates the

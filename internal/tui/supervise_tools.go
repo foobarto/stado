@@ -29,6 +29,11 @@ type superviseControlTool struct {
 	name    string
 	service *supervise.Service
 	runID   string
+	// anchor is the immutable worker-turn authority snapshot advertised with
+	// this tool instance. CAS retries may absorb version-only mutations, but a
+	// request emitted by one worker turn must never be rebound to a later tree,
+	// sequence, plan version, or active step.
+	anchor supervise.Anchor
 }
 
 func (t *superviseControlTool) Name() string      { return t.name }
@@ -78,9 +83,9 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 		mutate = func(st supervise.State, idem string) (supervise.State, error) {
 			kind := strings.TrimSpace(in.Kind)
 			if in.StepComplete {
-				kind = "step_completion_claim:" + st.ActiveStep
+				kind = "step_completion_claim:" + t.anchor.ActiveStep
 			}
-			return t.service.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{Kind: kind, Summary: in.Summary, References: in.References, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{Kind: kind, Summary: in.Summary, References: in.References, Anchor: t.anchor}, principal, "worker", idem)
 		}
 	case supervisePivotTool:
 		var in struct {
@@ -93,7 +98,7 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 			return tool.Result{Error: err.Error()}, err
 		}
 		mutate = func(st supervise.State, idem string) (supervise.State, error) {
-			return t.service.RequestPivot(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.PivotRequest{Kind: in.Kind, Reason: in.Reason, ProposedPlan: in.ProposedPlan, ProposedBaseline: in.ProposedBaseline, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RequestPivot(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.PivotRequest{Kind: in.Kind, Reason: in.Reason, ProposedPlan: in.ProposedPlan, ProposedBaseline: in.ProposedBaseline, Anchor: t.anchor}, principal, "worker", idem)
 		}
 	case superviseCompletionTool:
 		var in struct {
@@ -110,9 +115,9 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 		mutate = func(st supervise.State, idem string) (supervise.State, error) {
 			evidence := make([]supervise.Evidence, 0, len(in.Evidence))
 			for _, e := range in.Evidence {
-				evidence = append(evidence, supervise.Evidence{Kind: e.Kind, Summary: e.Summary, References: e.References, Anchor: st.Anchor()})
+				evidence = append(evidence, supervise.Evidence{Kind: e.Kind, Summary: e.Summary, References: e.References, Anchor: t.anchor})
 			}
-			return t.service.RequestCompletion(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{Summary: in.Summary, Evidence: evidence, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RequestCompletion(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{Summary: in.Summary, Evidence: evidence, Anchor: t.anchor}, principal, "worker", idem)
 		}
 	default:
 		err := fmt.Errorf("unknown supervision control tool %q", t.name)
@@ -124,6 +129,9 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 			return t.service.State(t.runID)
 		},
 		func(current supervise.State) (supervise.State, error) {
+			if current.Anchor() != t.anchor {
+				return supervise.State{}, supervise.ErrStaleVerdict
+			}
 			idem := "supervise-tool:" + t.name + ":" + strconvVersion(current.Version) + ":" + argsDigest
 			return mutate(current, idem)
 		},
@@ -157,7 +165,7 @@ func (m *Model) registerSuperviseControlTools() {
 		return
 	}
 	for _, name := range []string{superviseProgressTool, supervisePivotTool, superviseCompletionTool} {
-		m.executor.Registry.Register(&superviseControlTool{name: name, service: m.supervision.service, runID: m.supervision.state.ID})
+		m.executor.Registry.Register(&superviseControlTool{name: name, service: m.supervision.service, runID: m.supervision.state.ID, anchor: m.supervision.state.Anchor()})
 	}
 }
 
@@ -167,6 +175,7 @@ func (m *Model) syncSuperviseState() {
 	}
 	if st, err := m.supervision.service.State(m.supervision.state.ID); err == nil {
 		m.supervision.state = st
+		m.supervision.interventionHold = st.PendingIntervention != nil
 	}
 }
 

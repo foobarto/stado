@@ -341,7 +341,7 @@ provenance, sensitivity, tags, groups, evidence, and version history. Session
 scope flows from the creating session to descendants, never to siblings or
 ancestors. Active memories remain untrusted guidance below operator and repo
 instructions and cannot grant tools or capabilities. See
-[Adaptive context and learning](docs/adaptive-context.md) and the
+[What Survives the Window](docs/articles/adaptive-context.md) and the
 [`stado learn` guide](docs/commands/learning.md) for the full contract.
 
 Stado also supplies bounded native harness guidance at model-turn boundaries.
@@ -784,7 +784,7 @@ Five commitments that shape every architectural decision:
 5. **Context is governed state, not an ever-growing prompt.** Evidence-backed
    learning, scoped memory, isolated research, and bounded session state keep
    useful history available without promoting model-authored text into authority.
-   See [Adaptive context and learning](docs/adaptive-context.md).
+   See [What Survives the Window](docs/articles/adaptive-context.md).
 
 ---
 

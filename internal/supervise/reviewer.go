@@ -23,6 +23,12 @@ const (
 	maxReviewText    = 1 << 20
 	maxEvidenceBytes = 1 << 20
 	maxReviewCursors = 256
+	// Tool calls are model output too. Bound both one provider turn and the
+	// whole fresh review so a malformed parallel-call response cannot grow the
+	// assistant transcript or host work without limit.
+	maxReviewToolCallsPerTurn = 16
+	maxReviewToolCalls        = 64
+	maxReviewToolCallBytes    = 64 << 10
 )
 
 type evidenceContinuation struct {
@@ -123,6 +129,12 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		// otherwise valid verdict merely because Close reports an error.
 		defer func() { _ = closer.Close() }()
 	}
+	// Always own a cancellation scope, even when no timeout was configured.
+	// Byte/tool-call limit failures return before a provider necessarily closes
+	// its event channel; cancelling here prevents a streaming producer from
+	// remaining blocked after the bounded reviewer has aborted.
+	ctx, cancelReview := context.WithCancel(ctx)
+	defer cancelReview()
 	caps := agent.CapabilitiesForModel(provider, profile.Model)
 	if budget.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
@@ -139,6 +151,7 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 	evidenceBytes := 0
 	servedEvidence := map[string]bool{}
 	continuations := &evidenceContinuations{}
+	totalToolCalls := 0
 	for turn := 0; turn < maxReviewTurns; turn++ {
 		req := agent.TurnRequest{Model: profile.Model, System: reviewSystemPrompt(in.Role, in.Kind), Messages: messages, Tools: tools}
 		if caps.SupportsReasoningEffort {
@@ -167,6 +180,10 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		text, calls, usage, usageReported, err := collectReviewTurn(ctx, ch)
 		if err != nil {
 			return ReviewResult{}, err
+		}
+		totalToolCalls += len(calls)
+		if totalToolCalls > maxReviewToolCalls {
+			return ReviewResult{}, errors.New("supervise: reviewer tool-call budget exceeded")
 		}
 		if budget.TokenCap > 0 {
 			if !usageReported {
@@ -395,6 +412,9 @@ func reviewSystemPrompt(role ActorRole, kind ReviewKind) string {
 	if kind == ReviewFollowup {
 		return base + "Classify the operator follow-up only against the approved objective, constraints, acceptance criteria, and active step. Return one JSON object only: {\"verdict\":{\"kind\":\"followup\",\"decision\":\"approve|reject\",\"rationale\":string,\"evidence_refs\":[string],\"handoff\":{}}}. Approve means it directly helps or corrects the active supervised work and should enter the worker context. Reject means it is a separate task and should be persisted in the backlog. When uncertain, reject so the active task remains single-focus. Do not execute the follow-up."
 	}
+	if kind == ReviewEvent {
+		base += "A stale_intervention trigger means an earlier watchdog proposed pause or stop after its anchor moved. Re-evaluate the current anchor independently: the prior decision and rationale explain why this review exists but carry no authority and must not be repeated without current evidence. "
+	}
 	return base + "Return one JSON object only: {\"verdict\":{\"kind\":\"" + string(kind) + "\",\"decision\":\"approve|reject|correct|pause|stop|continue\",\"rationale\":string,\"evidence_refs\":[string],\"correction\":string,\"handoff\":{\"open_concerns\":[string],\"hypotheses\":[string],\"interventions\":[string],\"missing_evidence\":[string],\"suggested_probes\":[string]}}}. Only the host interprets a verdict; do not attempt to change the objective, permissions, budget, destructive-operation policy, merge/release/deploy authority, or external commitments. Completion approval requires direct evidence for every acceptance criterion, definition-of-done item, verification gate, and documentation reconciliation."
 }
 
@@ -431,6 +451,12 @@ func collectReviewTurn(ctx context.Context, ch <-chan agent.Event) (string, []ag
 				text.WriteString(ev.Text)
 			case agent.EvToolCallEnd:
 				if ev.ToolCall != nil {
+					if len(calls) >= maxReviewToolCallsPerTurn {
+						return "", nil, usage, usageReported, errors.New("supervise: reviewer emitted too many tool calls in one turn")
+					}
+					if len(ev.ToolCall.ID) > 256 || len(ev.ToolCall.Name) > 256 || len(ev.ToolCall.Input) > maxReviewToolCallBytes {
+						return "", nil, usage, usageReported, errors.New("supervise: reviewer tool call exceeds byte budget")
+					}
 					calls = append(calls, *ev.ToolCall)
 				}
 			case agent.EvUsage, agent.EvDone:

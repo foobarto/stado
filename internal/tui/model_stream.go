@@ -428,6 +428,20 @@ func (m *Model) startStream() tea.Cmd {
 		"model", m.model,
 		"messages", len(m.msgs))
 	defer done("state", int(m.state))
+	if m.supervision != nil {
+		// Refresh the durable authority snapshot before both the scheduling
+		// guard and the per-turn control-tool registration. A tool definition
+		// remains bound to this exact anchor until the next worker turn.
+		m.syncSuperviseState()
+		if m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil {
+			// This final scheduling guard is intentionally redundant with the
+			// event/tool handlers. Any future direct startStream call must still
+			// respect a durable stale-intervention hold.
+			m.supervision.interventionHold = true
+			return nil
+		}
+		m.registerSuperviseControlTools()
+	}
 	if !m.ensureProvider() {
 		return nil
 	}
@@ -1088,7 +1102,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 		if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
 			if len(m.supervision.followupQueue) > 0 && m.supervision.state.Status == supervise.StatusRunning {
 				m.closeTurnWithoutTools()
-				return m.startNextSuperviseFollowupReview()
+				return m.nextSuperviseHostAction()
 			}
 			// Supervised verification is authority-bearing and starts only
 			// after supervise__request_completion durably enters
@@ -1111,6 +1125,11 @@ func (m *Model) finishTurnWithoutTools() tea.Cmd {
 	m.closeTurnWithoutTools()
 	if cmd := m.runPendingLearn(); cmd != nil {
 		return cmd
+	}
+	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
+		if cmd := m.nextSuperviseHostAction(); cmd != nil {
+			return cmd
+		}
 	}
 	if m.queuedPrompt != "" {
 		return m.promoteQueuedPrompt()
@@ -1150,6 +1169,10 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
 		m.pendingCalls = m.pendingCalls[1:]
+		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+			m.rejectSuperviseHeldTool(call)
+			continue
+		}
 		if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) && m.supervision.state.Status != supervise.StatusRunning {
 			m.rejectSupervisePhaseTool(call, m.supervision.state.Status)
 			continue
@@ -1170,6 +1193,22 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	m.pendingResults = nil
 	m.state = stateIdle
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+func (m *Model) rejectSuperviseHeldTool(call agent.ToolUseBlock) {
+	const content = "blocked by supervised-work host boundary while a stale pause/stop proposal is receiving fresh watchdog review"
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == call.ID {
+			m.blocks[i].toolResult = content
+			m.blocks[i].streaming = false
+			if m.blocks[i].endedAt.IsZero() {
+				m.blocks[i].endedAt = time.Now()
+			}
+			m.invalidateBlockCache(i)
+			break
+		}
+	}
+	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{ToolUseID: call.ID, Content: content, IsError: true})
 }
 
 func (m *Model) rejectSupervisePhaseTool(call agent.ToolUseBlock, status supervise.Status) {
@@ -1238,6 +1277,19 @@ func unavailableToolContent(name string) string {
 // is ferried back via toolResultMsg. A cancellable context lets Ctrl+C stop
 // the tool mid-execution; a tick timer updates the elapsed counter live.
 func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
+	if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+		// Final execution guard for any caller that did not pass through
+		// advanceToolQueue (for example, an approval callback already in
+		// flight when the hold arrived). Emit a paired result so provider
+		// history never retains an orphaned tool_use block.
+		return func() tea.Msg {
+			return toolResultMsg{result: agent.ToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   "blocked by supervised-work host boundary while a stale pause/stop proposal is receiving fresh watchdog review",
+				IsError:   true,
+			}}
+		}
+	}
 	if m.executor == nil {
 		return func() tea.Msg {
 			return toolResultMsg{result: agent.ToolResultBlock{

@@ -429,6 +429,9 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 			m.persistMessage(toolMsg)
 		}
 		m.renderBlocks()
+		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+			return m, m.nextSuperviseHostAction()
+		}
 		if m.state == stateIdle && m.queuedPrompt != "" {
 			return m, m.promoteQueuedPrompt()
 		}
@@ -472,6 +475,11 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.supervision != nil {
 		m.syncSuperviseState()
+		if m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil {
+			m.supervision.interventionHold = true
+			m.renderBlocks()
+			return m, m.nextSuperviseHostAction()
+		}
 		if m.supervision.state.Status == supervise.StatusVerifying {
 			m.renderBlocks()
 			return m, m.startSuperviseCompletionFlow()
@@ -490,6 +498,7 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	}
 	// #16: this is the "next opportunity" — a steering message injects
 	// here so the model's next round-trip sees it alongside the results.
+	m.drainSuperviseAdvisorySteering()
 	m.drainSteering()
 	m.renderBlocks()
 	return m, m.startStream()

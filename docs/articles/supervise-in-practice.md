@@ -162,6 +162,31 @@ plan version, active step, and audited tree. If the worker moves the tree while
 the watchdog is thinking, the answer is stale. However intelligent the answer
 sounds, it cannot authorize a transition about a state that no longer exists.
 
+That does not make every stale answer equally useless. A stale approval says
+only that an earlier state looked acceptable. There is nothing left to apply,
+so the host discards it. A stale correction may still contain a useful change
+of tactic. The host labels it with its earlier-anchor provenance and delivers
+it as advisory steering at the next worker boundary. It does not pause the run,
+count as a failed current correction, or become the last accepted verdict.
+
+A stale request to pause or stop is the third case. Silently discarding it
+would turn a slow watchdog into decoration. Applying it would let a judgment
+about an old state control a new one. The host therefore persists a review
+hold, stops scheduling the worker, and asks a fresh watchdog to inspect the
+latest anchor. A current continuation or approval releases the hold. A current
+correction steers the worker. A current pause or stop pauses the durable run.
+If that confirming review is unavailable, the hold fails closed into an
+operator-resumable pause.
+
+The asymmetry is practical rather than taxonomic. Most late answers do not
+need to stop the world. Only a stale result that asks the host to stop the
+worker creates a barrier, and even then the old result supplies the reason for
+a new judgment rather than the authority for the final action. This keeps
+event and live review useful while leaving the stricter question—whether live
+mode should block every turn, and whether event mode should gain a periodic
+turn cadence—as an explicit scheduling decision rather than an accidental
+consequence of staleness.
+
 This is the boring half of `/supervise`, and it is the half that owns the
 workflow keys. The model proposes a semantic judgment. Deterministic code
 validates its shape, checks the evidence and state it refers to, checks who is
@@ -403,6 +428,6 @@ The loop can do the work. It cannot be the only witness to what happened.
 
 The executable scenarios and paired-run protocol live under
 [`evals/supervise`](../../evals/supervise/README.md). The operator reference is
-[Supervised work (`/supervise`)](supervise.md), and the state machine and
+[Supervised work (`/supervise`)](../features/supervise.md), and the state machine and
 authority decisions are recorded in
 [EP-0062](../eps/0062-harness-enforced-supervised-work.md).

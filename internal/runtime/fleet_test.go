@@ -59,7 +59,7 @@ func TestFleet_Spawn_RecordsRunningEntry(t *testing.T) {
 		res:   subagent.Result{ChildSession: "child-1", Text: "done"},
 		delay: 50 * time.Millisecond,
 	}
-	id, err := f.Spawn(context.Background(), sp, "investigate target X", SpawnOptions{})
+	id, err := f.Spawn(context.Background(), sp, "investigate target X", SpawnOptions{ParentSessionID: "parent-1"})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -72,6 +72,9 @@ func TestFleet_Spawn_RecordsRunningEntry(t *testing.T) {
 	}
 	if e.Prompt != "investigate target X" {
 		t.Errorf("prompt = %q", e.Prompt)
+	}
+	if e.ParentSessionID != "parent-1" {
+		t.Errorf("parent session = %q, want host-bound provenance", e.ParentSessionID)
 	}
 }
 

@@ -64,5 +64,5 @@ active lesson cannot grant tools, permissions, or authority. Reviewer outputs
 retain their evidence provenance and taint, and secret-bearing material is not
 made eligible for normal prompt retrieval.
 
-See [Adaptive context and learning](../adaptive-context.md) for the persistence,
+See [What Survives the Window](../articles/adaptive-context.md) for the persistence,
 research-agent, retained-agent, and adaptive-ranking contracts.

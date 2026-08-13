@@ -318,6 +318,15 @@ func TestReviewerRejectsDecisionThatHostCannotApplyForReviewKind(t *testing.T) {
 	}
 }
 
+func TestEventReviewPromptTreatsStaleInterventionAsReasonNotAuthority(t *testing.T) {
+	prompt := reviewSystemPrompt(RoleWatchdog, ReviewEvent)
+	for _, want := range []string{"stale_intervention", "Re-evaluate the current anchor independently", "carry no authority"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("event review prompt missing %q: %s", want, prompt)
+		}
+	}
+}
+
 func TestReviewerRejectsAuthorityBearingApprovalWithoutEvidence(t *testing.T) {
 	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
 	source := &reviewSource{anchor: state.Anchor()}
@@ -472,5 +481,51 @@ func TestReviewerRejectsProviderThinkingReserveBeforeDispatch(t *testing.T) {
 	_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOn, ThinkingBudgetTokens: 16_384}, RoleBudget{TokenCap: 18_000}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
 	if err == nil || !strings.Contains(err.Error(), "provider thinking reserve") || base.turn != 0 {
 		t.Fatalf("thinking reserve error=%v turns=%d", err, base.turn)
+	}
+}
+
+func TestCollectReviewTurnBoundsParallelToolCalls(t *testing.T) {
+	ch := make(chan agent.Event, maxReviewToolCallsPerTurn+1)
+	for i := 0; i <= maxReviewToolCallsPerTurn; i++ {
+		call := agent.ToolUseBlock{ID: fmt.Sprintf("call-%d", i), Name: readToolName, Input: json.RawMessage(`{"section":"state"}`)}
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &call}
+	}
+	close(ch)
+	_, _, _, _, err := collectReviewTurn(context.Background(), ch)
+	if err == nil || !strings.Contains(err.Error(), "too many tool calls") {
+		t.Fatalf("tool-call bound error = %v", err)
+	}
+}
+
+func TestCollectReviewTurnBoundsToolCallBytes(t *testing.T) {
+	ch := make(chan agent.Event, 1)
+	call := agent.ToolUseBlock{ID: "oversized-call", Name: readToolName, Input: json.RawMessage(strings.Repeat("x", maxReviewToolCallBytes+1))}
+	ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &call}
+	close(ch)
+	_, _, _, _, err := collectReviewTurn(context.Background(), ch)
+	if err == nil || !strings.Contains(err.Error(), "exceeds byte budget") {
+		t.Fatalf("tool-call byte bound error = %v", err)
+	}
+}
+
+func TestReviewerBoundsTotalToolCallsAcrossTurns(t *testing.T) {
+	state := State{RootSessionID: "root-tool-budget", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+	provider := &scriptedReviewProvider{fn: func(turn int, _ agent.TurnRequest) []agent.Event {
+		count := maxReviewToolCallsPerTurn
+		if turn > maxReviewToolCalls/maxReviewToolCallsPerTurn {
+			count = 1
+		}
+		events := make([]agent.Event, 0, count+1)
+		for i := 0; i < count; i++ {
+			call := agent.ToolUseBlock{ID: fmt.Sprintf("turn-%d-call-%d", turn, i), Name: readToolName, Input: json.RawMessage(`{"section":"state"}`)}
+			events = append(events, agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &call})
+		}
+		return append(events, agent.Event{Kind: agent.EvDone})
+	}}
+	factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+	_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+	if err == nil || !strings.Contains(err.Error(), "tool-call budget exceeded") || provider.turn != 5 || source.reads != maxReviewToolCalls {
+		t.Fatalf("total tool-call bound error=%v turns=%d served=%d", err, provider.turn, source.reads)
 	}
 }

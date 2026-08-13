@@ -1658,7 +1658,7 @@ open, citation, and evaluated outcome are separate observations; temporal
 association is not treated as causation, and mandatory/pinned security guidance
 cannot be automatically demoted.
 
-See [Adaptive context and learning](docs/adaptive-context.md) and EP-0052 through
+See [What Survives the Window](docs/articles/adaptive-context.md) and EP-0052 through
 EP-0059 for the detailed contracts.
 
 ### Harness-enforced supervised work

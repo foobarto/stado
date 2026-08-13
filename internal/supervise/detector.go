@@ -79,6 +79,7 @@ const (
 	TriggerRisk                TriggerType = "risky_boundary"
 	TriggerCompletion          TriggerType = "completion_claim"
 	TriggerCorrectionFollowup  TriggerType = "correction_followup"
+	TriggerStaleIntervention   TriggerType = "stale_intervention"
 )
 
 type TriggerSignal struct {
@@ -382,7 +383,7 @@ func lastEvent(events []WorkerEvent, match func(WorkerEvent) bool) (WorkerEvent,
 	return WorkerEvent{}, false
 }
 func urgent(t TriggerType) bool {
-	return t == TriggerPivot || t == TriggerRisk || t == TriggerCompletion || t == TriggerStepCompletion || t == TriggerCorrectionFollowup
+	return t == TriggerPivot || t == TriggerRisk || t == TriggerCompletion || t == TriggerStepCompletion || t == TriggerCorrectionFollowup || t == TriggerStaleIntervention
 }
 func triggerShape(s TriggerSignal) string {
 	keys := make([]string, 0, len(s.Attributes))

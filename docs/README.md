@@ -1,8 +1,9 @@
 # stado — docs
 
-Per-command + per-feature guides. Each file covers the **why** (design
-choice, trade-off) alongside the **how** (invocation, config, flags).
-Skim the TOC, jump to what you need.
+Concise command and feature guides live alongside longer articles about design
+choices and failure modes. Use the guides when you need an invocation, option,
+or configuration detail; use the articles when you want the reasoning behind a
+feature.
 
 Shorter forms live in:
 - `stado --help` — one-line summaries at the CLI
@@ -13,6 +14,13 @@ Shorter forms live in:
 - [DESIGN.md](../DESIGN.md) — as-built architecture
 - [eps/README.md](eps/README.md) — retroactive design records and EP index
 - [PLAN.md](../PLAN.md) — phased roadmap
+
+## Articles
+
+| Article | Focus |
+|---------|-------|
+| [The Loop Needs a Witness](articles/supervise-in-practice.md) | Why supervised work separates the worker, watchdog, verifier, and host-owned authority |
+| [What Survives the Window](articles/adaptive-context.md) | Why useful history needs governed persistence, retrieval, and learning rather than a larger prompt |
 
 ## Command guides
 
@@ -54,10 +62,8 @@ Shorter forms live in:
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
 | Supervised work | [features/supervise.md](features/supervise.md) | Harness-enforced plans, watchdog correction, task deferral, and independent completion verification |
-| Supervision in practice | [features/supervise-in-practice.md](features/supervise-in-practice.md) | Narrative walkthrough of six paired evaluation failure modes |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
-| Adaptive context and learning | [adaptive-context.md](adaptive-context.md) | Versioned memory, trajectory learning, isolated research, retained agents, and bounded state |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |
 | Personas | [features/personas.md](features/personas.md) | Operating-manual personas — bundled set, user additions, opt-in project personas (`allow_project_persona`), resolution order, `agent.spawn` delegation |
 | Plugin ABI | [plugins/abi-reference.md](plugins/abi-reference.md) | Systematic ABI reference — memory model, return-code conventions, typed handles, JSON envelope, capability vocabulary, manifest schema, lifecycle |
@@ -68,11 +74,7 @@ Shorter forms live in:
 ## Status
 
 `stado <cmd> --help` remains authoritative for exact flag spelling, but
-every shipped top-level command now has a guide above. The shape each
-guide follows:
-
-1. **What it does** — one paragraph
-2. **Why it exists** — design rationale, what it replaces or complements
-3. **How to use it** — invocation, common flags, worked examples
-4. **Config** — any `config.toml` sections that apply
-5. **Gotchas** — known rough edges, workarounds, deferred work
+every shipped top-level command now has a guide above. Guides stay practical:
+what the command or feature does, how to invoke and configure it, and the
+important gotchas. Design arguments that need room to breathe belong in
+[articles](articles/).

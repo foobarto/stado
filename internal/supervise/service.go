@@ -488,7 +488,7 @@ func (s *Service) RequestPivot(_ context.Context, id string, expected uint64, ro
 		if role != RoleWorker {
 			return ErrUnauthorized
 		}
-		if st.Status != StatusRunning {
+		if st.Status != StatusRunning || st.PendingIntervention != nil {
 			return ErrInvalidState
 		}
 		if req.Kind == PivotTactical {
@@ -581,7 +581,7 @@ func (s *Service) RequestCompletion(_ context.Context, id string, expected uint6
 		if role != RoleWorker {
 			return ErrUnauthorized
 		}
-		if st.Status != StatusRunning {
+		if st.Status != StatusRunning || st.PendingIntervention != nil {
 			return ErrInvalidState
 		}
 		if err := anchorsMatch(st.Anchor(), req.Anchor); err != nil {
@@ -747,7 +747,22 @@ func (s *Service) RecordEventVerdict(_ context.Context, id string, expected uint
 		if err := anchorsMatch(st.Anchor(), trigger.Anchor); err != nil {
 			return err
 		}
+		if st.PendingIntervention != nil {
+			confirmsHold := false
+			for _, signal := range trigger.Signals {
+				if signal.Type == TriggerStaleIntervention && signal.Attributes["intervention_id"] == st.PendingIntervention.ID {
+					confirmsHold = true
+					break
+				}
+			}
+			if !confirmsHold {
+				return errors.New("supervise: intervention hold requires a fresh stale-intervention review")
+			}
+		}
 		verdict.ReviewedAt = s.now().UTC()
+		// A current-anchor verdict is the only watchdog judgment that can
+		// release a hold created by an earlier stale pause/stop proposal.
+		st.PendingIntervention = nil
 		st.LastVerdict, st.WatchdogHandoff = &verdict, verdict.Handoff
 		st.StepApproval = nil
 		if verdict.Decision == VerdictApprove {
@@ -768,6 +783,47 @@ func (s *Service) RecordEventVerdict(_ context.Context, id string, expected uint
 		default:
 			return errors.New("supervise: invalid event verdict")
 		}
+		return nil
+	})
+}
+
+// HoldStaleIntervention persists a stale pause/stop proposal without applying
+// it as a verdict. The host uses this as a scheduling barrier while it asks a
+// fresh watchdog to judge the current anchor. This is deliberately distinct
+// from RecordEventVerdict: stale model output can demand another look, but it
+// cannot itself pause the durable run or acquire current-state authority.
+func (s *Service) HoldStaleIntervention(_ context.Context, id string, expected uint64, role ActorRole, verdict Verdict, trigger *Trigger, principal, actor, idem string) (State, error) {
+	return s.mutate(id, expected, principal, actor, idem, "watchdog.intervention_held", func(st *State) error {
+		if role != RoleHost {
+			return ErrUnauthorized
+		}
+		if st.Status != StatusRunning {
+			return ErrInvalidState
+		}
+		if verdict.Decision != VerdictPause && verdict.Decision != VerdictStop {
+			return errors.New("supervise: only stale pause/stop verdicts create an intervention hold")
+		}
+		if err := validateVerdict(verdict); err != nil {
+			return err
+		}
+		if len(verdict.EvidenceRefs) == 0 {
+			return errors.New("supervise: stale pause/stop hold requires evidence references")
+		}
+		if err := validateTrigger(trigger); err != nil {
+			return err
+		}
+		if err := anchorsMatch(verdict.Anchor, trigger.Anchor); err != nil {
+			return err
+		}
+		if err := validateRootAnchor(st.RootSessionID, verdict.Anchor); err != nil {
+			return err
+		}
+		if verdict.Anchor == st.Anchor() {
+			return errors.New("supervise: current pause/stop verdict must use RecordEventVerdict")
+		}
+		now := s.now().UTC()
+		verdict.ReviewedAt = now
+		st.PendingIntervention = &InterventionHold{ID: mint("intervention_"), Verdict: verdict, Trigger: *trigger, HeldAt: now}
 		return nil
 	})
 }
@@ -816,7 +872,7 @@ func (s *Service) RecordReviewFailure(_ context.Context, id string, expected uin
 			return ErrInvalidState
 		}
 		st.FailedEventStreak++
-		if st.Config.Mode == ModeLive || st.FailedEventStreak >= st.Config.FailedEventLimit || st.Config.WatchdogRequired || !st.Config.AllowAdvisoryFallback {
+		if st.PendingIntervention != nil || st.Config.Mode == ModeLive || st.FailedEventStreak >= st.Config.FailedEventLimit || st.Config.WatchdogRequired || !st.Config.AllowAdvisoryFallback {
 			st.ResumeStatus, st.Status, st.PauseReason = st.Status, StatusPaused, strings.TrimSpace(reason)
 			if st.PauseReason == "" {
 				st.PauseReason = "watchdog unavailable after retries"
@@ -875,6 +931,10 @@ func (s *Service) Resume(_ context.Context, id string, expected uint64, role Act
 			target = StatusRunning
 		}
 		st.FailedEventStreak, st.FailedCorrectionCount = 0, 0
+		// An explicit operator resume supersedes a pending stale model
+		// proposal. The prior pause reason is still delivered to the worker by
+		// the TUI, while model-originated holds can never out-rank the operator.
+		st.PendingIntervention = nil
 		st.PauseReason, st.ResumeStatus, st.Status = "", "", target
 		return nil
 	})
@@ -1116,7 +1176,8 @@ func validateTrigger(trigger *Trigger) error {
 		case TriggerLiveTurn, TriggerRepeatedFailure, TriggerRetryThrash, TriggerEditRevert,
 			TriggerVerificationRegress, TriggerNoProgress, TriggerBudgetBurn,
 			TriggerScopeExpansion, TriggerChildFailure, TriggerStepCompletion,
-			TriggerPivot, TriggerRisk, TriggerCompletion, TriggerCorrectionFollowup:
+			TriggerPivot, TriggerRisk, TriggerCompletion, TriggerCorrectionFollowup,
+			TriggerStaleIntervention:
 		default:
 			return errors.New("supervise: invalid review trigger signal")
 		}

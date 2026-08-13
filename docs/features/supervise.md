@@ -60,6 +60,15 @@ handoff carries open concerns and suggested probes without keeping a second
 unbounded conversation. A separate fresh provider instance performs final
 verification.
 
+Event verdicts remain bound to the exact worker anchor they reviewed. A stale
+`continue`/`approve` is discarded. A stale `correct` is delivered at the next
+worker boundary as explicitly earlier-anchor advisory steering, without
+pausing or becoming a current verdict. A stale `pause`/`stop` creates a durable
+worker-scheduling hold and forces a fresh review of the latest anchor; only
+that current verdict can release, correct, or pause the run. Failure of this
+confirming review pauses for the operator rather than falling back to advisory
+execution.
+
 ## What stado enforces
 
 - Exactly one approved plan step is active. Step-completion claims need evidence
@@ -153,7 +162,7 @@ The scorer keeps worker, watchdog, and verifier tokens separate and reports the
 quality-per-token tradeoff rather than pretending supervision is free.
 
 For a narrative walkthrough of the failure modes behind the design, see
-[The Loop Needs a Witness](supervise-in-practice.md).
+[The Loop Needs a Witness](../articles/supervise-in-practice.md).
 
 See [EP-0062](../eps/0062-harness-enforced-supervised-work.md) for the state
 machine, authority model, detector policy, and decisions.

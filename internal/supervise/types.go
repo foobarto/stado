@@ -212,6 +212,19 @@ type Verdict struct {
 	ReviewedAt   time.Time       `json:"reviewed_at"`
 }
 
+// InterventionHold records a pause/stop proposal that arrived after its
+// reviewed anchor had already moved. The stale verdict is evidence, not
+// authority: the run remains in its current phase, but the host must not
+// schedule more worker work until a fresh watchdog verdict clears this hold.
+// Keeping the proposal and its trigger in durable state lets an interrupted
+// TUI reconstruct that review instead of silently resuming the worker.
+type InterventionHold struct {
+	ID      string    `json:"id"`
+	Verdict Verdict   `json:"verdict"`
+	Trigger Trigger   `json:"trigger"`
+	HeldAt  time.Time `json:"held_at"`
+}
+
 // StepApproval is host-derived authority to advance one exact active step.
 // The watchdog cannot manufacture it in verdict JSON: the service records it
 // only when an event review covered a current step-completion trigger and the
@@ -245,6 +258,7 @@ type State struct {
 	PendingPivot          *PivotRequest      `json:"pending_pivot,omitempty"`
 	Completion            *CompletionRequest `json:"completion,omitempty"`
 	PendingFollowups      []Followup         `json:"pending_followups,omitempty"`
+	PendingIntervention   *InterventionHold  `json:"pending_intervention,omitempty"`
 	LastVerdict           *Verdict           `json:"last_verdict,omitempty"`
 	StepApproval          *StepApproval      `json:"step_approval,omitempty"`
 	WatchdogHandoff       Handoff            `json:"watchdog_handoff,omitempty"`

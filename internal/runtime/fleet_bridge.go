@@ -54,18 +54,19 @@ func (a *FleetBridgeAdapter) AgentSpawn(ctx context.Context, req pluginRuntime.A
 		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("ephemeral and retained execution are mutually exclusive")
 	}
 	opts := SpawnOptions{
-		Model:          req.Model,
-		Persona:        req.Persona,
-		Role:           req.Role,
-		Mode:           req.Mode,
-		Ownership:      req.Ownership,
-		WriteScope:     req.WriteScope,
-		MaxTurns:       req.MaxTurns,
-		TimeoutSeconds: req.TimeoutSeconds,
-		ToolProfile:    req.ToolProfile,
-		NarrowTools:    req.NarrowTools,
-		TokenBudget:    req.TokenBudget,
-		Execution:      req.Execution,
+		Model:           req.Model,
+		ParentSessionID: a.ParentSessionID,
+		Persona:         req.Persona,
+		Role:            req.Role,
+		Mode:            req.Mode,
+		Ownership:       req.Ownership,
+		WriteScope:      req.WriteScope,
+		MaxTurns:        req.MaxTurns,
+		TimeoutSeconds:  req.TimeoutSeconds,
+		ToolProfile:     req.ToolProfile,
+		NarrowTools:     req.NarrowTools,
+		TokenBudget:     req.TokenBudget,
+		Execution:       req.Execution,
 	}
 	if req.Source != nil {
 		opts.Source = &subagent.Source{SessionID: req.Source.SessionID, At: req.Source.At}

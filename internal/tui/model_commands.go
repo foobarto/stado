@@ -97,8 +97,9 @@ func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
 	}
 	spawner := spawnerFunc(fn)
 	id, err := m.fleet.Spawn(m.rootCtx, spawner, prompt, runtime.SpawnOptions{
-		Provider: m.providerDisplayName(),
-		Model:    m.model,
+		Provider:        m.providerDisplayName(),
+		Model:           m.model,
+		ParentSessionID: m.session.ID,
 	})
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "spawn: " + err.Error()})

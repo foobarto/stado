@@ -42,6 +42,10 @@ type FleetEntry struct {
 	// FleetID is the registry's canonical id, assigned at Spawn
 	// time (UUID). Stable for the entry's lifetime.
 	FleetID string
+	// ParentSessionID is the host-bound session that spawned this entry. It is
+	// retained separately from the child SessionID so evidence consumers can
+	// select one supervision tree from a process-wide fleet registry.
+	ParentSessionID string
 	// SessionID is the child's stadogit session id, populated once
 	// SpawnSubagent has created the session. Empty until then.
 	SessionID string
@@ -80,6 +84,8 @@ type FleetEntry struct {
 type SpawnOptions struct {
 	Provider string
 	Model    string
+	// ParentSessionID is host-owned provenance, not a child-selectable option.
+	ParentSessionID string
 	// Role / Mode / Turns / TimeoutSeconds map to subagent.Request
 	// fields. Zero means "use subagent.Request defaults" (DefaultRole,
 	// DefaultMode, DefaultTurns, DefaultTimeoutSeconds).
@@ -200,13 +206,14 @@ func (f *Fleet) Spawn(rootCtx context.Context, spawner Spawner, prompt string, o
 	id := uuid.NewString()
 	now := time.Now()
 	entry := &FleetEntry{
-		FleetID:      id,
-		Prompt:       prompt,
-		Provider:     opts.Provider,
-		Model:        opts.Model,
-		StartedAt:    now,
-		Status:       FleetStatusRunning,
-		LastActivity: now,
+		FleetID:         id,
+		ParentSessionID: opts.ParentSessionID,
+		Prompt:          prompt,
+		Provider:        opts.Provider,
+		Model:           opts.Model,
+		StartedAt:       now,
+		Status:          FleetStatusRunning,
+		LastActivity:    now,
 	}
 
 	ctx, cancel := context.WithCancel(rootCtx)

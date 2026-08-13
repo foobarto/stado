@@ -70,6 +70,13 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 	m.streamBufMu.Lock()
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
+	if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+		m.state = stateIdle
+		m.finalizeStreamingBlocks()
+		m.appendBlock(block{kind: "system", body: "supervise: worker stream ended while scheduling was held for fresh watchdog review"})
+		m.renderBlocks()
+		return m, m.nextSuperviseHostAction()
+	}
 
 	// #19: context-overflow errors that arrive synchronously (oaicompat /
 	// minimax) auto-recover here; the EvError-event path (Anthropic family)
@@ -88,6 +95,13 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streamCancel = nil
 	if m.state == stateError {
+		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
+			m.state = stateIdle
+			m.finalizeStreamingBlocks()
+			m.appendBlock(block{kind: "system", body: "supervise: worker stream stopped at the intervention-review boundary"})
+			m.renderBlocks()
+			return m, m.nextSuperviseHostAction()
+		}
 		// #19: providers that surface a context overflow as an EvError
 		// stream event (Anthropic family) land here in stateError — give
 		// the auto-compact backstop a chance before dead-ending.
