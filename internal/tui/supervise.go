@@ -2228,9 +2228,6 @@ func (s *staticSuperviseEvidence) Read(_ context.Context, q supervise.EvidenceQu
 func (s *staticSuperviseEvidence) Search(_ context.Context, q supervise.EvidenceQuery) (supervise.EvidencePage, error) {
 	return s.page(q, true)
 }
-func (s *staticSuperviseEvidence) Follow(_ context.Context, q supervise.EvidenceQuery) (supervise.EvidencePage, error) {
-	return s.page(q, false)
-}
 func (s *staticSuperviseEvidence) page(q supervise.EvidenceQuery, search bool) (supervise.EvidencePage, error) {
 	if q.Section == supervise.EvidenceRepository {
 		return s.repositoryPage(q, search)

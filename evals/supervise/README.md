@@ -44,3 +44,6 @@ a ceiling but are not the primary target.
 
 The fixtures deliberately describe behavior rather than vendor-specific model
 names so they remain runnable as catalogs change.
+
+For a narrative walkthrough of what the six scenarios are intended to expose,
+see [The Loop Needs a Witness](../../docs/features/supervise-in-practice.md).

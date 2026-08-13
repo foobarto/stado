@@ -59,8 +59,26 @@ an independent observer able to correct or stop the worker.
 - Treating model reasoning text as detector input or auditable authority.
 - Hiding the expected watchdog/verifier token and latency cost.
 - Replacing the responsive frontline `/supervisor` lane from EP-0033.
+- Acting as a security control, indirect-prompt-injection defense, sandbox, or
+  containment boundary for a malicious worker or repository. `/supervise` is a
+  quality gate; existing broker, sandbox, plugin, hook, and repository-trust
+  controls remain the security ceiling.
 
 ## Design
+
+### Quality gate, not security boundary
+
+Supervision separates stochastic implementation from quality judgments and
+host-owned workflow transitions. This prevents a worker from self-certifying
+progress, changing its approved contract, or marking its own completion. It
+does not make watchdog or verifier judgments adversarially trustworthy. Both
+roles read instruction-shaped repository and transcript content and can be
+steered; read-only evidence tools constrain consequences but are not an
+indirect-prompt-injection defense.
+
+Human-only risk decisions and model role restrictions preserve workflow
+authority. Security enforcement remains with the broker, sandbox, plugin
+capability system, hooks, repository trust boundary, and operator approvals.
 
 ### Trusted setup and approved baseline
 
@@ -117,6 +135,10 @@ bounded, and served from the anchored session tree rather than a moving live
 filesystem. Pages are capped and bound to the reviewed anchor. There is no
 generic mutation, shell, network, credential, approval, or arbitrary live
 filesystem tool.
+
+Continuation cursors are opaque and local to one anchored review. They retain
+the exact originating read/search operation and its validated path, pattern,
+kinds, and page size; following a search cannot degrade into an unfiltered read.
 
 The native detector observes host facts for repeated failures, identical retry
 thrash, edit/revert cycles, verification regression, four-turn criterion
@@ -212,6 +234,8 @@ and does not inherit supervision implicitly.
 - Stale model responses are discarded by anchor comparison.
 - Provider teardown is resource cleanup, not verdict authority: a teardown
   error does not replace a successfully parsed and anchored verdict.
+- Hard token preflight includes provider-declared output headroom for native
+  thinking, so a provider cannot widen a budget-derived request at dispatch.
 - If a required broker-context update fails after a durable transition, the
   host durably pauses the run and carries the reason into operator resumption;
   it does not leave a nominally running run with no scheduled worker turn.

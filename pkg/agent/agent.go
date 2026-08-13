@@ -61,9 +61,13 @@ type Capabilities struct {
 	SupportsPromptCache     bool
 	SupportsThinking        bool
 	SupportsReasoningEffort bool
-	MaxParallelToolCalls    int
-	SupportsVision          bool
-	MaxContextTokens        int
+	// ThinkingOutputReserveTokens is the provider-native output headroom
+	// included in max_tokens in addition to a configured thinking budget.
+	// Hard-budget callers must reserve it before dispatch.
+	ThinkingOutputReserveTokens int
+	MaxParallelToolCalls        int
+	SupportsVision              bool
+	MaxContextTokens            int
 }
 
 // TurnRequest is one agent turn: model, messages, available tools, and

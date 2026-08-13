@@ -53,7 +53,6 @@ type EvidencePage struct {
 type EvidenceSource interface {
 	Read(context.Context, EvidenceQuery) (EvidencePage, error)
 	Search(context.Context, EvidenceQuery) (EvidencePage, error)
-	Follow(context.Context, EvidenceQuery) (EvidencePage, error)
 }
 
 func validateEvidenceQuery(q EvidenceQuery, search bool) (EvidenceQuery, error) {

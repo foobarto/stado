@@ -129,9 +129,10 @@ sequences.
 
 **Capabilities** surface what a model/provider supports —
 `SupportsPromptCache`, `SupportsThinking`, `SupportsReasoningEffort`,
-`MaxParallelToolCalls`, `SupportsVision`, and `MaxContextTokens`. The agent loop
-branches on these today for prompt caching, thinking and effort controls,
-vision gating, and context-threshold enforcement.
+`ThinkingOutputReserveTokens`, `MaxParallelToolCalls`, `SupportsVision`, and
+`MaxContextTokens`. The agent loop branches on these today for prompt caching,
+thinking and effort controls, provider-native thinking output headroom, vision
+gating, and context-threshold enforcement.
 
 `EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
 `CacheWriteTokens` are the *intended* canonical surface for prompt-cache

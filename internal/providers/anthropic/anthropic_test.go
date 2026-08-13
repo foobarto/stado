@@ -171,6 +171,9 @@ func TestCapabilities(t *testing.T) {
 	if c.SupportsReasoningEffort {
 		t.Error("provider-wide capabilities must not advertise model-specific reasoning effort")
 	}
+	if c.ThinkingOutputReserveTokens != thinkingHeadroomTokens {
+		t.Errorf("thinking output reserve = %d, want %d", c.ThinkingOutputReserveTokens, thinkingHeadroomTokens)
+	}
 	if !p.CapabilitiesForModel("claude-sonnet-4-6").SupportsReasoningEffort || p.CapabilitiesForModel("claude-haiku-4-5").SupportsReasoningEffort {
 		t.Error("reasoning-effort capability was not gated by model")
 	}

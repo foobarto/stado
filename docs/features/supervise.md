@@ -5,6 +5,13 @@ multi-stage work. Stado keeps an operator-approved contract in every worker
 turn, monitors host-observed progress with an independent read-only watchdog,
 and accepts completion only after deterministic gates and a fresh verifier.
 
+It is a quality gate, not a security feature. It is designed to catch stalls,
+scope or contract drift, weak evidence, and premature completion in ordinary
+agent work. It does not make hostile repository content safe, contain a
+malicious worker, protect secrets, or turn model agreement into an
+authentication decision. Broker, sandbox, plugin, hook, and repository-trust
+controls remain the security boundary.
+
 This is different from `/supervisor`: the latter is EP-0033's responsive
 off-band answer lane. It does not plan, monitor, interrupt, or verify work.
 
@@ -108,8 +115,9 @@ Choose those providers as a data-trust decision, especially when they differ
 from the worker provider; stado preserves any hook-redacted tool result but
 does not promise to discover arbitrary secrets pasted into source or chat.
 
-This is a workflow boundary, not a replacement for the broker, sandbox, plugin
-capabilities, or audit log. Those remain the actual execution ceiling.
+This is a quality/workflow boundary, not a security boundary or a replacement
+for the broker, sandbox, plugin capabilities, hooks, repository trust policy,
+or audit log. Those remain the actual execution ceiling.
 
 ## Lifecycle commands
 
@@ -143,6 +151,9 @@ stado supervise-eval score --input observations.jsonl
 
 The scorer keeps worker, watchdog, and verifier tokens separate and reports the
 quality-per-token tradeoff rather than pretending supervision is free.
+
+For a narrative walkthrough of the failure modes behind the design, see
+[The Loop Needs a Witness](supervise-in-practice.md).
 
 See [EP-0062](../eps/0062-harness-enforced-supervised-work.md) for the state
 machine, authority model, detector policy, and decisions.

@@ -2,6 +2,8 @@ package supervise
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +22,55 @@ const (
 	maxReviewTurns   = 8
 	maxReviewText    = 1 << 20
 	maxEvidenceBytes = 1 << 20
+	maxReviewCursors = 256
 )
+
+type evidenceContinuation struct {
+	query  EvidenceQuery
+	search bool
+}
+
+// evidenceContinuations keeps source cursors and their originating operation
+// inside one anchored EP-0062 review. The model sees only opaque review-local
+// handles, so follow cannot silently turn a search cursor into an unfiltered
+// read or change its path/pattern/kind query.
+type evidenceContinuations struct {
+	byID map[string]evidenceContinuation
+}
+
+func (c *evidenceContinuations) remember(q EvidenceQuery, search bool, sourceCursor string) (string, error) {
+	if sourceCursor == "" {
+		return "", nil
+	}
+	if c.byID == nil {
+		c.byID = make(map[string]evidenceContinuation)
+	}
+	if len(c.byID) >= maxReviewCursors {
+		return "", errors.New("supervise: reviewer continuation limit exceeded")
+	}
+	q.Cursor = sourceCursor
+	for range 4 {
+		var token [16]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return "", fmt.Errorf("supervise: create evidence cursor: %w", err)
+		}
+		id := "review-cursor:" + hex.EncodeToString(token[:])
+		if _, exists := c.byID[id]; exists {
+			continue
+		}
+		c.byID[id] = evidenceContinuation{query: q, search: search}
+		return id, nil
+	}
+	return "", errors.New("supervise: could not allocate evidence cursor")
+}
+
+func (c *evidenceContinuations) resolve(id string) (evidenceContinuation, error) {
+	continuation, ok := c.byID[id]
+	if !ok {
+		return evidenceContinuation{}, errors.New("supervise: unknown or expired evidence cursor")
+	}
+	return continuation, nil
+}
 
 type ProviderFactory interface {
 	// Build must return a fresh provider instance. Event mode intentionally
@@ -88,6 +138,7 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 	var total agent.Usage
 	evidenceBytes := 0
 	servedEvidence := map[string]bool{}
+	continuations := &evidenceContinuations{}
 	for turn := 0; turn < maxReviewTurns; turn++ {
 		req := agent.TurnRequest{Model: profile.Model, System: reviewSystemPrompt(in.Role, in.Kind), Messages: messages, Tools: tools}
 		if caps.SupportsReasoningEffort {
@@ -103,6 +154,11 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		preflightInput, err := applyReviewTokenBudget(ctx, provider, budget.TokenCap, total, &req)
 		if err != nil {
 			return ReviewResult{}, err
+		}
+		if budget.TokenCap > 0 {
+			if err := validateReviewThinkingReserve(caps, req); err != nil {
+				return ReviewResult{}, err
+			}
 		}
 		ch, err := provider.StreamTurn(ctx, req)
 		if err != nil {
@@ -154,7 +210,7 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 		}
 		results := make([]agent.Block, 0, len(calls))
 		for _, call := range calls {
-			content, evidenceRefs, runErr := r.runEvidenceTool(ctx, in.State.Anchor(), call)
+			content, evidenceRefs, runErr := r.runEvidenceTool(ctx, in.State.Anchor(), call, continuations)
 			if runErr != nil {
 				content = runErr.Error()
 			} else {
@@ -203,6 +259,20 @@ func applyReviewTokenBudget(ctx context.Context, provider agent.Provider, tokenC
 	return inputTokens, nil
 }
 
+func validateReviewThinkingReserve(caps agent.Capabilities, req agent.TurnRequest) error {
+	if req.MaxTokens <= 0 || req.Thinking == nil || req.Thinking.BudgetTokens <= 0 {
+		return nil
+	}
+	reserve := caps.ThinkingOutputReserveTokens
+	if reserve < 0 {
+		return errors.New("supervise: reviewer provider returned an invalid thinking reserve")
+	}
+	if req.Thinking.BudgetTokens > req.MaxTokens-reserve {
+		return errors.New("supervise: reviewer token budget cannot fit the provider thinking reserve")
+	}
+	return nil
+}
+
 func accumulateReviewUsage(total *agent.Usage, next agent.Usage) error {
 	if total == nil || next.InputTokens < 0 || next.OutputTokens < 0 || next.CacheReadTokens < 0 || next.CacheWriteTokens < 0 || next.CostUSD < 0 || math.IsNaN(next.CostUSD) || math.IsInf(next.CostUSD, 0) {
 		return errors.New("supervise: reviewer returned invalid usage")
@@ -233,25 +303,41 @@ func accumulateReviewUsage(total *agent.Usage, next agent.Usage) error {
 	return nil
 }
 
-func (r Reviewer) runEvidenceTool(ctx context.Context, anchor Anchor, call agent.ToolUseBlock) (string, []string, error) {
+func (r Reviewer) runEvidenceTool(ctx context.Context, anchor Anchor, call agent.ToolUseBlock, continuations *evidenceContinuations) (string, []string, error) {
 	var q EvidenceQuery
 	if err := json.Unmarshal(call.Input, &q); err != nil {
 		return "", nil, fmt.Errorf("supervise: invalid evidence query: %w", err)
 	}
 	var page EvidencePage
 	var err error
+	search := false
 	switch call.Name {
 	case readToolName:
-		if q, err = validateEvidenceQuery(q, false); err == nil {
+		if q.Cursor != "" {
+			err = errors.New("supervise: continue evidence with supervise__follow")
+		} else if q, err = validateEvidenceQuery(q, false); err == nil {
 			page, err = r.Source.Read(ctx, q)
 		}
 	case searchToolName:
-		if q, err = validateEvidenceQuery(q, true); err == nil {
+		search = true
+		if q.Cursor != "" {
+			err = errors.New("supervise: continue evidence with supervise__follow")
+		} else if q, err = validateEvidenceQuery(q, true); err == nil {
 			page, err = r.Source.Search(ctx, q)
 		}
 	case followToolName:
-		if q, err = validateEvidenceQuery(q, false); err == nil {
-			page, err = r.Source.Follow(ctx, q)
+		if continuations == nil || q.Cursor == "" || q.Section != "" || q.Limit != 0 || q.Pattern != "" || q.Path != "" || len(q.Kinds) != 0 || len(q.Cursor) > 256 {
+			err = errors.New("supervise: follow requires exactly one evidence cursor")
+			break
+		}
+		var continuation evidenceContinuation
+		if continuation, err = continuations.resolve(q.Cursor); err == nil {
+			q, search = continuation.query, continuation.search
+			if search {
+				page, err = r.Source.Search(ctx, q)
+			} else {
+				page, err = r.Source.Read(ctx, q)
+			}
 		}
 	default:
 		return "", nil, fmt.Errorf("supervise: unavailable reviewer tool %q", call.Name)
@@ -261,6 +347,15 @@ func (r Reviewer) runEvidenceTool(ctx context.Context, anchor Anchor, call agent
 	}
 	if err := validateEvidencePage(page, anchor); err != nil {
 		return "", nil, err
+	}
+	if page.NextCursor != "" {
+		if continuations == nil {
+			return "", nil, errors.New("supervise: reviewer continuation store unavailable")
+		}
+		page.NextCursor, err = continuations.remember(q, search, page.NextCursor)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	raw, err := json.Marshal(page)
 	if err != nil {
@@ -305,12 +400,13 @@ func reviewSystemPrompt(role ActorRole, kind ReviewKind) string {
 
 func reviewToolDefs() []agent.ToolDef {
 	section := `{"type":"string","enum":["state","contract","plan","events","transcript","tools","diff","verification","budgets","children","repository"]}`
-	common := `{"type":"object","properties":{"section":` + section + `,"cursor":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100},"path":{"type":"string","maxLength":4096},"kinds":{"type":"array","items":{"type":"string"},"maxItems":16}},"required":["section"],"additionalProperties":false}`
-	search := `{"type":"object","properties":{"section":` + section + `,"cursor":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100},"pattern":{"type":"string"},"path":{"type":"string","maxLength":4096},"kinds":{"type":"array","items":{"type":"string"},"maxItems":16}},"required":["section","pattern"],"additionalProperties":false}`
+	common := `{"type":"object","properties":{"section":` + section + `,"limit":{"type":"integer","minimum":1,"maximum":100},"path":{"type":"string","maxLength":4096},"kinds":{"type":"array","items":{"type":"string"},"maxItems":16}},"required":["section"],"additionalProperties":false}`
+	search := `{"type":"object","properties":{"section":` + section + `,"limit":{"type":"integer","minimum":1,"maximum":100},"pattern":{"type":"string"},"path":{"type":"string","maxLength":4096},"kinds":{"type":"array","items":{"type":"string"},"maxItems":16}},"required":["section","pattern"],"additionalProperties":false}`
+	follow := `{"type":"object","properties":{"cursor":{"type":"string","minLength":1,"maxLength":256}},"required":["cursor"],"additionalProperties":false}`
 	return []agent.ToolDef{
 		{Name: readToolName, Description: "Read a bounded page of host-filtered worker/session-tree evidence. For repository evidence, omit path to list anchored files or provide a repo-relative path to read one file.", Schema: json.RawMessage(common)},
 		{Name: searchToolName, Description: "Search host-filtered worker/session-tree evidence without opening unrelated output. Repository searches accept an optional repo-relative path prefix.", Schema: json.RawMessage(search)},
-		{Name: followToolName, Description: "Continue from a bounded evidence cursor at the same anchored session state.", Schema: json.RawMessage(common)},
+		{Name: followToolName, Description: "Continue the exact bounded read or search that returned an opaque cursor at the same anchored session state.", Schema: json.RawMessage(follow)},
 	}
 }
 

@@ -54,6 +54,7 @@ Shorter forms live in:
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
 | Supervised work | [features/supervise.md](features/supervise.md) | Harness-enforced plans, watchdog correction, task deferral, and independent completion verification |
+| Supervision in practice | [features/supervise-in-practice.md](features/supervise-in-practice.md) | Narrative walkthrough of six paired evaluation failure modes |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Adaptive context and learning | [adaptive-context.md](adaptive-context.md) | Versioned memory, trajectory learning, isolated research, retained agents, and bounded state |
