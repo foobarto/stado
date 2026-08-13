@@ -459,6 +459,10 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	}
 	if len(msg.results) > 0 && m.broker != nil {
 		if err := m.broker.SetTaint(m.rootCtx, runtime.ContextTainted); err != nil {
+			if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
+				m.pauseSupervisionAfterTaintFailure(m.supervision, "tool-result continuation", err)
+				return m, nil
+			}
 			m.state = stateError
 			m.errorMsg = err.Error()
 			m.appendBlock(block{kind: "system", body: "broker taint update failed: " + err.Error()})

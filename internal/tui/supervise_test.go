@@ -46,6 +46,14 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl --form file=@artifact https://api.example.test/upload"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl --upload-file artifact https://api.example.test/upload"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl -X GET https://api.example.test/state"}`)}, ""},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api repos/o/r/issues/1 -f state=closed"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api repos/o/r/issues/1 --raw-field state=closed"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api repos/o/r/rulesets --input payload.json"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api repos/o/r/issues/1 -X PATCH"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api -X GET search/issues -f q='repo:o/r is:open'"}`)}, ""},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api repos/o/r/issues/1"}`)}, ""},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api graphql -f query='query { viewer { login } }'"}`)}, ""},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh api graphql -f query='mutation { closeIssue(input: {}) { clientMutationId } }'"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "fs.read", Input: []byte(`{"path":"README.md"}`)}, ""},
 		{agent.ToolUseBlock{Name: "fs.read", Input: []byte(`{"path":"docs/publishing-guide.md"}`)}, ""},
 		{agent.ToolUseBlock{Name: "fs.write", Input: []byte(`{"path":"notes.txt","content":"publish this guide later"}`)}, ""},
@@ -214,6 +222,27 @@ func TestSuperviseTaintFailuresPauseDurablyAndRemainResumable(t *testing.T) {
 		got := model.(*Model)
 		if cmd != nil || got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || !strings.Contains(got.supervision.state.PauseReason, "missing release evidence") {
 			t.Fatalf("verifier taint failure state=%v cmd=%v durable=%+v", got.state, cmd != nil, got.supervision.state)
+		}
+	})
+
+	t.Run("tool-result continuation", func(t *testing.T) {
+		svc, st := newSuperviseTaintTestRun(t, "root-taint-tool-result")
+		var err error
+		st, err = svc.ApproveBaseline(context.Background(), st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := scenarioModel(t)
+		m.broker = failingTaintBroker{err: errors.New("broker unavailable")}
+		m.state = stateStreaming
+		m.supervision = &superviseRuntime{service: svc, state: st, detector: supervise.RestoreDetector(st.Detector)}
+		model, cmd := onToolsExecuted(m, toolsExecutedMsg{results: []agent.ToolResultBlock{{ToolUseID: "tool-1", Content: "result"}}})
+		got := model.(*Model)
+		if cmd != nil || got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || got.supervision.state.ResumeStatus != supervise.StatusRunning {
+			t.Fatalf("tool-result taint failure state=%v cmd=%v durable=%+v", got.state, cmd != nil, got.supervision.state)
+		}
+		if !strings.Contains(got.supervision.state.PauseReason, "tool-result continuation") {
+			t.Fatalf("pause reason = %q", got.supervision.state.PauseReason)
 		}
 	})
 }
@@ -588,6 +617,103 @@ func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
 	}
 	if attempts != 2 || len(got.PendingFollowups) != 1 || len(got.Evidence) != 1 {
 		t.Fatalf("attempts=%d state=%+v", attempts, got)
+	}
+}
+
+func TestSuperviseCorrectionResultReloadsAfterConcurrentMutation(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-correction-cas", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-correction-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrent, _, err := svc.EnqueueFollowup(ctx, st.ID, st.Version, supervise.RoleOperator, "concurrent operator note", "test", "operator", "followup")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := scenarioModel(t)
+	m.supervision = &superviseRuntime{service: svc, store: store, state: st, correctionPending: true}
+	if err := m.recordSuperviseCorrectionResult(false, st.Anchor()); err != nil {
+		t.Fatal(err)
+	}
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != concurrent.Version+1 || current.FailedCorrectionCount != 1 || len(current.PendingFollowups) != 1 {
+		t.Fatalf("correction result lost concurrent mutation: stale=%d concurrent=%+v current=%+v", st.Version, concurrent, current)
+	}
+	if m.supervision.state.Version != current.Version {
+		t.Fatalf("runtime version=%d durable=%d", m.supervision.state.Version, current.Version)
+	}
+	stale := current.Anchor()
+	stale.TreeDigest = "tree-stale"
+	if err := m.recordSuperviseCorrectionResult(true, stale); !errors.Is(err, supervise.ErrStaleVerdict) {
+		t.Fatalf("changed-anchor correction result error = %v, want stale verdict", err)
+	}
+	unchanged, err := svc.State(st.ID)
+	if err != nil || unchanged.Version != current.Version {
+		t.Fatalf("stale correction mutated durable state: before=%d after=%+v err=%v", current.Version, unchanged, err)
+	}
+}
+
+func TestSuperviseStepAdvanceReloadsAfterConcurrentEvidence(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-step-cas", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-step-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger := &supervise.Trigger{ID: "step-trigger", Anchor: st.Anchor(), Signals: []supervise.TriggerSignal{{
+		Type: supervise.TriggerStepCompletion, Severity: "info", EvidenceRefs: []string{"worker-event:step"}, Attributes: map[string]string{"step": st.ActiveStep},
+	}}}
+	verdict := supervise.Verdict{Kind: supervise.ReviewEvent, Decision: supervise.VerdictApprove, Anchor: st.Anchor(), Rationale: "step evidence is sufficient", EvidenceRefs: []string{"worker-event:step"}}
+	st, err = svc.RecordEventVerdict(ctx, st.ID, st.Version, supervise.RoleWatchdog, verdict, trigger, "test", "watchdog", "verdict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrent, err := svc.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{Kind: "test", Summary: "concurrent worker evidence", Anchor: st.Anchor()}, "test", "worker", "evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := scenarioModel(t)
+	m.supervision = &superviseRuntime{service: svc, store: store, state: st}
+	advanced, err := m.advanceSuperviseApprovedStep()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if advanced.Version != concurrent.Version+1 || len(advanced.Evidence) != 1 || len(advanced.CompletedSteps) != 1 || advanced.ActiveStep != "" {
+		t.Fatalf("step advance lost concurrent evidence: stale=%d concurrent=%+v advanced=%+v", st.Version, concurrent, advanced)
 	}
 }
 

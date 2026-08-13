@@ -1213,14 +1213,15 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 		return m, startPending()
 	}
 	if rt.correctionPending && (msg.result.Verdict.Decision == supervise.VerdictContinue || msg.result.Verdict.Decision == supervise.VerdictApprove) {
-		if st, err := rt.service.RecordCorrectionResult(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, true, trajectory.LocalPrincipal(), "tui-host", "supervise-correction-ok:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version)); err == nil {
-			rt.state = st
+		if err := m.recordSuperviseCorrectionResult(true, msg.result.Verdict.Anchor); err == nil {
 			rt.correctionPending = false
+		} else {
+			m.appendBlock(block{kind: "system", body: "supervise: could not record watchdog correction recovery: " + err.Error()})
 		}
 	}
 	if rt.correctionPending && msg.result.Verdict.Decision == supervise.VerdictCorrect {
-		if st, err := rt.service.RecordCorrectionResult(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, false, trajectory.LocalPrincipal(), "tui-host", "supervise-correction-failed:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version)); err == nil {
-			rt.state = st
+		if err := m.recordSuperviseCorrectionResult(false, msg.result.Verdict.Anchor); err != nil {
+			m.appendBlock(block{kind: "system", body: "supervise: could not record failed watchdog correction: " + err.Error()})
 		}
 		if rt.state.Status == supervise.StatusPaused {
 			m.cancelSupervisedWorker()
@@ -1237,7 +1238,7 @@ func onSuperviseEventReview(m *Model, msg superviseEventReviewMsg) (tea.Model, t
 	}
 	rt.state = st
 	if msg.result.Verdict.Decision == supervise.VerdictApprove && superviseTriggerHas(msg.trigger, supervise.TriggerStepCompletion) {
-		if advanced, advanceErr := rt.service.AdvanceStep(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleWatchdog, rt.state.Anchor(), trajectory.LocalPrincipal(), "watchdog", "supervise-step-approved:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version)); advanceErr == nil {
+		if advanced, advanceErr := m.advanceSuperviseApprovedStep(); advanceErr == nil {
 			rt.state = advanced
 			m.appendBlock(block{kind: "system", body: "supervise: watchdog accepted step evidence; active step is now " + advanced.ActiveStep})
 		} else {
@@ -1280,6 +1281,47 @@ func (m *Model) recordSuperviseEventVerdict(msg superviseEventReviewMsg) (superv
 		}
 	}
 	return supervise.State{}, lastErr
+}
+
+func (m *Model) recordSuperviseCorrectionResult(success bool, anchor supervise.Anchor) error {
+	rt := m.supervision
+	if rt == nil || rt.service == nil || rt.state.ID == "" {
+		return supervise.ErrInvalidState
+	}
+	service, runID := rt.service, rt.state.ID
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			if current.Anchor() != anchor {
+				return supervise.State{}, supervise.ErrStaleVerdict
+			}
+			outcome := "failed"
+			if success {
+				outcome = "recovered"
+			}
+			idem := "supervise-correction-" + outcome + ":" + runID + ":" + strconvVersionUI(current.Version)
+			return service.RecordCorrectionResult(m.rootCtx, runID, current.Version, supervise.RoleHost, success, trajectory.LocalPrincipal(), "tui-host", idem)
+		},
+	)
+	if err == nil {
+		rt.state = st
+	}
+	return err
+}
+
+func (m *Model) advanceSuperviseApprovedStep() (supervise.State, error) {
+	rt := m.supervision
+	if rt == nil || rt.service == nil || rt.state.ID == "" {
+		return supervise.State{}, supervise.ErrInvalidState
+	}
+	service, runID := rt.service, rt.state.ID
+	return retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			idem := "supervise-step-approved:" + runID + ":" + strconvVersionUI(current.Version)
+			return service.AdvanceStep(m.rootCtx, runID, current.Version, supervise.RoleWatchdog, current.Anchor(), trajectory.LocalPrincipal(), "watchdog", idem)
+		},
+	)
 }
 
 func (m *Model) nextSuperviseHostAction() tea.Cmd {
@@ -1535,6 +1577,8 @@ func superviseCommandRiskBoundary(command string, depth int) string {
 			}
 		case base == "curl" && superviseCurlMutates(words[i+1:]):
 			return "external commitment"
+		case base == "gh" && superviseGHAPIMutates(words[i+1:]):
+			return "external commitment"
 		case base == "kubectl" || base == "oc":
 			switch superviseKubectlSubcommand(words[i+1:]) {
 			case "delete":
@@ -1737,6 +1781,106 @@ func superviseCurlMutates(args []string) bool {
 			if superviseMutatingHTTPMethod(raw[len("--request="):]) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// superviseGHAPIMutates recognizes GitHub CLI API calls whose HTTP or GraphQL
+// operation can change external state. `gh api` normally uses GET, but field
+// flags switch REST requests to POST and --input supplies a request body. Keep
+// GraphQL query operations read-only even though their transport is POST; only
+// a mutation (or an opaque file/body whose operation cannot be inspected) is a
+// supervised external commitment.
+func superviseGHAPIMutates(args []string) bool {
+	if len(args) == 0 || !strings.EqualFold(path.Base(args[0]), "api") {
+		return false
+	}
+	args = args[1:]
+	var endpoint, method, graphqlQuery string
+	explicitMethod, hasFields, hasInput := false, false, false
+	recordField := func(value string) {
+		hasFields = true
+		key, fieldValue, ok := strings.Cut(value, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "query") {
+			graphqlQuery = strings.TrimSpace(fieldValue)
+		}
+	}
+	valueFlag := func(flag string) bool {
+		switch flag {
+		case "-H", "--header", "--hostname", "-q", "--jq", "-t", "--template", "-p", "--preview", "--cache":
+			return true
+		default:
+			return false
+		}
+	}
+	for i := 0; i < len(args); i++ {
+		raw, lower := args[i], strings.ToLower(args[i])
+		switch {
+		case raw == "-X" || lower == "--method":
+			explicitMethod = true
+			if i+1 < len(args) {
+				i++
+				method = args[i]
+			}
+		case strings.HasPrefix(raw, "-X") && len(raw) > 2:
+			explicitMethod, method = true, raw[2:]
+		case strings.HasPrefix(lower, "--method="):
+			explicitMethod, method = true, raw[len("--method="):]
+		case raw == "-f" || raw == "-F" || lower == "--field" || lower == "--raw-field":
+			if i+1 < len(args) {
+				i++
+				recordField(args[i])
+			} else {
+				hasFields = true
+			}
+		case strings.HasPrefix(raw, "-f") && len(raw) > 2 || strings.HasPrefix(raw, "-F") && len(raw) > 2:
+			recordField(raw[2:])
+		case strings.HasPrefix(lower, "--field="):
+			recordField(raw[len("--field="):])
+		case strings.HasPrefix(lower, "--raw-field="):
+			recordField(raw[len("--raw-field="):])
+		case lower == "--input":
+			hasInput = true
+			if i+1 < len(args) {
+				i++
+			}
+		case strings.HasPrefix(lower, "--input="):
+			hasInput = true
+		case valueFlag(raw):
+			if i+1 < len(args) {
+				i++
+			}
+		case strings.HasPrefix(raw, "-"):
+			// Formatting, pagination, and other output-only flags do not
+			// change the request method.
+		case endpoint == "":
+			endpoint = strings.Trim(strings.ToLower(raw), "/")
+		}
+	}
+
+	graphql := endpoint == "graphql"
+	if explicitMethod && !superviseMutatingHTTPMethod(method) {
+		return false
+	}
+	if graphql {
+		if hasInput || strings.HasPrefix(graphqlQuery, "@") {
+			return true
+		}
+		return superviseGraphQLMutation(graphqlQuery)
+	}
+	if explicitMethod {
+		return superviseMutatingHTTPMethod(method)
+	}
+	return hasFields || hasInput
+}
+
+func superviseGraphQLMutation(query string) bool {
+	for _, word := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	}) {
+		if word == "mutation" {
+			return true
 		}
 	}
 	return false
