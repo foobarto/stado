@@ -186,6 +186,9 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 			},
 		}
 	}
+	if req.ReasoningEffort != "" {
+		params.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(req.ReasoningEffort)}
+	}
 
 	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
 		trace.WithAttributes(

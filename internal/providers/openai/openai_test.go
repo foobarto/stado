@@ -80,6 +80,28 @@ func TestBuildParams_ToolsAndParallelFlag(t *testing.T) {
 	}
 }
 
+func TestBuildParams_ReasoningEffort(t *testing.T) {
+	params, err := buildParams(agent.TurnRequest{Model: "o-test", ReasoningEffort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(params.ReasoningEffort) != "high" {
+		t.Fatalf("reasoning effort = %q", params.ReasoningEffort)
+	}
+}
+
+func TestBuildParams_ClampsExtendedReasoningEffort(t *testing.T) {
+	for _, effort := range []string{"xhigh", "max"} {
+		params, err := buildParams(agent.TurnRequest{Model: "o-test", ReasoningEffort: effort})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(params.ReasoningEffort) != "high" {
+			t.Fatalf("reasoning effort %q mapped to %q, want high", effort, params.ReasoningEffort)
+		}
+	}
+}
+
 func TestConvertMessages_RejectsOversizedToolInput(t *testing.T) {
 	_, err := convertMessages("", []agent.Message{{
 		Role: agent.RoleAssistant,

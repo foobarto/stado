@@ -199,6 +199,17 @@ func TestResolveMaxTokens_RaisesForThinkingBudget(t *testing.T) {
 	}
 }
 
+func TestReasoningEffortMapsToOutputConfig(t *testing.T) {
+	req := agent.TurnRequest{Model: "claude-test", ReasoningEffort: "xhigh"}
+	params := sdk.MessageNewParams{Model: sdk.Model(req.Model), MaxTokens: defaultMaxTokens}
+	if req.ReasoningEffort != "" {
+		params.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(req.ReasoningEffort)}
+	}
+	if params.OutputConfig.Effort != sdk.OutputConfigEffortXhigh {
+		t.Fatalf("effort = %q", params.OutputConfig.Effort)
+	}
+}
+
 func TestNew_Options(t *testing.T) {
 	// WithName + WithBaseURL: a third-party Anthropic-compatible endpoint
 	// (e.g. MiniMax) keeps the explicit key and reports the custom name.

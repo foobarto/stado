@@ -322,6 +322,46 @@ func TestChangedFilesBetween(t *testing.T) {
 	}
 }
 
+func TestPatchBetweenHeadsUsesAuditedSessionTrees(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	sess, err := CreateSession(sc, t.TempDir(), "patch-between", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sess.WorktreePath, "feature.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree1, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head1, err := sess.commitOnRef(TreeRef(sess.ID), tree1, CommitMeta{Tool: "test", Summary: "before"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree2, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head2, err := sess.commitOnRef(TreeRef(sess.ID), tree2, CommitMeta{Tool: "test", Summary: "after"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch, err := sess.PatchBetweenHeads(head1, head2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"feature.txt", "-before", "+after"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("patch missing %q:\n%s", want, patch)
+		}
+	}
+}
+
 func TestTurnTag(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	wtRoot := t.TempDir()

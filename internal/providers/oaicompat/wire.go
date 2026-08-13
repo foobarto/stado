@@ -6,13 +6,14 @@ import "encoding/json"
 // llama.cpp, vLLM, ollama, LiteLLM, OpenRouter, Groq, DeepSeek, Mistral, xAI).
 
 type chatRequest struct {
-	Model       string         `json:"model"`
-	Messages    []chatMessage  `json:"messages"`
-	Stream      bool           `json:"stream"`
-	StreamOpts  *streamOptions `json:"stream_options,omitempty"`
-	Tools       []chatTool     `json:"tools,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   int            `json:"max_tokens,omitempty"`
+	Model           string         `json:"model"`
+	Messages        []chatMessage  `json:"messages"`
+	Stream          bool           `json:"stream"`
+	StreamOpts      *streamOptions `json:"stream_options,omitempty"`
+	Tools           []chatTool     `json:"tools,omitempty"`
+	Temperature     *float64       `json:"temperature,omitempty"`
+	MaxTokens       int            `json:"max_tokens,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
 }
 
 type streamOptions struct {

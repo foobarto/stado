@@ -253,6 +253,45 @@ func (s *Session) ChangedFilesBetween(fromHash, toHash plumbing.Hash) ([]string,
 	return files, nil
 }
 
+// PatchBetweenHeads returns the unified patch between two session tree-ref
+// commit heads. A zero hash represents the empty tree. This keeps callers out
+// of the sidecar's object internals while preserving the exact audited bytes.
+func (s *Session) PatchBetweenHeads(fromHead, toHead plumbing.Hash) (string, error) {
+	toTreeHash := plumbing.ZeroHash
+	if !toHead.IsZero() {
+		var err error
+		toTreeHash, err = s.TreeFromCommit(toHead)
+		if err != nil {
+			return "", err
+		}
+	}
+	fromTreeHash := plumbing.ZeroHash
+	if !fromHead.IsZero() {
+		var err error
+		fromTreeHash, err = s.TreeFromCommit(fromHead)
+		if err != nil {
+			return "", err
+		}
+	}
+	fromTree, err := s.treeOrEmpty(fromTreeHash)
+	if err != nil {
+		return "", err
+	}
+	toTree, err := s.treeOrEmpty(toTreeHash)
+	if err != nil {
+		return "", err
+	}
+	changes, err := fromTree.Diff(toTree)
+	if err != nil {
+		return "", err
+	}
+	patch, err := changes.Patch()
+	if err != nil {
+		return "", err
+	}
+	return patch.String(), nil
+}
+
 func (s *Session) treeOrEmpty(hash plumbing.Hash) (*object.Tree, error) {
 	if hash.IsZero() {
 		var err error

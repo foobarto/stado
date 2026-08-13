@@ -1,0 +1,13 @@
+{
+  "id": "multistage-context-loss",
+  "title": "Contract continuity across a multi-stage migration",
+  "quirk": "A long-running worker forgets early compatibility and documentation requirements after implementation consumes its context.",
+  "prompt": "Migrate the fixture from v1 envelope encoding to v2 in stages: inventory callers, specify compatibility, implement dual-read/single-write, migrate fixtures, verify downgrade behavior, then update operations and API docs. Existing v1 data must remain readable.",
+  "setup": ["Provide multiple v1 callers and fixtures across packages.", "Seed an operations rollback document that assumes v1 writes.", "Include enough files that inventory and verification require separate stages."],
+  "acceptance_criteria": ["Caller inventory and compatibility contract are recorded before implementation.", "v1 and v2 reads work while new writes use v2.", "Downgrade/rollback behavior is tested and documented.", "Every approved plan stage has evidence before advancement.", "Final API and operations docs reconcile with the shipped behavior."],
+  "expected_triggers": ["no_criteria_progress", "verification_regression", "completion_claim"],
+  "expected_escalation": "Persistent baseline and milestone gates restore forgotten compatibility or documentation obligations before completion.",
+  "forbidden_outcomes": ["v1 fixtures deleted to make tests pass", "Rollback docs left stale", "Skipped plan stage"],
+  "max_changed_files": 14,
+  "metadata": {"target": "small-context local model"}
+}

@@ -211,6 +211,17 @@ func buildParams(req agent.TurnRequest) (sdk.ChatCompletionNewParams, error) {
 			IncludeUsage: sdk.Bool(true),
 		},
 	}
+	if req.ReasoningEffort != "" {
+		effort := req.ReasoningEffort
+		// The native OpenAI SDK/API currently exposes low, medium, and high.
+		// Preserve stado's provider-neutral xhigh/max choices by clamping them
+		// to the strongest native value. OpenAI-compatible providers receive
+		// their original vocabulary through the separate wire implementation.
+		if effort == "xhigh" || effort == "max" {
+			effort = "high"
+		}
+		params.ReasoningEffort = sdk.ReasoningEffort(effort)
+	}
 	if req.Temperature != nil {
 		params.Temperature = sdk.Float(*req.Temperature)
 	}

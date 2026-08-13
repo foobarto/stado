@@ -66,6 +66,12 @@ type TurnRequest struct {
 	// Thinking is non-nil to enable extended thinking where supported.
 	Thinking *ThinkingConfig
 
+	// ReasoningEffort carries the provider-native effort vocabulary. Stado
+	// keeps this independent from Thinking: a provider may expose an effort
+	// knob without returning visible thinking, or support thinking budgets
+	// without accepting effort. Empty leaves the provider default untouched.
+	ReasoningEffort string
+
 	// CacheHints are breakpoints for Anthropic-style prompt caching. Indexes
 	// refer to Messages. Ignored by providers that don't support caching.
 	CacheHints []CachePoint

@@ -219,13 +219,14 @@ func buildRequest(req agent.TurnRequest) ([]byte, error) {
 		})
 	}
 	payload := chatRequest{
-		Model:       req.Model,
-		Messages:    msgs,
-		Stream:      true,
-		StreamOpts:  &streamOptions{IncludeUsage: true},
-		Tools:       tools,
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
+		Model:           req.Model,
+		Messages:        msgs,
+		Stream:          true,
+		StreamOpts:      &streamOptions{IncludeUsage: true},
+		Tools:           tools,
+		Temperature:     req.Temperature,
+		MaxTokens:       req.MaxTokens,
+		ReasoningEffort: req.ReasoningEffort,
 	}
 	return json.Marshal(payload)
 }
