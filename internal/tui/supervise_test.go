@@ -34,6 +34,12 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		{agent.ToolUseBlock{Name: "github.pr.merge", Input: []byte(`{"number":42}`)}, "merge"},
 		{agent.ToolUseBlock{Name: "fs.delete", Input: []byte(`{"path":"tmp.txt"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl apply -f deploy.yaml"}`)}, "deploy"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl --context prod apply -f deploy.yaml"}`)}, "deploy"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl --context prod delete deployment old"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl --context prod get deployments"}`)}, ""},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"terraform -chdir=infra apply"}`)}, "deploy"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"terraform -chdir infra destroy"}`)}, "destructive operation"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"terraform -chdir=infra plan"}`)}, ""},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"./deploy.sh production"}`)}, "deploy"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl -d '{\"state\":\"on\"}' https://api.example.test/state"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl --form file=@artifact https://api.example.test/upload"}`)}, "external commitment"},
@@ -426,5 +432,80 @@ func TestRetrySuperviseMutationReloadsAfterConcurrentFollowup(t *testing.T) {
 	}
 	if attempts != 2 || len(got.PendingFollowups) != 1 || len(got.Evidence) != 1 {
 		t.Fatalf("attempts=%d state=%+v", attempts, got)
+	}
+}
+
+func TestEnqueueSuperviseFollowupReloadsStaleRuntimeState(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-followup-cas", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-followup-cas", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	durable, err := svc.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{
+		Kind: "test", Summary: "concurrent worker evidence", Anchor: st.Anchor(),
+	}, "test", "worker", "evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.supervision = &superviseRuntime{service: svc, store: store, state: st}
+	if cmd := m.enqueueSuperviseFollowup("remember this operator request"); cmd != nil {
+		t.Fatal("streaming follow-up unexpectedly scheduled immediate review")
+	}
+	current, err := svc.State(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.PendingFollowups) != 1 || current.PendingFollowups[0].Text != "remember this operator request" {
+		t.Fatalf("durable follow-ups = %+v", current.PendingFollowups)
+	}
+	if current.Version != durable.Version+1 || m.supervision.state.Version != current.Version || len(m.supervision.followupQueue) != 1 {
+		t.Fatalf("runtime=%+v durable=%+v queue=%+v", m.supervision.state, current, m.supervision.followupQueue)
+	}
+}
+
+func TestRegisterSuperviseControlToolsCapturesImmutableRunIdentity(t *testing.T) {
+	m := scenarioModel(t)
+	m.executor = &tools.Executor{Registry: tools.NewRegistry()}
+	svc, storeErr := wal.Open(t.TempDir())
+	if storeErr != nil {
+		t.Fatal(storeErr)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	service := supervise.New(svc)
+	st, err := service.Create(context.Background(), "root-tool-capture", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.supervision = &superviseRuntime{service: service, store: svc, state: st}
+	m.registerSuperviseControlTools()
+	registered, ok := m.executor.Registry.Get(superviseProgressTool)
+	if !ok {
+		t.Fatal("supervision progress tool was not registered")
+	}
+	control, ok := registered.(*superviseControlTool)
+	if !ok {
+		t.Fatalf("registered tool type = %T", registered)
+	}
+	m.supervision.state.ID = "mutated-runtime-id"
+	if control.service != service || control.runID != st.ID {
+		t.Fatalf("captured control tool identity = service:%p run:%q, want service:%p run:%q", control.service, control.runID, service, st.ID)
 	}
 }

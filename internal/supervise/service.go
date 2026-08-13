@@ -205,7 +205,7 @@ func (s *Service) create(rootSession, objectiveSeed string, cfg Config, principa
 	if cfg, err = NormalizeConfig(cfg); err != nil {
 		return State{}, err
 	}
-	if existing, ok, err := foldByAttachedSession(s.wal.Records(), rootSession); err != nil {
+	if existing, ok, err := foldByRootSession(s.wal.Records(), rootSession); err != nil {
 		return State{}, err
 	} else if ok {
 		if existing.Status != StatusCompleted && existing.Status != StatusCancelled {
@@ -954,6 +954,22 @@ func fold(records []wal.Record, id string) (State, bool, error) {
 }
 
 func foldByAttachedSession(records []wal.Record, session string) (State, bool, error) {
+	return foldLatestMatching(records, func(st State) bool {
+		attached := st.AttachedSessionID
+		if attached == "" { // migration path for records written before v0.80.0
+			attached = st.RootSessionID
+		}
+		return attached == session
+	})
+}
+
+func foldByRootSession(records []wal.Record, session string) (State, bool, error) {
+	return foldLatestMatching(records, func(st State) bool {
+		return st.RootSessionID == session
+	})
+}
+
+func foldLatestMatching(records []wal.Record, matches func(State) bool) (State, bool, error) {
 	states := map[string]State{}
 	orders := map[string]int{}
 	versions := map[string]uint64{}
@@ -978,11 +994,7 @@ func foldByAttachedSession(records []wal.Record, session string) (State, bool, e
 	var latest State
 	latestOrder := -1
 	for id, st := range states {
-		attached := st.AttachedSessionID
-		if attached == "" { // migration path for records written before v0.80.0
-			attached = st.RootSessionID
-		}
-		if attached == session && orders[id] > latestOrder {
+		if matches(st) && orders[id] > latestOrder {
 			latest, latestOrder = st, orders[id]
 		}
 	}

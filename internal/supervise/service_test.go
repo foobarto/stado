@@ -109,6 +109,9 @@ func TestReattachSessionPreservesRootAndInvalidatesParentAuthority(t *testing.T)
 	if _, err = svc.StateBySession("root-1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("old parent attachment error = %v, want not found", err)
 	}
+	if _, err = svc.Create(context.Background(), "root-1", DefaultConfig(), "user", "host", "duplicate-root"); err == nil || !strings.Contains(err.Error(), "already has an active run") {
+		t.Fatalf("duplicate immutable root error = %v", err)
+	}
 
 	trigger := &Trigger{ID: "parent-trigger", Anchor: parentAnchor, Signals: []TriggerSignal{{Type: TriggerLiveTurn, Severity: "info", EvidenceRefs: []string{"worker-event:parent"}}}}
 	_, err = svc.RecordEventVerdict(context.Background(), st.ID, st.Version, RoleWatchdog, Verdict{Kind: ReviewEvent, Decision: VerdictContinue, Anchor: parentAnchor, Rationale: "parent verdict"}, trigger, "user", "watchdog", "stale-parent-verdict")

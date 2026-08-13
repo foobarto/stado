@@ -27,7 +27,8 @@ func isSuperviseControlTool(name string) bool {
 
 type superviseControlTool struct {
 	name    string
-	runtime *superviseRuntime
+	service *supervise.Service
+	runID   string
 }
 
 func (t *superviseControlTool) Name() string      { return t.name }
@@ -58,10 +59,9 @@ func (t *superviseControlTool) Schema() map[string]any {
 }
 
 func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host) (tool.Result, error) {
-	if t.runtime == nil || t.runtime.service == nil {
+	if t.service == nil || t.runID == "" {
 		return tool.Result{Error: "supervision is not active"}, errors.New("supervision is not active")
 	}
-	runID := t.runtime.state.ID
 	principal := trajectory.LocalPrincipal()
 	var mutate func(supervise.State, string) (supervise.State, error)
 	switch t.name {
@@ -80,7 +80,7 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 			if in.StepComplete {
 				kind = "step_completion_claim:" + st.ActiveStep
 			}
-			return t.runtime.service.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{Kind: kind, Summary: in.Summary, References: in.References, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RecordEvidence(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.Evidence{Kind: kind, Summary: in.Summary, References: in.References, Anchor: st.Anchor()}, principal, "worker", idem)
 		}
 	case supervisePivotTool:
 		var in struct {
@@ -93,7 +93,7 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 			return tool.Result{Error: err.Error()}, err
 		}
 		mutate = func(st supervise.State, idem string) (supervise.State, error) {
-			return t.runtime.service.RequestPivot(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.PivotRequest{Kind: in.Kind, Reason: in.Reason, ProposedPlan: in.ProposedPlan, ProposedBaseline: in.ProposedBaseline, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RequestPivot(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.PivotRequest{Kind: in.Kind, Reason: in.Reason, ProposedPlan: in.ProposedPlan, ProposedBaseline: in.ProposedBaseline, Anchor: st.Anchor()}, principal, "worker", idem)
 		}
 	case superviseCompletionTool:
 		var in struct {
@@ -112,7 +112,7 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 			for _, e := range in.Evidence {
 				evidence = append(evidence, supervise.Evidence{Kind: e.Kind, Summary: e.Summary, References: e.References, Anchor: st.Anchor()})
 			}
-			return t.runtime.service.RequestCompletion(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{Summary: in.Summary, Evidence: evidence, Anchor: st.Anchor()}, principal, "worker", idem)
+			return t.service.RequestCompletion(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{Summary: in.Summary, Evidence: evidence, Anchor: st.Anchor()}, principal, "worker", idem)
 		}
 	default:
 		err := fmt.Errorf("unknown supervision control tool %q", t.name)
@@ -121,7 +121,7 @@ func (t *superviseControlTool) Run(ctx context.Context, args json.RawMessage, _ 
 	argsDigest := digestBytes(args)
 	st, err := retrySuperviseMutation(
 		func() (supervise.State, error) {
-			return t.runtime.service.State(runID)
+			return t.service.State(t.runID)
 		},
 		func(current supervise.State) (supervise.State, error) {
 			idem := "supervise-tool:" + t.name + ":" + strconvVersion(current.Version) + ":" + argsDigest
@@ -157,7 +157,7 @@ func (m *Model) registerSuperviseControlTools() {
 		return
 	}
 	for _, name := range []string{superviseProgressTool, supervisePivotTool, superviseCompletionTool} {
-		m.executor.Registry.Register(&superviseControlTool{name: name, runtime: m.supervision})
+		m.executor.Registry.Register(&superviseControlTool{name: name, service: m.supervision.service, runID: m.supervision.state.ID})
 	}
 }
 

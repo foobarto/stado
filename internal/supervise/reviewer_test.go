@@ -294,11 +294,28 @@ func TestReviewerCapsGenerationBeforeDispatch(t *testing.T) {
 		if req.MaxTokens != 13 {
 			t.Fatalf("max tokens = %d, want remaining 20 - input 7 = 13", req.MaxTokens)
 		}
-		return []agent.Event{{Kind: agent.EvTextDelta, Text: "{\"verdict\":{\"kind\":\"event\",\"decision\":\"continue\",\"rationale\":\"aligned\"}}"}, {Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 7, OutputTokens: 2}}}
+		return []agent.Event{{Kind: agent.EvTextDelta, Text: "{\"verdict\":{\"kind\":\"event\",\"decision\":\"continue\",\"rationale\":\"aligned\"}}"}, {Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 1, OutputTokens: 2}}}
 	}}
 	factory := &reviewFactory{provider: func() agent.Provider { return provider }}
-	if _, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{TokenCap: 20}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state}); err != nil {
+	result, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{TokenCap: 20}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Usage.InputTokens != 7 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("usage = %+v, want preflight input floor and reported output", result.Usage)
+	}
+}
+
+func TestReviewerHardTokenBudgetFailsClosedWhenProviderOmitsUsage(t *testing.T) {
+	state := State{RootSessionID: "root", TreeDigest: "tree", Baseline: testBaseline()}
+	source := &reviewSource{anchor: state.Anchor()}
+	provider := &scriptedReviewProvider{countTokens: 3, fn: func(_ int, _ agent.TurnRequest) []agent.Event {
+		return []agent.Event{{Kind: agent.EvTextDelta, Text: "{\"verdict\":{\"kind\":\"event\",\"decision\":\"continue\",\"rationale\":\"aligned\"}}"}, {Kind: agent.EvDone}}
+	}}
+	factory := &reviewFactory{provider: func() agent.Provider { return provider }}
+	_, err := (Reviewer{Factory: factory, Source: source}).Run(context.Background(), RoleProfile{Thinking: ThinkingOff}, RoleBudget{TokenCap: 20}, ReviewRequest{Role: RoleWatchdog, Kind: ReviewEvent, State: state})
+	if err == nil || !strings.Contains(err.Error(), "omitted usage") || provider.turn != 1 {
+		t.Fatalf("missing usage error=%v turns=%d", err, provider.turn)
 	}
 }
 

@@ -67,7 +67,7 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("supervise: build %s provider: %w", in.Role, err)
 	}
-	caps := provider.Capabilities()
+	caps := agent.CapabilitiesForModel(provider, profile.Model)
 	if budget.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(budget.TimeoutSeconds)*time.Second)
@@ -94,16 +94,25 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 			}
 			req.Thinking = &agent.ThinkingConfig{BudgetTokens: thinkingBudget}
 		}
-		if err := applyReviewTokenBudget(ctx, provider, budget.TokenCap, total, &req); err != nil {
+		preflightInput, err := applyReviewTokenBudget(ctx, provider, budget.TokenCap, total, &req)
+		if err != nil {
 			return ReviewResult{}, err
 		}
 		ch, err := provider.StreamTurn(ctx, req)
 		if err != nil {
 			return ReviewResult{}, err
 		}
-		text, calls, usage, err := collectReviewTurn(ctx, ch)
+		text, calls, usage, usageReported, err := collectReviewTurn(ctx, ch)
 		if err != nil {
 			return ReviewResult{}, err
+		}
+		if budget.TokenCap > 0 {
+			if !usageReported {
+				return ReviewResult{}, errors.New("supervise: reviewer provider omitted usage under a hard token budget")
+			}
+			if usage.InputTokens < preflightInput {
+				usage.InputTokens = preflightInput
+			}
 		}
 		if err := accumulateReviewUsage(&total, usage); err != nil {
 			return ReviewResult{}, err
@@ -161,34 +170,34 @@ func (r Reviewer) Run(ctx context.Context, profile RoleProfile, budget RoleBudge
 	return ReviewResult{}, errors.New("supervise: reviewer turn limit exceeded")
 }
 
-func applyReviewTokenBudget(ctx context.Context, provider agent.Provider, tokenCap int, used agent.Usage, req *agent.TurnRequest) error {
+func applyReviewTokenBudget(ctx context.Context, provider agent.Provider, tokenCap int, used agent.Usage, req *agent.TurnRequest) (int, error) {
 	if tokenCap <= 0 {
-		return nil
+		return 0, nil
 	}
 	if req == nil || used.InputTokens < 0 || used.OutputTokens < 0 ||
 		used.InputTokens > tokenCap || used.OutputTokens > tokenCap-used.InputTokens {
-		return errors.New("supervise: reviewer token budget exceeded")
+		return 0, errors.New("supervise: reviewer token budget exceeded")
 	}
 	remaining := tokenCap - used.InputTokens - used.OutputTokens
 	counter, ok := provider.(agent.TokenCounter)
 	if !ok {
-		return errors.New("supervise: reviewer provider cannot preflight the token budget")
+		return 0, errors.New("supervise: reviewer provider cannot preflight the token budget")
 	}
 	inputTokens, err := counter.CountTokens(ctx, *req)
 	if err != nil {
-		return fmt.Errorf("supervise: count reviewer request tokens: %w", err)
+		return 0, fmt.Errorf("supervise: count reviewer request tokens: %w", err)
 	}
 	if inputTokens < 0 {
-		return errors.New("supervise: reviewer token counter returned an invalid count")
+		return 0, errors.New("supervise: reviewer token counter returned an invalid count")
 	}
 	if inputTokens >= remaining {
-		return errors.New("supervise: reviewer request cannot fit within the remaining token budget")
+		return 0, errors.New("supervise: reviewer request cannot fit within the remaining token budget")
 	}
 	req.MaxTokens = remaining - inputTokens
 	if req.Thinking != nil && req.Thinking.BudgetTokens >= req.MaxTokens {
-		return errors.New("supervise: reviewer token budget cannot fit the configured thinking budget")
+		return 0, errors.New("supervise: reviewer token budget cannot fit the configured thinking budget")
 	}
-	return nil
+	return inputTokens, nil
 }
 
 func accumulateReviewUsage(total *agent.Usage, next agent.Usage) error {
@@ -302,22 +311,23 @@ func reviewToolDefs() []agent.ToolDef {
 	}
 }
 
-func collectReviewTurn(ctx context.Context, ch <-chan agent.Event) (string, []agent.ToolUseBlock, agent.Usage, error) {
+func collectReviewTurn(ctx context.Context, ch <-chan agent.Event) (string, []agent.ToolUseBlock, agent.Usage, bool, error) {
 	var text strings.Builder
 	var calls []agent.ToolUseBlock
 	var usage agent.Usage
+	usageReported := false
 	for {
 		select {
 		case <-ctx.Done():
-			return "", nil, usage, ctx.Err()
+			return "", nil, usage, usageReported, ctx.Err()
 		case ev, ok := <-ch:
 			if !ok {
-				return text.String(), calls, usage, nil
+				return text.String(), calls, usage, usageReported, nil
 			}
 			switch ev.Kind {
 			case agent.EvTextDelta:
 				if text.Len()+len(ev.Text) > maxReviewText {
-					return "", nil, usage, errors.New("supervise: reviewer response exceeds byte budget")
+					return "", nil, usage, usageReported, errors.New("supervise: reviewer response exceeds byte budget")
 				}
 				text.WriteString(ev.Text)
 			case agent.EvToolCallEnd:
@@ -327,10 +337,11 @@ func collectReviewTurn(ctx context.Context, ch <-chan agent.Event) (string, []ag
 			case agent.EvUsage, agent.EvDone:
 				if ev.Usage != nil {
 					usage = *ev.Usage
+					usageReported = true
 				}
 			case agent.EvError:
 				if ev.Err != nil {
-					return "", nil, usage, ev.Err
+					return "", nil, usage, usageReported, ev.Err
 				}
 			}
 		}

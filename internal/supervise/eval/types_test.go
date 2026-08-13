@@ -23,9 +23,20 @@ func TestCompareReportsQualityAndRoleTokenTradeoff(t *testing.T) {
 }
 
 func TestCompareRequiresPairedArms(t *testing.T) {
-	_, err := Compare([]Observation{{ScenarioID: "x", Arm: ArmSupervised, Provider: "p", Model: "m", RunID: "1", Trial: "seed-1"}})
+	_, err := Compare([]Observation{{ScenarioID: "x", Arm: ArmSupervised, Provider: "p", Model: "m", RunID: "1", Trial: "seed-1", CriteriaTotal: 1}})
 	if err == nil {
 		t.Fatal("unpaired observation accepted")
+	}
+}
+
+func TestDecodeAndCompareRejectZeroCriteriaTotal(t *testing.T) {
+	row := `{"scenario_id":"x","arm":"supervised","provider":"p","model":"m","run_id":"1","trial":"seed-1","criteria_total":0}`
+	if _, err := DecodeObservations(strings.NewReader(row)); err == nil || !strings.Contains(err.Error(), "criteria_total must be positive") {
+		t.Fatalf("decode zero criteria_total error = %v", err)
+	}
+	_, err := Compare([]Observation{{ScenarioID: "x", Arm: ArmSupervised, Provider: "p", Model: "m", RunID: "1", Trial: "seed-1"}})
+	if err == nil || !strings.Contains(err.Error(), "criteria_total must be positive") {
+		t.Fatalf("compare zero criteria_total error = %v", err)
 	}
 }
 

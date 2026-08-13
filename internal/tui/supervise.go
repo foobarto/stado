@@ -819,7 +819,19 @@ func (m *Model) enqueueSuperviseFollowup(text string) tea.Cmd {
 	if rt == nil || text == "" {
 		return nil
 	}
-	st, followup, err := rt.service.EnqueueFollowup(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleOperator, text, trajectory.LocalPrincipal(), "operator", "supervise-followup:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version)+":"+digestBytes([]byte(text)))
+	service, runID := rt.service, rt.state.ID
+	var followup supervise.Followup
+	st, err := retrySuperviseMutation(
+		func() (supervise.State, error) { return service.State(runID) },
+		func(current supervise.State) (supervise.State, error) {
+			idem := "supervise-followup:" + runID + ":" + strconvVersionUI(current.Version) + ":" + digestBytes([]byte(text))
+			next, queued, enqueueErr := service.EnqueueFollowup(m.rootCtx, runID, current.Version, supervise.RoleOperator, text, trajectory.LocalPrincipal(), "operator", idem)
+			if enqueueErr == nil {
+				followup = queued
+			}
+			return next, enqueueErr
+		},
+	)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "supervise inbox: could not durably queue follow-up: " + err.Error()})
 		m.renderBlocks()
@@ -1465,8 +1477,20 @@ func superviseCommandRiskBoundary(command string, depth int) string {
 			}
 		case base == "curl" && superviseCurlMutates(words[i+1:]):
 			return "external commitment"
-		case (base == "kubectl" || base == "oc") && superviseWordsContain(words[i+1:], "delete"):
-			return "destructive operation"
+		case base == "kubectl" || base == "oc":
+			switch superviseKubectlSubcommand(words[i+1:]) {
+			case "delete":
+				return "destructive operation"
+			case "apply":
+				return "deploy"
+			}
+		case base == "terraform":
+			switch superviseTerraformSubcommand(words[i+1:]) {
+			case "destroy":
+				return "destructive operation"
+			case "apply":
+				return "deploy"
+			}
 		case (base == "docker" || base == "podman") && superviseWordsContainAny(words[i+1:], "rm", "rmi", "prune"):
 			return "destructive operation"
 		case base == "drop" && superviseWordsContainAny(words[i+1:], "table", "database", "schema"):
@@ -1490,6 +1514,59 @@ func superviseCommandRiskBoundary(command string, depth int) string {
 					break
 				}
 			}
+		}
+	}
+	return ""
+}
+
+func superviseKubectlSubcommand(args []string) string {
+	valueFlags := map[string]bool{
+		"--as": true, "--as-group": true, "--cache-dir": true, "--certificate-authority": true,
+		"--client-certificate": true, "--client-key": true, "--cluster": true, "--context": true,
+		"--kubeconfig": true, "--kuberc": true, "--namespace": true, "--password": true, "--profile": true,
+		"--profile-output": true, "--request-timeout": true, "--server": true, "--tls-server-name": true,
+		"--token": true, "--user": true, "--username": true, "-n": true, "-s": true,
+	}
+	for i := 0; i < len(args); {
+		raw := args[i]
+		lower := strings.ToLower(raw)
+		switch {
+		case raw == "--":
+			i++
+			if i < len(args) {
+				return strings.ToLower(path.Base(args[i]))
+			}
+			return ""
+		case strings.HasPrefix(raw, "-"):
+			if valueFlags[lower] && i+1 < len(args) {
+				i += 2
+			} else {
+				i++
+			}
+		default:
+			return strings.ToLower(path.Base(raw))
+		}
+	}
+	return ""
+}
+
+func superviseTerraformSubcommand(args []string) string {
+	for i := 0; i < len(args); {
+		raw := args[i]
+		lower := strings.ToLower(raw)
+		switch {
+		case raw == "--":
+			i++
+			if i < len(args) {
+				return strings.ToLower(path.Base(args[i]))
+			}
+			return ""
+		case lower == "-chdir" && i+1 < len(args):
+			i += 2
+		case strings.HasPrefix(lower, "-chdir=") || strings.HasPrefix(raw, "-"):
+			i++
+		default:
+			return strings.ToLower(path.Base(raw))
 		}
 	}
 	return ""

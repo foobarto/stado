@@ -23,6 +23,21 @@ type Provider interface {
 	StreamTurn(ctx context.Context, req TurnRequest) (<-chan Event, error)
 }
 
+// ModelCapabilityProvider lets providers narrow capabilities that are not
+// uniformly supported by every model exposed through the same API.
+type ModelCapabilityProvider interface {
+	CapabilitiesForModel(model string) Capabilities
+}
+
+// CapabilitiesForModel returns model-specific capabilities when the provider
+// exposes them, and otherwise preserves the provider-wide capability contract.
+func CapabilitiesForModel(provider Provider, model string) Capabilities {
+	if modelProvider, ok := provider.(ModelCapabilityProvider); ok {
+		return modelProvider.CapabilitiesForModel(model)
+	}
+	return provider.Capabilities()
+}
+
 // TokenCounter is an optional interface providers implement when they can
 // pre-flight count tokens for a TurnRequest. Detection is via type
 // assertion so adding the interface doesn't break existing Provider impls.

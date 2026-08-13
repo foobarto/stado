@@ -168,6 +168,12 @@ func TestCapabilities(t *testing.T) {
 	if !c.SupportsPromptCache || !c.SupportsThinking || !c.SupportsVision {
 		t.Errorf("capabilities missing flags: %+v", c)
 	}
+	if c.SupportsReasoningEffort {
+		t.Error("provider-wide capabilities must not advertise model-specific reasoning effort")
+	}
+	if !p.CapabilitiesForModel("claude-sonnet-4-6").SupportsReasoningEffort || p.CapabilitiesForModel("claude-haiku-4-5").SupportsReasoningEffort {
+		t.Error("reasoning-effort capability was not gated by model")
+	}
 	if c.MaxContextTokens != 200_000 {
 		t.Errorf("max ctx = %d", c.MaxContextTokens)
 	}
@@ -200,13 +206,16 @@ func TestResolveMaxTokens_RaisesForThinkingBudget(t *testing.T) {
 }
 
 func TestReasoningEffortMapsToOutputConfig(t *testing.T) {
-	req := agent.TurnRequest{Model: "claude-test", ReasoningEffort: "xhigh"}
+	req := agent.TurnRequest{Model: "claude-sonnet-4-6", ReasoningEffort: "xhigh"}
 	params := sdk.MessageNewParams{Model: sdk.Model(req.Model), MaxTokens: defaultMaxTokens}
-	if req.ReasoningEffort != "" {
-		params.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(req.ReasoningEffort)}
-	}
+	applyReasoningEffort(&params, req)
 	if params.OutputConfig.Effort != sdk.OutputConfigEffortXhigh {
 		t.Fatalf("effort = %q", params.OutputConfig.Effort)
+	}
+	unsupported := sdk.MessageNewParams{Model: "claude-haiku-4-5", MaxTokens: defaultMaxTokens}
+	applyReasoningEffort(&unsupported, agent.TurnRequest{Model: "claude-haiku-4-5", ReasoningEffort: "high"})
+	if unsupported.OutputConfig.Effort != "" {
+		t.Fatalf("unsupported model received effort %q", unsupported.OutputConfig.Effort)
 	}
 }
 

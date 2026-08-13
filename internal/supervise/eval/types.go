@@ -161,6 +161,9 @@ func Compare(observations []Observation) ([]Comparison, error) {
 	pairs := map[string]*pair{}
 	for i := range observations {
 		obs := &observations[i]
+		if err := validateObservation(*obs); err != nil {
+			return nil, fmt.Errorf("supervise eval: observation %d: %w", i+1, err)
+		}
 		key := obs.ScenarioID + "\x00" + obs.Provider + "\x00" + obs.Model + "\x00" + obs.Trial
 		p := pairs[key]
 		if p == nil {
@@ -242,6 +245,9 @@ func validateObservation(o Observation) error {
 	}
 	if o.Arm != ArmUnsupervised && o.Arm != ArmSupervised {
 		return fmt.Errorf("invalid arm %q", o.Arm)
+	}
+	if o.CriteriaTotal <= 0 {
+		return errors.New("criteria_total must be positive")
 	}
 	values := []int{o.CriteriaTotal, o.CriteriaSatisfied, o.Defects, o.UsefulInterventions, o.FalseInterventions, o.RepeatedFailures, o.ChangedFiles, o.OutOfScopeFiles, o.Tokens.Worker, o.Tokens.Watchdog, o.Tokens.Verifier}
 	for _, value := range values {
