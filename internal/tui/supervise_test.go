@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/tools"
@@ -20,6 +23,8 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 	}{
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"gh pr merge 42 --squash"}`)}, "merge"},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"git merge feature"}`)}, "merge"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"git -C repo push origin main"}`)}, "push"},
+		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"git -c user.name=x merge feature"}`)}, "merge"},
 		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"gh issue comment 42 --body shipped"}`)}, "external commitment"},
 		{agent.ToolUseBlock{Name: "shell", Input: []byte(`{"command":"rm --recursive --force build"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "shell", Input: []byte(`{"command":"rm -r -f build"}`)}, "destructive operation"},
@@ -30,6 +35,10 @@ func TestSuperviseRiskBoundaryIsHumanOnly(t *testing.T) {
 		{agent.ToolUseBlock{Name: "fs.delete", Input: []byte(`{"path":"tmp.txt"}`)}, "destructive operation"},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"kubectl apply -f deploy.yaml"}`)}, "deploy"},
 		{agent.ToolUseBlock{Name: "bash", Input: []byte(`{"command":"./deploy.sh production"}`)}, "deploy"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl -d '{\"state\":\"on\"}' https://api.example.test/state"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl --form file=@artifact https://api.example.test/upload"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl --upload-file artifact https://api.example.test/upload"}`)}, "external commitment"},
+		{agent.ToolUseBlock{Name: "exec_command", Input: []byte(`{"cmd":"curl -X GET https://api.example.test/state"}`)}, ""},
 		{agent.ToolUseBlock{Name: "fs.read", Input: []byte(`{"path":"README.md"}`)}, ""},
 		{agent.ToolUseBlock{Name: "fs.read", Input: []byte(`{"path":"docs/publishing-guide.md"}`)}, ""},
 		{agent.ToolUseBlock{Name: "fs.write", Input: []byte(`{"path":"notes.txt","content":"publish this guide later"}`)}, ""},
@@ -48,6 +57,60 @@ func TestSuperviseVerificationRejectionEventHasFailurePolarity(t *testing.T) {
 	event := superviseVerificationEvent(false)
 	if event.VerificationPassed == nil || *event.VerificationPassed {
 		t.Fatalf("verification rejection event = %+v, want explicit false", event)
+	}
+}
+
+func TestSuperviseVerificationExhaustionPausesWithoutRestartingWorker(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := supervise.New(store)
+	ctx := context.Background()
+	st, err := svc.Create(ctx, "root-exhaustion", supervise.DefaultConfig(), "test", "host", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := supervise.Anchor{RootSessionID: "root-exhaustion", SessionSequence: 1, TreeDigest: "tree-a"}
+	st, err = svc.ProposeBaseline(ctx, st.ID, st.Version, testSuperviseBaseline(), supervise.RoleWatchdog, anchor, "test", "watchdog", "propose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.ApproveBaseline(ctx, st.ID, st.Version, supervise.RoleOperator, "test", "operator", "approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err = svc.AdvanceStep(ctx, st.ID, st.Version, supervise.RoleOperator, st.Anchor(), "test", "operator", "step")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := supervise.Evidence{Kind: "test", Summary: "verification attempted", Anchor: st.Anchor()}
+	st, err = svc.RequestCompletion(ctx, st.ID, st.Version, supervise.RoleWorker, supervise.CompletionRequest{
+		Summary: "ready", Evidence: []supervise.Evidence{evidence}, Anchor: st.Anchor(),
+	}, "test", "worker", "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := scenarioModel(t)
+	m.verifyConfig = runtime.VerifyConfig{Commands: []string{"false"}, MaxRounds: 2}
+	m.verifyEnabled, m.verifying, m.state = true, true, stateStreaming
+	m.supervision = &superviseRuntime{
+		service: svc, store: store, state: st, detector: supervise.RestoreDetector(st.Detector), gateActive: true,
+	}
+	model, cmd := onSuperviseGateResult(m, verifyResultMsg{outcome: runtime.VerifyOutcome{
+		Status: runtime.VerifyFailed, Round: 2, Output: "still failing",
+	}})
+	got := model.(*Model)
+	if cmd != nil {
+		t.Fatal("verification exhaustion restarted worker or watchdog")
+	}
+	if got.state != stateIdle || got.supervision.state.Status != supervise.StatusPaused || got.supervision.state.ResumeStatus != supervise.StatusRunning {
+		t.Fatalf("exhausted supervision state=%v durable=%+v", got.state, got.supervision.state)
+	}
+	if !strings.Contains(got.supervision.state.PauseReason, "exhausted") {
+		t.Fatalf("pause reason = %q", got.supervision.state.PauseReason)
 	}
 }
 

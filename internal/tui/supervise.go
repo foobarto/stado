@@ -505,6 +505,19 @@ func onSuperviseGateResult(m *Model, msg verifyResultMsg) (tea.Model, tea.Cmd) {
 	m.msgs = append(m.msgs, msgToWorker)
 	m.persistMessage(msgToWorker)
 	m.state = stateIdle
+	if out.Round >= m.verifyConfig.MaxRounds {
+		m.invalidateSuperviseEventReview()
+		reason := fmt.Sprintf("Verify Work exhausted after %d of %d configured round(s): %s", out.Round, m.verifyConfig.MaxRounds, summary)
+		st, pauseErr := rt.service.Pause(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, reason, trajectory.LocalPrincipal(), "tui-host", "supervise-gate-exhausted:"+rt.state.ID+":"+strconvVersionUI(rt.state.Version))
+		if pauseErr != nil {
+			m.state = stateError
+			m.appendBlock(block{kind: "system", body: "supervise: could not pause after verification exhaustion: " + pauseErr.Error()})
+			return m, nil
+		}
+		rt.state = st
+		m.appendBlock(block{kind: "system", body: "supervise: paused after exhausting configured Verify Work rounds; use /supervise resume after correcting the failure"})
+		return m, nil
+	}
 	return m, tea.Batch(review, m.startStream())
 }
 
@@ -1314,8 +1327,8 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 	}
 	if executionTool {
 		for _, command := range superviseExecutionCommands(call.Input) {
-			if superviseDestructiveCommand(command, 0) {
-				return "destructive operation"
+			if boundary := superviseCommandRiskBoundary(command, 0); boundary != "" {
+				return boundary
 			}
 		}
 		checks := []struct{ needle, label string }{
@@ -1332,7 +1345,7 @@ func superviseRiskBoundary(call agent.ToolUseBlock) string {
 		}
 		externalCommands := []string{
 			"gh issue create", "gh issue comment", "gh pr create", "gh pr comment", "gh api --method post", "gh api -x post",
-			"glab issue create", "glab mr create", "curl -x post", "curl --request post", "wget --post", "sendmail ",
+			"glab issue create", "glab mr create", "wget --post", "sendmail ",
 		}
 		for _, command := range externalCommands {
 			if strings.Contains(args, command) {
@@ -1388,28 +1401,38 @@ func superviseExecutionCommands(input json.RawMessage) []string {
 	return commands
 }
 
-func superviseDestructiveCommand(command string, depth int) bool {
+func superviseCommandRiskBoundary(command string, depth int) string {
 	if depth > 4 {
-		return true
+		return "destructive operation"
 	}
 	words := superviseShellWords(command)
 	for i, word := range words {
 		base := path.Base(strings.ToLower(word))
 		switch {
 		case base == "rm" || base == "rmdir" || base == "unlink" || base == "shred" || base == "truncate" || base == "wipefs" || base == "dd":
-			return true
+			return "destructive operation"
 		case base == "mkfs" || strings.HasPrefix(base, "mkfs."):
-			return true
+			return "destructive operation"
 		case base == "find" && superviseWordsContain(words[i+1:], "-delete"):
-			return true
-		case base == "git" && superviseDestructiveGitArgs(words[i+1:]):
-			return true
+			return "destructive operation"
+		case base == "git":
+			if superviseDestructiveGitArgs(words[i+1:]) {
+				return "destructive operation"
+			}
+			switch superviseGitSubcommand(words[i+1:]) {
+			case "push":
+				return "push"
+			case "merge":
+				return "merge"
+			}
+		case base == "curl" && superviseCurlMutates(words[i+1:]):
+			return "external commitment"
 		case (base == "kubectl" || base == "oc") && superviseWordsContain(words[i+1:], "delete"):
-			return true
+			return "destructive operation"
 		case (base == "docker" || base == "podman") && superviseWordsContainAny(words[i+1:], "rm", "rmi", "prune"):
-			return true
+			return "destructive operation"
 		case base == "drop" && superviseWordsContainAny(words[i+1:], "table", "database", "schema"):
-			return true
+			return "destructive operation"
 		case base == "bash" || base == "dash" || base == "sh" || base == "zsh":
 			for j := i + 1; j < len(words); j++ {
 				flag := strings.ToLower(words[j])
@@ -1421,15 +1444,138 @@ func superviseDestructiveCommand(command string, depth int) bool {
 					if payload < len(words) && words[payload] == "--" {
 						payload++
 					}
-					if payload < len(words) && superviseDestructiveCommand(words[payload], depth+1) {
-						return true
+					if payload < len(words) {
+						if boundary := superviseCommandRiskBoundary(words[payload], depth+1); boundary != "" {
+							return boundary
+						}
 					}
 					break
 				}
 			}
 		}
 	}
+	return ""
+}
+
+func superviseGitSubcommand(args []string) string {
+	aliases := map[string]string{}
+	recordAlias := func(value string) {
+		key, expansion, ok := strings.Cut(value, "=")
+		key = strings.ToLower(strings.TrimSpace(key))
+		if !ok || !strings.HasPrefix(key, "alias.") {
+			return
+		}
+		name := strings.TrimPrefix(key, "alias.")
+		if name != "" {
+			aliases[name] = strings.TrimSpace(expansion)
+		}
+	}
+	for i := 0; i < len(args); {
+		raw := args[i]
+		lower := strings.ToLower(raw)
+		switch {
+		case raw == "--":
+			i++
+			if i >= len(args) {
+				return ""
+			}
+			return superviseExpandGitAlias(strings.ToLower(args[i]), aliases)
+		case raw == "-C":
+			i += 2
+			continue
+		case strings.HasPrefix(raw, "-C") && len(raw) > 2:
+			i++
+			continue
+		case raw == "-c":
+			if i+1 < len(args) {
+				recordAlias(args[i+1])
+			}
+			i += 2
+			continue
+		case strings.HasPrefix(raw, "-c") && len(raw) > 2:
+			recordAlias(raw[2:])
+			i++
+			continue
+		case lower == "--git-dir" || lower == "--work-tree" || lower == "--namespace" || lower == "--config-env" || lower == "--super-prefix":
+			i += 2
+			continue
+		case strings.HasPrefix(lower, "--git-dir=") || strings.HasPrefix(lower, "--work-tree=") ||
+			strings.HasPrefix(lower, "--namespace=") || strings.HasPrefix(lower, "--config-env=") ||
+			strings.HasPrefix(lower, "--super-prefix="):
+			i++
+			continue
+		case strings.HasPrefix(raw, "-"):
+			i++
+			continue
+		default:
+			return superviseExpandGitAlias(lower, aliases)
+		}
+	}
+	return ""
+}
+
+func superviseExpandGitAlias(command string, aliases map[string]string) string {
+	expansion := strings.TrimSpace(aliases[command])
+	if expansion == "" {
+		return command
+	}
+	expansion = strings.TrimSpace(strings.TrimPrefix(expansion, "!"))
+	words := superviseShellWords(expansion)
+	if len(words) == 0 {
+		return command
+	}
+	if strings.EqualFold(path.Base(words[0]), "git") {
+		return superviseGitSubcommand(words[1:])
+	}
+	return strings.ToLower(path.Base(words[0]))
+}
+
+func superviseCurlMutates(args []string) bool {
+	for i, raw := range args {
+		lower := strings.ToLower(raw)
+		switch {
+		case raw == "-d" || strings.HasPrefix(raw, "-d") && len(raw) > 2:
+			return true
+		case raw == "-F" || strings.HasPrefix(raw, "-F") && len(raw) > 2:
+			return true
+		case raw == "-T" || strings.HasPrefix(raw, "-T") && len(raw) > 2:
+			return true
+		case lower == "--data" || strings.HasPrefix(lower, "--data-") || strings.HasPrefix(lower, "--data="):
+			return true
+		case lower == "--form" || lower == "--form-string" || strings.HasPrefix(lower, "--form=") || strings.HasPrefix(lower, "--form-string="):
+			return true
+		case lower == "--upload-file" || strings.HasPrefix(lower, "--upload-file="):
+			return true
+		case lower == "--json" || strings.HasPrefix(lower, "--json="):
+			return true
+		case raw == "-X":
+			if i+1 >= len(args) || superviseMutatingHTTPMethod(args[i+1]) {
+				return true
+			}
+		case strings.HasPrefix(raw, "-X") && len(raw) > 2:
+			if superviseMutatingHTTPMethod(raw[2:]) {
+				return true
+			}
+		case lower == "--request":
+			if i+1 >= len(args) || superviseMutatingHTTPMethod(args[i+1]) {
+				return true
+			}
+		case strings.HasPrefix(lower, "--request="):
+			if superviseMutatingHTTPMethod(raw[len("--request="):]) {
+				return true
+			}
+		}
+	}
 	return false
+}
+
+func superviseMutatingHTTPMethod(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "", "GET", "HEAD", "OPTIONS", "TRACE":
+		return false
+	default:
+		return true
+	}
 }
 
 func superviseDestructiveGitArgs(args []string) bool {
