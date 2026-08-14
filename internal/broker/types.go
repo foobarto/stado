@@ -120,6 +120,19 @@ type Decision struct {
 // it actively uses (SessionID, Ceiling, Effective, TraceRef). The
 // broker may internally associate further state with the SessionID.
 type SessionHandle struct {
+	// controllerToken is returned exactly once by session.create to the native
+	// controller. The copy retained by sessionState is always scrubbed; broker
+	// state keeps only a digest for subsequent authentication. It deliberately
+	// remains unexported so ordinary handle consumers cannot serialize it by
+	// accident.
+	controllerToken string
+	// Durable logical-session adoption credentials are returned exactly once
+	// by create/adopt and never serialized through the generic handle. The
+	// broker persists only their digests.
+	subject        string
+	adoptionTicket string
+	resumeSecret   string
+
 	// SessionID is the broker-minted opaque identifier for this
 	// session. Stable for the session's lifetime.
 	SessionID string

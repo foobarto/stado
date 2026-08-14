@@ -15,7 +15,6 @@ import (
 
 	"github.com/foobarto/stado/internal/adaptive"
 	"github.com/foobarto/stado/internal/artifacts"
-	"github.com/foobarto/stado/internal/broker/authority"
 	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/config"
 	learnpkg "github.com/foobarto/stado/internal/learn"
@@ -94,7 +93,8 @@ func newLearningCmd() *cobra.Command {
 		Short: "Review trajectories and manage operational lessons",
 		Long: "Review trajectories and inspect evidence-backed operational lessons.\n" +
 			"Reviews create versioned candidates in the broker-owned harness artifact\n" +
-			"store. They affect prompts only after a trusted interactive approval.",
+			"store. Security-significant activation is withheld until a broker policy\n" +
+			"or separately trusted presenter can prove exact operator intent.",
 		RunE: func(cmd *cobra.Command, args []string) error { return runLearnReview(cmd, runOpts) },
 	}
 	cmd.Flags().StringVar(&runOpts.SessionID, "session-id", "", "Session trajectory to review")
@@ -111,7 +111,6 @@ func newLearningCmd() *cobra.Command {
 		newLearningListCmd(),
 		newLearningShowCmd(),
 		newLearningEditCmd(),
-		newLearningApproveCmd(),
 		newLearningActionCmd("reject", "Reject a candidate or approved lesson"),
 		newLearningActionCmd("delete", "Delete a lesson from the active folded view"),
 		newLearningSupersedeCmd(),
@@ -264,21 +263,6 @@ func newLearnMigrateCmd() *cobra.Command {
 	}
 }
 
-// Approval is deliberately unavailable through an ordinary CLI process: a
-// model with shell access can invoke that same process, so it is not evidence
-// of a fresh operator gesture. The broker-owned interactive presentation path
-// (/learn approve in the TUI) binds a one-use grant to the exact artifact.
-func newLearningApproveCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "approve <id>",
-		Short: "Approve a lesson through a trusted interactive Stado surface",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return errors.New("learn approve: ordinary CLI execution cannot prove operator intent; use /learn approve in the interactive TUI")
-		},
-	}
-}
-
 func newLearnRunCmd() *cobra.Command {
 	opts := &learnRunOptions{Scope: "session", MaxCandidates: 5}
 	cmd := &cobra.Command{Use: "run", Short: "Review a completed session trajectory", RunE: func(cmd *cobra.Command, args []string) error { return runLearnReview(cmd, opts) }}
@@ -303,8 +287,7 @@ func runLearnReview(cmd *cobra.Command, opts *learnRunOptions) error {
 		return fmt.Errorf("learn: broker event store: %w", err)
 	}
 	defer func() { _ = store.Close() }()
-	_, consumer := authority.New(store)
-	artifactSvc := artifacts.NewService(store, consumer)
+	artifactSvc := artifacts.NewService(store, nil)
 	signalSvc := sessioncontext.New(store)
 	provider, err := tui.BuildProvider(cfg)
 	if err != nil {

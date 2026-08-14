@@ -30,6 +30,16 @@ can identify good engineering by counting commands. I am saying something
 narrower: progress, permission, and completion are different kinds of claim,
 and one model inside one conversation is the wrong component to own all three.
 
+I also need to be precise about where this design lives. The architecture in
+this article is the accepted EP-64 target now being implemented, not a claim
+that the earlier native `/supervise` workflow was the final shape. Supervision
+is an official signed WASM lifecycle application released from
+`foobarto/stado-plugins`. It may be a large application. It owns
+the contract wizard, cadence, detectors, prompts, verdict policy, and workflow.
+Native stado supplies the things a sandboxed application cannot: broker-stamped
+facts, durable ordering, scoped capabilities, and scheduling effects it can
+actually enforce.
+
 The ordinary response is to add instructions. Be systematic. Read the repository
 guidance. Do not repeat a failed command without changing something. Verify your
 work before declaring completion. These are good instructions. They also live
@@ -46,9 +56,9 @@ only an instruction.
 
 The rhyme is architectural; the purpose is different. Milton is a security
 failure because a model was given an access-control job. `/supervise` is a
-quality gate. Its comparators decide whether work remains aligned with an
-approved contract and whether the evidence supports completion. They do not
-decide whether hostile code is safe to execute, whether a secret may be
+quality gate. Its comparators decide whether work remains aligned with the
+selected quality contract and whether the evidence supports completion. They
+do not decide whether hostile code is safe to execute, whether a secret may be
 disclosed, or whether an untrusted actor should receive access.
 
 I built stado's `/supervise` mode around the observation that some instructions
@@ -68,8 +78,12 @@ to stop it.
 The operator supplies an objective. Before the worker gets a turn, a fresh
 watchdog proposes a baseline: constraints, non-goals, acceptance criteria, an
 ordered plan, a definition of done, verification expectations, and known risks.
-The operator reviews that proposal in the trusted TUI and approves or rejects
-it. No implementation starts before approval.
+The operator reviews that proposal in the TUI and accepts or rejects it as the
+quality contract. The application records the exact candidate ID and version
+before work starts. That choice does not activate the artifact, widen the
+plugin's signed capabilities, or prove operator-origin security authority; it
+only fixes which contract this admitted application will enforce. No
+implementation starts before that quality-workflow confirmation.
 
 That ordering matters more than it appears to. In an ordinary agent session,
 the first plausible implementation often becomes the unstated specification.
@@ -88,56 +102,75 @@ that test green can produce useful code. It cannot answer what happens when the
 process stops halfway through.
 
 Under supervision, those semantics become acceptance criteria before the first
-edit. Stado stores the approved contract and the current plan durably. Exactly
-one plan step is active. A worker may submit evidence, claim a step is complete,
-request a pivot, or request completion. Those are requests. Host-owned transition
-rules decide whether they change state.
+edit. The application selects one exact version of a session-scoped candidate
+artifact as its quality contract and keeps fast-moving plan/run state in the
+session journal. That selection does not activate the artifact or grant
+authority. Exactly one plan step is active because that is supervise's workflow
+policy, not a universal law in stado. A worker may submit evidence, claim a
+step is complete, request a pivot, or request completion. The application
+decides what those requests mean under the selected contract. The broker
+decides whether the resulting write or scheduling request has current identity,
+scope, capability, authority, and version.
 
 The distinction sounds formal because it is formal. “The model said it was
 done” is not a state transition.
 
-## What the host can know without asking a model
+## What code can count without asking a model
 
-Return to the failed command. Stado does not need a language model to discover
-that the same tool call produced the same failure three times. The host already
-observed the tool name, the argument digest, success or failure, and a stable
-fingerprint of the error. The
+Return to the failed command. No language model is needed to discover that the
+same tool call produced the same failure three times. The host already observed
+the tool name, argument digest, result, turn anchor, and stable error
+fingerprint. It exposes those bounded, ordered facts; the supervise application
+decides which comparisons matter. The
 [retry-thrash scenario](../../evals/supervise/scenarios/retry-thrash.json)
 exists to make that difference visible: the unsupported command should be tried
 no more than twice, the repository instructions should be read, and the tactic
 should change.
 
-The detector records `repeated_failure` when the error repeats and
-`retry_thrash` when the arguments repeat with it. Other detectors watch for a
-growing diff outside the approved scope, edit-and-revert churn, verification
+The supervise detector records `repeated_failure` when the error repeats and
+`retry_thrash` when the arguments repeat with it. Its other detectors watch for
+a growing diff outside the approved scope, edit-and-revert churn, verification
 regressions, failed children, unsupported completion claims, and turns in which
-no acceptance criterion moved.
+no acceptance criterion moved. Another supervision plugin could choose
+different thresholds without changing stado's core.
 
 There is a small design choice here that carries more weight than its size.
 Activity does not suppress the four-turn progress-stall review. A changing tree
 and a growing evidence list are useful context, but neither proves that the
 approved work advanced. A worker can be extremely busy in the wrong place.
-Busy and progressing are not synonyms, so the state machine does not treat them
-as synonyms.
+Busy and progressing are not synonyms, so the application's state machine does
+not treat them as synonyms.
 
 The deterministic detector still does not know whether repetition is justified.
 The third identical command might be foolish, or the surrounding environment
 might have changed in a way that makes the retry exactly right. Counting is the
 part code is good at. Interpreting the count against the task is where the
-watchdog enters.
+watchdog enters. Keeping the counting in WASM is not an attempt to make it less
+deterministic. It keeps application policy inside the same capability sandbox
+as other plugin logic and keeps the native core from accumulating one product's
+rubric.
 
 ## What the watchdog is allowed to mean
 
-In event mode, a detector signal creates a fresh watchdog instance. In live
-mode, one arrives after every worker turn. It receives the approved contract,
-the current plan position, the triggering events, and bounded access to
-host-anchored evidence. It can read or search the audited repository tree,
-inspect relevant tool results and diffs, and ask for another page of the exact
-query it already made.
+In event mode, the application starts a fresh watchdog when a detector fires,
+and it may also request a periodic review every configured number of completed
+worker turns. In live mode it requests review after every turn. For work where
+freshness matters more than throughput, live mode can acquire a turn barrier
+until the current-anchor verdict arrives. This cadence belongs to supervise;
+the host only provides event delivery, timers, and scoped scheduling holds.
+
+The watchdog receives the selected contract, current plan position, triggering
+events, and bounded access to host-anchored evidence. The application requests
+a child with a narrow role and tool profile; the host intersects that request
+with the session ceiling. The watchdog can read or search the audited
+repository tree, inspect relevant tool results and diffs, and ask for another
+page of the exact query it already made.
 
 It cannot run a shell. It cannot modify a file. It cannot quietly become the
 worker because the worker is struggling. Its evidence access is read-only, and
-its verdict is a proposal to the host rather than an authority of its own.
+its verdict is input to the supervise application rather than authority of its
+own. If the application wants to steer, pause, or stop, it must make a separate
+capability-gated request to the host.
 
 This limit matters because the watchdog is another fallible component, not
 because it is intended to contain an adversary. A quality reviewer needs enough
@@ -147,9 +180,11 @@ the worker's back.
 For the repeated `npm test` failure, the watchdog can conclude that the worker
 has stopped learning and issue a bounded correction: stop repeating the
 unsupported command, inspect the repository guidance, and change tactics. The
-host interrupts the worker and injects the correction into the next turn. If
-the correction does not change the trajectory, another review can follow.
-Repeated failed interventions pause the run for the operator.
+application sends that labelled steering through the lifecycle/mailbox bridge
+for the next worker boundary. If the correction does not change the trajectory,
+its policy may request another review. Repeated failed interventions may lead
+the application to request a durable operator pause; the broker, not the
+watchdog's prose, enforces it.
 
 Freshness is deliberate. The watchdog does not accumulate a second unbounded
 conversation alongside the first. A bounded handoff carries open concerns,
@@ -161,42 +196,48 @@ The verdict is also tied to the state it actually saw: the session sequence,
 plan version, active step, and audited tree. If the worker moves the tree while
 the watchdog is thinking, the answer is stale. However intelligent the answer
 sounds, it cannot authorize a transition about a state that no longer exists.
+Conversely, once a verdict has been parsed and validated, a later provider
+cleanup error does not erase it. Transport cleanup is recorded as a diagnostic;
+it is not allowed to rewrite a semantic result that already arrived.
 
-That does not make every stale answer equally useless. A stale approval says
-only that an earlier state looked acceptable. There is nothing left to apply,
-so the host discards it. A stale correction may still contain a useful change
-of tactic. The host labels it with its earlier-anchor provenance and delivers
-it as advisory steering at the next worker boundary. It does not pause the run,
-count as a failed current correction, or become the last accepted verdict.
+That does not make every stale answer equally useless. A stale continuation or
+approval says only that an earlier state looked acceptable. There is nothing
+left to apply, so the application discards it. A stale correction may still
+contain a useful change of tactic. The application preserves its earlier-anchor
+provenance and delivers it as advisory steering at the next worker boundary. It
+does not pause the run, count as a failed current correction, or become the last
+accepted verdict.
 
 A stale request to pause or stop is the third case. Silently discarding it
 would turn a slow watchdog into decoration. Applying it would let a judgment
-about an old state control a new one. The host therefore persists a review
-hold, stops scheduling the worker, and asks a fresh watchdog to inspect the
-latest anchor. A current continuation or approval releases the hold. A current
-correction steers the worker. A current pause or stop pauses the durable run.
-If that confirming review is unavailable, the hold fails closed into an
-operator-resumable pause.
+about an old state control a new one. The application therefore requests a
+durable review hold, then asks a fresh watchdog to inspect the latest
+session/tree anchor published by the host. The broker persists the hold before
+it stops scheduling the worker. A current continuation or approval lets the application
+release the hold. A current correction becomes steering. A current pause or
+stop becomes an authorized scheduling request. If that confirming review is
+unavailable, policy leaves the hold as an operator-resumable pause.
 
 The asymmetry is practical rather than taxonomic. Most late answers do not
 need to stop the world. Only a stale result that asks the host to stop the
 worker creates a barrier, and even then the old result supplies the reason for
-a new judgment rather than the authority for the final action. This keeps
-event and live review useful while leaving the stricter question—whether live
-mode should block every turn, and whether event mode should gain a periodic
-turn cadence—as an explicit scheduling decision rather than an accidental
-consequence of staleness.
+a new judgment rather than the authority for the final action. Periodic
+event-mode review and strict live-mode barriers are explicit application
+settings. Neither falls out accidentally from response timing.
 
-This is the boring half of `/supervise`, and it is the half that owns the
-workflow keys. The model proposes a semantic judgment. Deterministic code
-validates its shape, checks the evidence and state it refers to, checks who is
-allowed to make it, and applies or rejects it. The watchdog can be persuaded.
-The authority boundary cannot be persuaded into granting the watchdog a
-permission it does not have.
+This division is the boring half of `/supervise`. The application owns the
+workflow keys: it validates the review schema, compares anchors, interprets the
+verdict, and chooses its next request. The host and broker own the authority
+keys: they authenticate the caller and current session, intersect capabilities,
+persist ordered state, and apply only a valid scoped effect. The watchdog can
+be persuaded. That still cannot persuade the broker to grant it a permission
+it does not have.
 
-Starting `/supervise` also stops an existing `/loop`. This is not interface
-tidiness. Supervision owns worker-turn scheduling. A watchdog that cannot stop
-recurring execution is an observer, and an observer is not a watchdog.
+Starting `/supervise` also has to stop an existing `/loop`. This is not
+interface tidiness. The application owns the supervision schedule and uses the
+generic session control plane to replace the old recurrence. A watchdog that
+cannot cause an authorized loop stop is an observer, and an observer is not a
+watchdog.
 
 ## A quality gate, not a security feature
 
@@ -218,17 +259,20 @@ models agreeing about a patch is evidence for a quality decision, not proof
 that the patch is safe.
 
 The security ceiling remains where it was before `/supervise`: the broker,
-sandbox, plugin capabilities, repository trust policy, lifecycle hooks, and
-the operator's control over destructive or external effects. Those mechanisms
-limit what the worker can do. Supervision limits what the workflow is willing
-to call progress or completion.
+sandbox, plugin capabilities, repository trust policy, and central tool policy
+for destructive or external effects. The supervise application itself
+runs below that ceiling. Those mechanisms limit what the worker and reviewer
+can do. Supervision limits what its workflow is willing to call progress or
+completion.
 
 That difference is why deterministic state still matters. A CI gate is not a
 sandbox either, but the process being tested should not be able to mark its own
-check green. `/supervise` makes the equivalent quality decisions host-owned. It
-is designed to catch stochastic failure, drift, forgotten requirements, weak
-evidence, and premature confidence. It is not designed to defend against a
-malicious worker or malicious source tree.
+check green. `/supervise` gives those quality decisions to an independent
+application workflow while the broker makes the resulting record and effects
+durable, scoped, ordered, and capability-checked. It is designed to catch
+stochastic failure, drift, forgotten requirements, weak evidence, and premature
+confidence. It is not designed to
+defend against a malicious worker or malicious source tree.
 
 ## Useful is not the same as authorized
 
@@ -241,15 +285,17 @@ version nearby. In other words, it looks like a repository.
 
 An eager worker can fix the label, modernize a helper, update the dependency,
 and resolve a TODO while it is there. Every individual edit may be defensible.
-The patch as a whole still fails the task. Stado watches the audited tree rather
-than the persuasiveness of the explanation: changed paths, diff size,
-edit-and-revert cycles, and paths outside the approved scope become mechanical
-signals for watchdog review.
+The patch as a whole still fails the task. The host exposes the anchored tree
+and diff facts rather than an opinion about them. Supervise compares changed
+paths, diff size, edit-and-revert cycles, and the approved scope, turning those
+facts into mechanical signals for watchdog review.
 
 The watchdog can direct the worker back to the active criterion. It cannot turn
 “this cleanup is sensible” into permission. Objective, acceptance criteria,
 constraints, permissions, budgets, destructive actions, releases, deployments,
-and external commitments remain human-only.
+and external commitments remain outside model-granted authority. Supervise may
+request a quality confirmation; security authorization remains central policy
+or a separately trusted operator grant.
 
 The distinction becomes sharper when the original plan is actually wrong. The
 [bad-pivot scenario](../../evals/supervise/scenarios/bad-pivot.json) asks the
@@ -260,9 +306,9 @@ adapter needs. A tempting replacement package exists, but it changes ordering.
 The documented route is genuinely blocked. A harness that only knows how to say
 no would turn this into paperwork with a stop button. The worker is allowed to
 record the compile failure and request the smallest plan change that can still
-satisfy the approved contract. If configured, a watchdog may approve a
-plan-level pivot. If the proposal changes the API, ordering, criteria, or
-objective, it goes back to the operator.
+satisfy the selected contract. If configured, the application may accept a
+watchdog's recommendation for a plan-level pivot. If the proposal changes the
+API, ordering, criteria, or objective, it goes back to the operator.
 
 A failed route is not a failed destination. “The adapter cannot work” can
 justify a different plan. It does not mean output ordering stopped mattering.
@@ -277,14 +323,16 @@ same process owns the implementation, the status report, and the meaning of
 done. Fluency makes those roles look like one continuous activity. They are not.
 
 Under `/supervise`, the worker submits a completion request with evidence linked
-to each approved criterion after every plan step has advanced. Stado runs the
-configured deterministic verification commands through the normal audited
-executor. A failure returns the run to work with bounded feedback.
+to each approved criterion after every plan step has advanced. The application
+requests the configured deterministic verification commands through the normal
+audited executor and receives host-recorded results. A failure returns the run
+to work with bounded feedback under supervise's policy.
 
 If verification passes, a fresh verifier instance examines the anchored
 contract, tree, and evidence. It is separate from the worker and separate from
 the watchdogs that may have spent the run defending their own corrections. Only
-a current, evidence-citing approval can move the durable state to completed.
+a current, evidence-citing approval is accepted by the application; the broker
+then records completion with the current contract, run, and tree versions.
 
 This does not make the verifier objective. It can miss evidence, misunderstand
 a requirement, or approve the wrong thing. The separation is useful for a more
@@ -309,17 +357,20 @@ green. The reason not to do it is twenty screens away and competing with fresh
 evidence that deletion would be convenient.
 
 Supervision keeps the baseline, plan position, evidence, detector history, and
-review handoff outside that shrinking conversation. The approved contract is
-reintroduced into worker turns from host state. Plan advancement requires
-evidence. A verification regression becomes an event. A completion claim
-reopens the original criteria instead of grading the last five minutes of the
-transcript.
+review handoff outside that shrinking conversation. The contract lives as a
+broker-owned artifact; rapid run state and cursors live in the journal. The
+application reintroduces the relevant parts into worker turns. Plan advancement
+requires evidence. A verification regression becomes a host fact and then an
+application event. A completion claim reopens the original criteria instead of
+grading the last five minutes of the transcript.
 
-If context recovery forks the worker, the durable run attaches to the recovered
-child under a new sequence and tree anchor. Stale watchdog and verifier answers
-do not cross that boundary. If stado restarts, the run can be restored from the
-broker WAL. The requirement that v1 data remain readable does not depend on one
-model instance remembering that it once agreed.
+If context recovery forks the worker, the application asks the broker to attach
+the durable run to the recovered child under a new sequence and tree anchor.
+Stale watchdog and verifier answers do not cross that boundary. If stado
+restarts, a fresh WASM instance reconstructs the run from broker artifacts,
+journal, and event cursors. The requirement that v1 data remain readable does
+not depend on one model instance remembering that it once agreed—or on one WASM
+instance remaining alive.
 
 The point is not infinite context. Infinite context would still be the wrong
 authority boundary. The point is putting the promises somewhere forgetting
@@ -336,9 +387,10 @@ provides three adapters and one shared conformance suite. A local test for one
 adapter passes while the integrated contract fails. One scripted child also
 makes an out-of-scope documentation edit.
 
-The root worker remains accountable for both. Child lifecycle, failure,
-exhaustion, results, and diff scope are visible to the watchdog. A child report
-is evidence about what the child believes, not proof that the integrated system
+The root worker remains accountable for both. The broker reports child
+lifecycle, failure, exhaustion, results, and anchored diff scope; the supervise
+application decides when those facts warrant watchdog review. A child report is
+evidence about what the child believes, not proof that the integrated system
 works. The root has to handle failed child work, reject or correct the stray
 edit, and cite the shared conformance suite.
 
@@ -390,10 +442,10 @@ selected for review receives the evidence it asks for, which is a data-trust
 decision and not merely a configuration detail.
 
 Supervision does not replace the broker, sandbox, plugin capability boundaries,
-lifecycle hooks, or signed audit history. The reviewer has no shell and cannot
-mutate the repository, but the worker still needs a real execution ceiling. A
-second model is not a security boundary. Structured output is not an
-authorization system. A confident verdict is not an audit record.
+lifecycle/scheduling enforcement, or signed audit history. The reviewer has no
+shell and cannot mutate the repository, but the worker still needs a real
+execution ceiling. A second model is not a security boundary. Structured output
+is not an authorization system. A confident verdict is not an audit record.
 
 This is also why `/supervise` is not an indirect-prompt-injection solution.
 Confining the reviewer makes a steered judgment less powerful; it does not make
@@ -430,4 +482,6 @@ The executable scenarios and paired-run protocol live under
 [`evals/supervise`](../../evals/supervise/README.md). The operator reference is
 [Supervised work (`/supervise`)](../features/supervise.md), and the state machine and
 authority decisions are recorded in
-[EP-0062](../eps/0062-harness-enforced-supervised-work.md).
+[EP-0062](../eps/0062-harness-enforced-supervised-work.md). Its plugin/host
+placement and lifecycle application contract are recorded in
+[EP-0064](../eps/0064-wasm-lifecycle-applications.md).

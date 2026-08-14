@@ -77,11 +77,13 @@ This is behavioral guidance rather than a scheduler: the store does not yet
 associate tasks with a repository or session, inject the backlog into every
 turn, or dispatch tasks automatically when a model loop ends.
 
-`/supervise` adds a stronger host-owned path for high-assurance work: prompts
-received during an active run enter a durable inbox, a fresh watchdog classifies
-them at a safe boundary, and unrelated/uncertain prompts are written here with
-deduplication before the inbox item is acknowledged. The store itself remains
-global CRUD rather than a project scheduler.
+The accepted `/supervise` application adds a stronger path for high-assurance
+work: prompts received during an active run enter a broker-owned durable inbox,
+a fresh watchdog classifies them under application policy at a safe boundary,
+and unrelated/uncertain prompts are written here with deduplication before the
+inbox item is acknowledged. The store itself remains global CRUD rather than a
+project scheduler. EP-0064 migration from the earlier native workflow is in
+flight.
 
 ## Bounds And Safety
 
@@ -104,6 +106,6 @@ it can be returned to the model.
 
 - [commands/tui.md](../commands/tui.md) - TUI keybinds and slash commands
 - [features/slash-commands.md](slash-commands.md) - command palette entries
-- [features/supervise.md](supervise.md) - host-enforced single-focus work and durable prompt deferral
+- [features/supervise.md](supervise.md) - application-owned single-focus policy with broker-enforced prompt deferral
 - [commands/run.md](../commands/run.md) - enabling tools from scripts
 - [commands/mcp-server.md](../commands/mcp-server.md) - exposing the tool to MCP clients

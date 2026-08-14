@@ -88,20 +88,44 @@ func ForkSessionAtTurnWithID(cfg *config.Config, parent *stadogit.Session, atCom
 	if atCommit.IsZero() {
 		return nil, fmt.Errorf("session fork at turn: atCommit required (use ForkSession to fork at the tip)")
 	}
+	return forkSessionAtSnapshotWithID(cfg, parent, atCommit, childID)
+}
 
+// ForkSessionAtSnapshotWithID creates a child at an already pinned source
+// commit. Unlike ForkSessionAtTurnWithID, a zero commit is meaningful: it is
+// the exact empty snapshot captured before an asynchronous launch returned,
+// not a request to re-read the source's possibly newer tip.
+func ForkSessionAtSnapshot(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash) (*stadogit.Session, error) {
+	return ForkSessionAtSnapshotWithID(cfg, parent, atCommit, uuid.NewString())
+}
+
+func ForkSessionAtSnapshotWithID(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash, childID string) (*stadogit.Session, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("session fork at snapshot: config required")
+	}
+	if parent == nil || parent.Sidecar == nil {
+		return nil, fmt.Errorf("session fork at snapshot: no parent session")
+	}
+	return forkSessionAtSnapshotWithID(cfg, parent, atCommit, childID)
+}
+
+func forkSessionAtSnapshotWithID(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash, childID string) (*stadogit.Session, error) {
 	worktreeRoot := filepath.Dir(parent.WorktreePath)
 	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, childID, atCommit)
 	if err != nil {
-		return nil, fmt.Errorf("session fork at turn: create child: %w", err)
+		return nil, fmt.Errorf("session fork at snapshot: create child: %w", err)
 	}
 	attachSessionScaffolding(child, cfg, ReadUserRepoPin(parent.WorktreePath))
+	if atCommit.IsZero() {
+		return child, nil
+	}
 
 	treeHash, err := child.TreeFromCommit(atCommit)
 	if err != nil {
-		return nil, fmt.Errorf("session fork at turn: resolve tree: %w", err)
+		return nil, fmt.Errorf("session fork at snapshot: resolve tree: %w", err)
 	}
 	if err := child.MaterializeTreeToDir(treeHash, child.WorktreePath); err != nil {
-		return nil, fmt.Errorf("session fork at turn: materialise worktree: %w", err)
+		return nil, fmt.Errorf("session fork at snapshot: materialise worktree: %w", err)
 	}
 	return child, nil
 }

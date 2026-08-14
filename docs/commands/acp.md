@@ -9,6 +9,13 @@ Zed's Agent Client Protocol shape and reuses stado's provider/runtime
 wiring. By default it is a prompt/response agent. With `--tools`, it
 opens a git-native session and runs the full audited tool loop.
 
+ACP is not a lifecycle-application host in v0.80/v1. If global config or a
+session persona selects a manifest-declared lifecycle application, ACP rejects
+it before provider/session work and directs the operator to the interactive
+TUI. Supporting applications requires one persistent instance shared by
+commands, tools, hooks, events, ticks, and the complete generic bridge set;
+partial editor integration is intentionally not treated as support.
+
 ## Usage
 
 ```sh

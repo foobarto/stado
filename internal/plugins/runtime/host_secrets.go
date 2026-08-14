@@ -32,7 +32,7 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 				if host.Secrets != nil {
 					name, _ := readStringLimited(mod, namePtr, nameLen, 128)
 					host.Secrets.Audit(SecretsAuditEvent{
-						Plugin:  host.Manifest.Name,
+						Plugin:  host.AuditIdentity(),
 						Op:      "get",
 						Secret:  name,
 						Allowed: false,
@@ -59,7 +59,7 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			if !host.Secrets.CanRead(name) {
 				host.Secrets.Audit(SecretsAuditEvent{
-					Plugin:  host.Manifest.Name,
+					Plugin:  host.AuditIdentity(),
 					Op:      "get",
 					Secret:  name,
 					Allowed: false,
@@ -72,7 +72,7 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 			val, err := host.Secrets.Store.GetScoped(host.Secrets.PluginName, name)
 			if err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
-					Plugin:  host.Manifest.Name,
+					Plugin:  host.AuditIdentity(),
 					Op:      "get",
 					Secret:  name,
 					Allowed: false,
@@ -83,7 +83,7 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 
 			host.Secrets.Audit(SecretsAuditEvent{
-				Plugin:  host.Manifest.Name,
+				Plugin:  host.AuditIdentity(),
 				Op:      "get",
 				Secret:  name,
 				Allowed: true,
@@ -108,7 +108,7 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 			deny := func(name, reason string) {
 				if host.Secrets != nil {
 					host.Secrets.Audit(SecretsAuditEvent{
-						Plugin:  host.Manifest.Name,
+						Plugin:  host.AuditIdentity(),
 						Op:      "put",
 						Secret:  name,
 						Allowed: false,
@@ -135,7 +135,7 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			if !host.Secrets.CanWrite(name) {
 				host.Secrets.Audit(SecretsAuditEvent{
-					Plugin:  host.Manifest.Name,
+					Plugin:  host.AuditIdentity(),
 					Op:      "put",
 					Secret:  name,
 					Allowed: false,
@@ -153,7 +153,7 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			if err := host.Secrets.Store.PutScoped(host.Secrets.PluginName, name, val); err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
-					Plugin:  host.Manifest.Name,
+					Plugin:  host.AuditIdentity(),
 					Op:      "put",
 					Secret:  name,
 					Allowed: false,
@@ -164,7 +164,7 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 
 			host.Secrets.Audit(SecretsAuditEvent{
-				Plugin:  host.Manifest.Name,
+				Plugin:  host.AuditIdentity(),
 				Op:      "put",
 				Secret:  name,
 				Allowed: true,
@@ -189,7 +189,7 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 			deny := func(reason string) {
 				if host.Secrets != nil {
 					host.Secrets.Audit(SecretsAuditEvent{
-						Plugin:  host.Manifest.Name,
+						Plugin:  host.AuditIdentity(),
 						Op:      "list",
 						Allowed: false,
 						Reason:  reason,
@@ -214,7 +214,7 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 			names, err := host.Secrets.Store.ListScoped(host.Secrets.PluginName)
 			if err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
-					Plugin:  host.Manifest.Name,
+					Plugin:  host.AuditIdentity(),
 					Op:      "list",
 					Allowed: false,
 					Reason:  err.Error(),
@@ -224,7 +224,7 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 
 			host.Secrets.Audit(SecretsAuditEvent{
-				Plugin:  host.Manifest.Name,
+				Plugin:  host.AuditIdentity(),
 				Op:      "list",
 				Allowed: true,
 			})
@@ -249,7 +249,7 @@ func registerSecretsDeleteImport(builder wazero.HostModuleBuilder, host *Host) {
 			deny := func(name, reason string) {
 				if host.Secrets != nil {
 					host.Secrets.Audit(SecretsAuditEvent{
-						Plugin:  host.Manifest.Name,
+						Plugin:  host.AuditIdentity(),
 						Op:      "delete",
 						Secret:  name,
 						Allowed: false,
@@ -281,7 +281,7 @@ func registerSecretsDeleteImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 			host.Secrets.Audit(SecretsAuditEvent{
-				Plugin:  host.Manifest.Name,
+				Plugin:  host.AuditIdentity(),
 				Op:      "delete",
 				Secret:  name,
 				Allowed: true,

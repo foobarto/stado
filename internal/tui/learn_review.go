@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/artifacts"
-	"github.com/foobarto/stado/internal/broker/authority"
 	"github.com/foobarto/stado/internal/broker/wal"
 	learnpkg "github.com/foobarto/stado/internal/learn"
 	"github.com/foobarto/stado/internal/sessioncontext"
@@ -56,8 +55,7 @@ func (m *Model) startLearnReview(focus string) tea.Cmd {
 			return learnResultMsg{err: fmt.Errorf("open broker events: %w", err)}
 		}
 		defer func() { _ = store.Close() }()
-		_, consumer := authority.New(store)
-		artifactSvc := artifacts.NewService(store, consumer)
+		artifactSvc := artifacts.NewService(store, nil)
 		signalSvc := sessioncontext.New(store)
 		reviewer := learnpkg.LLMReviewer{Provider: provider, Model: model}
 		svc := learnpkg.New(store, signalSvc, artifactSvc, reviewer)
@@ -112,8 +110,7 @@ func (m *Model) manageLearn(parts []string) tea.Cmd {
 			return learnManageResultMsg{err: err}
 		}
 		defer func() { _ = store.Close() }()
-		issuer, consumer := authority.New(store)
-		svc := artifacts.NewService(store, consumer)
+		svc := artifacts.NewService(store, nil)
 		qctx := artifacts.QueryContext{Principal: principal, SessionID: sessionID}
 		switch verb {
 		case "candidates", "list":
@@ -124,7 +121,7 @@ func (m *Model) manageLearn(parts []string) tea.Cmd {
 			var rows []string
 			for _, a := range items {
 				if a.Authority == artifacts.AuthorityCandidate || a.Authority == artifacts.AuthorityLegacyActive {
-					rows = append(rows, fmt.Sprintf("%s  %-13s  %s", a.ID, a.Authority, a.Summary))
+					rows = append(rows, fmt.Sprintf("%s  %-13s  %s", a.ID, a.Authority, a.Title()))
 				}
 			}
 			if len(rows) == 0 {
@@ -141,29 +138,8 @@ func (m *Model) manageLearn(parts []string) tea.Cmd {
 			}
 			b, _ := json.MarshalIndent(a, "", "  ")
 			return learnManageResultMsg{body: string(b)}
-		case "approve":
-			if id == "" {
-				return learnManageResultMsg{err: fmt.Errorf("usage: /learn approve <artifact-id>")}
-			}
-			a, ok, err := svc.Show(id)
-			if err != nil || !ok {
-				return learnManageResultMsg{err: fmt.Errorf("lesson %q not found", id)}
-			}
-			action, err := artifacts.ActivationAction(a, principal)
-			if err != nil {
-				return learnManageResultMsg{err: err}
-			}
-			grant, err := issuer.Issue(m.rootCtx, action, "operator-tui", time.Minute)
-			if err != nil {
-				return learnManageResultMsg{err: err}
-			}
-			a, err = svc.SetAuthority(m.rootCtx, id, a.Version, artifacts.AuthorityActive, grant.ID, principal, "operator-tui", "learn-approve:"+grant.ID)
-			if err != nil {
-				return learnManageResultMsg{err: err}
-			}
-			return learnManageResultMsg{body: fmt.Sprintf("approved %s: %s", a.ID, a.Summary)}
 		default:
-			return learnManageResultMsg{err: fmt.Errorf("usage: /learn [focus] | /learn candidates | /learn show <id> | /learn approve <id>")}
+			return learnManageResultMsg{err: fmt.Errorf("usage: /learn [focus] | /learn candidates | /learn show <id>; activation requires a separately trusted presenter or broker policy")}
 		}
 	}
 }

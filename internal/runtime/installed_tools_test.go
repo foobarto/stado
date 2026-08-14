@@ -69,7 +69,7 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 			Schema:      `{"type":"object"}`,
 		}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating, nil, nil)
+	tl := newInstalledPluginTool(mf, plugins.RuntimeIdentity{}, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating, nil, nil)
 	if tl.Name() != "lookup" {
 		t.Errorf("Name() = %q, want lookup", tl.Name())
 	}
@@ -93,7 +93,7 @@ func TestInstalledPluginTool_RunDispatchesViaPluginrun(t *testing.T) {
 		Name: "test-plugin", Version: "v0.1.0",
 		Tools: []plugins.ToolDef{{Name: "lookup"}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating, nil, nil)
+	tl := newInstalledPluginTool(mf, plugins.RuntimeIdentity{}, mf.Tools[0], "/nonexistent", tool.ClassNonMutating, nil, nil)
 	res, err := tl.Run(context.Background(), nil, nil)
 	if err == nil {
 		t.Fatal("Run() with nonexistent wasm path should error")
@@ -265,8 +265,23 @@ func TestLookupInstalledModule_NotFound(t *testing.T) {
 	installedByTool = map[string]installedRecord{}
 	installedRegistryMu.Unlock()
 
-	if _, _, ok := LookupInstalledModule("nope__missing"); ok {
+	if _, _, _, ok := LookupInstalledModule("nope__missing"); ok {
 		t.Error("LookupInstalledModule for unknown tool should be ok=false")
+	}
+}
+
+func TestRuntimeIdentityForPluginDirSeparatesLocalSources(t *testing.T) {
+	manifest := plugins.Manifest{Name: "same-display-name", Version: "dev"}
+	one, err := RuntimeIdentityForPluginDir(t.TempDir(), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := RuntimeIdentityForPluginDir(t.TempDir(), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Namespace == two.Namespace {
+		t.Fatalf("local plugin directories shared authority namespace %q", one.Namespace)
 	}
 }
 

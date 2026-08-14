@@ -7,20 +7,23 @@ EP-0028 into one go-from-zero-to-shipping path.
 
 ## Design north star — lean core, plugin everything
 
-stado's core stays small on purpose. **Most agent-facing functionality
-belongs in WASM plugins** (EP-0002), with the core providing only:
+stado's core stays small on purpose. **All stado-owned model-visible product
+behavior belongs in WASM plugins** (EP-0002 and EP-0066), with the core
+providing only:
 
 - the wasm runtime + capability sandbox,
-- a few foundational primitives (config / FS / sandbox / git
-  sidecar),
+- foundational bridges WASM cannot provide for itself (filesystem/process
+  access, broker-bound sessions, broker-owned artifacts and journals,
+  retained agents/mailboxes, operator UI, scheduling, sandbox, and git audit),
 - the plugin lifecycle CLI (`init`, `sign`, `trust`, `install`,
-  `run`, `gc`, `doctor`),
+  `gc`, `doctor`) and generic `stado tool run` execution path,
 - and signed-distribution machinery.
 
-Hooks in the core are deliberately thin passthroughs: the runtime
-calls into the plugin, not the other way round, and business logic
-is on the plugin side so it can be swapped, upgraded, or replaced
-without touching stado.
+Core seams are deliberately primitive: the host delivers bounded,
+session-anchored observations and lifecycle callbacks; plugins request narrow
+capability-gated effects.
+Business logic stays on the plugin side so it can be swapped, upgraded, or
+replaced without teaching native stado one application's workflow.
 
 **When designing your plugin**, lean into this: capability-bound
 swappable units beat monolithic feature flags. If your plugin grows
@@ -62,7 +65,7 @@ Don't write a plugin when:
 ```
 ┌─────────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
 │ stado plugin    │ →  │ build.sh │ →  │ stado    │ →  │ stado    │
-│   init <name>   │    │ (compile │    │ plugin   │    │ plugin   │
+│   init <name>   │    │ (compile │    │ plugin   │    │ tool     │
 │ (Go scaffold)   │    │  + sign) │    │ install  │    │ run …    │
 └─────────────────┘    └──────────┘    └──────────┘    └──────────┘
         │                    │              │              │
@@ -200,19 +203,33 @@ surface each requires.
 | `net:dial:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Outbound `stado_net_dial` (TCP / UDP / Unix). Private addresses still need `net:http_request_private`. | Any |
 | `net:listen:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Server-side `stado_net_listen` (verbatim host:port match — no implicit `127.0.0.1 ⊂ 0.0.0.0`) | Any |
 | `exec:proc[:<binary-glob>]` | `stado_proc_*` and `stado_exec`; add `bundled-bin:<name>` for rg/ast-grep | TUI / `stado run` when spawning subprocesses (sandbox runner needed) |
-| `exec:pty`, `terminal:open` | PTY-backed shell sessions (`stado_pty_*` / `stado_terminal_*`) | TUI / `stado run` (screen via `shell.read` `mode: screen`, not a separate screenshot tool — EP-0043) |
+| `exec:pty[:<binary-glob>]` | PTY-backed shell sessions (`stado_pty_*`) | TUI / `stado run` (screen via `shell.read` `mode: screen`, not a separate screenshot tool — EP-0043) |
 | `session:read`, `session:fork`, `session:observe` | Session reads + fork RPC | `tool run --session <id>` |
 | `llm:invoke[:<token-budget>]` | Outbound LLM calls | `tool run --session <id>` (uses the session's provider) |
-| `memory:propose`, `memory:read`, `memory:write` | Append-only memory store | `tool run --session <id>` (or any agent loop) |
+| `artifact:propose:<local-kind>`, `artifact:edit:<local-kind>` | Propose a broker-owned artifact or candidate version for a manifest-declared local kind | `tool run --session <id>` (or a broker-attached agent loop) |
+| `artifact:read:<qualified-kind-pattern>`, `artifact:observe:<qualified-kind-pattern>` | Query or observe explicit qualified kinds within broker scope/sensitivity policy | `tool run --session <id>` (or a broker-attached agent loop) |
+| `session:journal:append`, `session:projection:read` | Durable lifecycle journal and caller-scoped projection | Persistent lifecycle application |
+| `session:schedule` | Leased holds and typed pause/stop proposals | Persistent lifecycle application with broker scheduling |
+| `session:complete` | Durable successful-completion transition; distinct from pause/stop | Persistent lifecycle application with broker scheduling |
+| `session:input:route` | Durably claim an exact immutable input for asynchronous review, then deliver or defer it for the application's exact worker run | Persistent TUI lifecycle application with broker-owned input routing |
+| `session:worker:request`, `session:worker:resume`, `session:worker:cancel` | Request, resume-request, or cancel a bounded application-owned worker recurrence; activation and resume activation are native-only | Persistent TUI lifecycle application with broker scheduling |
+| `timer:schedule` | Durable timer schedule/cancel | Persistent lifecycle application |
 | `state:read[:<key-glob>]`, `state:write[:<key-glob>]` | Process-lifetime in-memory KV (`stado_instance_*`) | Any |
 | `secrets:read[:<name-glob>]`, `secrets:write[:<name-glob>]` | Operator secret store (`stado_secrets_*`) | Any |
 | `tool:invoke[:<name-glob>]` | Plugin calls other registered tools (`stado_tool_invoke`) | Any (depth-limited; v0.75.2 audit path when executor pinned) |
-| `agent:fleet` | Sub-agent fleet (`stado_agent_*`) — bundled agent plugin only | TUI / `stado run` |
+| `agent:spawn`, `agent:list`, `agent:read`, `agent:send`, `agent:cancel` | The matching sub-agent operation (`stado_agent_*`); capabilities do not imply one another | TUI / `stado run` with a fleet bridge |
+| `agent:spawn:configure` | Additional attenuation for signed provider/model/thinking/effort overrides on `stado_agent_spawn`; no credential access and no operation without `agent:spawn` | TUI / `stado run` with a configured fleet bridge |
 | `dns:resolve` | `stado_dns_resolve` | Any |
 | `crypto:hash`, `compress` | Stateless format helpers (hash, hmac, gzip, zlib) | Any |
 | `cfg:state_dir` | Read state-dir path (`stado_cfg_state_dir`) | Any |
 | `bundled-bin` | Read bundled binaries (`stado_bundled_bin`) | Any |
 | `ui:approval` | Approval bridge (`stado_ui_approve`) | TUI / headless agent loop only |
+| `ui:choice`, `ui:print`, `ui:render` | Generic operator choice, text, and structured-panel bridges | Interactive/session surfaces; transport fallback is import-specific |
+
+EP-0064 additionally defines operation-scoped lifecycle, journal, mailbox,
+retained-agent, and scheduling capabilities for persistent applications. The
+TUI dispatcher owns one serialized instance; do not substitute ambient files
+or native application-specific wrappers on unsupported surfaces.
 
 `stado plugin doctor` automates this table — run it against any
 installed plugin and the report will tell you exactly what flags
@@ -224,6 +241,9 @@ to pass.
 |---|---|
 | `requires` | Array of `"<plugin-name>"` or `"<name> >= <ver>"` — install fails if a dep is missing. |
 | `tools[].categories` | Array of category tags (`file`, `network`, `code-search`, …). Operators can add `[tools].autoload_categories = ["file"]` to surface tools by category instead of by name. |
+| `artifact_kinds` | EP-0063 local kind names, bounded object-root JSON Schemas, and optional deterministic index projections. Covered by the signed manifest digest. |
+| `lifecycle` | EP-0064 point/event subscriptions, failure policy, and bounded callback timeout for the persistent TUI application instance. |
+| `commands` | Signed operator command declarations. Optional `timeout_ms` (maximum 15 minutes) applies only to that serialized command; zero inherits the lifecycle timeout. |
 | `min_stado_version` | Refuses install on older stado. Set to the version that introduced any host import you call. |
 
 ## Iteration loop
@@ -354,35 +374,30 @@ just *the* `webfetch`.
 
 ## Auditability invariant — do not bypass the trace
 
-stado's git trace ref (`refs/sessions/<id>/trace`, EP-0004) records
-every tool call as part of the session's audit log. **This invariant
-is non-negotiable.** Any code path that mutates session state must
-commit through the trace path so the audit log stays complete; a
-silent bypass — even an "optimisation" that batches commits or a
-"convenience" that side-steps a write — voids the audit guarantee
-for that session.
+stado's git trace ref (`refs/sessions/<id>/trace`, EP-0004) records every
+model-facing tool call. Broker-owned artifacts, journals, mailboxes, and
+scheduling state use the broker's hash-chained WAL under EP-0059. **Neither
+authority may be bypassed.** The two ledgers serve different state, and a plugin
+does not get to replace either with a convenient file under `cfg:state_dir`.
 
 The session-compaction work briefly broke this invariant by
 accident; it was caught + remedied. The reminder is forward-looking:
-when you write a plugin (or, more importantly, when you propose a
-new core feature), ask:
+when you write a plugin (or, more importantly, when you propose a new core
+feature), ask:
 
-- *Does this mutate session state?* (file writes inside the worktree;
-  fork rpc; memory-store appends from `memory:write` capability;
-  llm:invoke responses)
-- *If yes, does the mutation flow through the existing
-  trace-committing path?* (`stadogit.Session.Commit`, the agent
-  loop's tool-call wrapper, etc.)
+- *Does this mutate the audited worktree or conversation?* Keep the call on the
+  executor and session trace/tree path.
+- *Does this mutate an artifact or lifecycle record?* Use the typed broker
+  import (`stado_artifact_*` today; EP-0064 journal/mailbox/scheduling imports as
+  they land), with loader-supplied runtime identity and stable idempotency.
 
-If the answer is "yes, mutates" + "no, bypasses trace", the design
-is wrong. Plugins inherit this discipline by default — the host
-imports that mutate (`stado_fs_write`, `stado_exec_bash` via the
-agent loop, `stado_session_fork`, `stado_llm_invoke`) all commit
-through the trace. A plugin that wires up its own out-of-band
-mutation channel (e.g., shells out via `stado_exec_bash` to a
-network sink that writes elsewhere) is the regression vector.
-Capability gating bounds what a plugin can do; the trace ref
-records what it actually did.
+If the answer is “yes, mutates” and “neither authority records it,” the design
+is wrong. Plugins inherit the tool-call trace when invoked through the normal
+executor. `stado_artifact_*` calls additionally submit through an opaque
+broker-issued application binding to the broker single writer; they never open
+its WAL or fall back to a local JSONL
+file. Capability gating bounds what a plugin may request, while the appropriate
+ledger records what actually happened.
 
 For operator-tooling commands (gc, doctor, install) the trace-ref
 invariant doesn't apply — they're operator actions, not agent

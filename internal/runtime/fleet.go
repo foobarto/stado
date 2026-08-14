@@ -76,14 +76,20 @@ type FleetEntry struct {
 	Result string
 	// Error is populated when Status == error.
 	Error string
+	// Terminal is host-collected token and cleanup metadata. It is independent
+	// of Result so a later cleanup diagnostic cannot discard valid final text.
+	Terminal subagent.TerminalMetadata
 }
 
 // SpawnOptions are caller-supplied overrides at /spawn time. Empty
 // fields fall back to caller-supplied defaults from the active
 // session (parent provider/model/agent).
 type SpawnOptions struct {
-	Provider string
-	Model    string
+	Provider             string
+	Model                string
+	Thinking             string
+	ThinkingBudgetTokens int
+	ReasoningEffort      string
 	// ParentSessionID is host-owned provenance, not a child-selectable option.
 	ParentSessionID string
 	// Role / Mode / Turns / TimeoutSeconds map to subagent.Request
@@ -109,6 +115,11 @@ type SpawnOptions struct {
 type Fleet struct {
 	mu      sync.Mutex
 	entries map[string]*FleetEntry // keyed by FleetID
+	// spawnClaims make one logical application spawn replayable across a WASM
+	// module rebind while this host process and Fleet remain live. They are
+	// deliberately process-local: after process death every in-process child is
+	// terminal too, so a durable broker record must not pretend it is still live.
+	spawnClaims map[string]*fleetSpawnClaim
 	// cancels parallels entries — kept separate so List can return
 	// pure-data copies of entries without leaking goroutine handles.
 	cancels map[string]context.CancelFunc
@@ -120,6 +131,19 @@ type Fleet struct {
 	inboxes map[string][]string
 }
 
+type FleetSpawnAdmission struct {
+	ID        string
+	SessionID string
+	Status    string
+}
+
+type fleetSpawnClaim struct {
+	digest string
+	done   chan struct{}
+	result FleetSpawnAdmission
+	err    error
+}
+
 // fleetInboxMaxMessages caps an agent's pending-inbox depth so a
 // runaway producer can't unbounded-grow stado's heap. New messages
 // past the cap are dropped silently — the producer can re-send.
@@ -128,10 +152,58 @@ const fleetInboxMaxMessages = 64
 // NewFleet returns an empty fleet.
 func NewFleet() *Fleet {
 	return &Fleet{
-		entries: map[string]*FleetEntry{},
-		cancels: map[string]context.CancelFunc{},
-		inboxes: map[string][]string{},
+		entries:     map[string]*FleetEntry{},
+		spawnClaims: map[string]*fleetSpawnClaim{},
+		cancels:     map[string]context.CancelFunc{},
+		inboxes:     map[string][]string{},
 	}
+}
+
+// ClaimSpawn serializes admission of one logical child under a native-derived
+// application scope. The first successful admission is retained for the life
+// of the Fleet; same-digest replay returns it, while key reuse with different
+// input fails closed. A failed pre-admission attempt is removed so a later
+// retry may make progress.
+func (f *Fleet) ClaimSpawn(ctx context.Context, scope, key, digest string, admit func() (FleetSpawnAdmission, error)) (FleetSpawnAdmission, error) {
+	if key == "" {
+		return admit()
+	}
+	if scope == "" || digest == "" {
+		return FleetSpawnAdmission{}, errors.New("fleet: idempotent spawn requires authenticated scope and request digest")
+	}
+	claimKey := scope + "\x00" + key
+
+	f.mu.Lock()
+	if f.spawnClaims == nil {
+		f.spawnClaims = map[string]*fleetSpawnClaim{}
+	}
+	if prior, ok := f.spawnClaims[claimKey]; ok {
+		if prior.digest != digest {
+			f.mu.Unlock()
+			return FleetSpawnAdmission{}, errors.New("fleet: idempotency key reused with a different spawn request")
+		}
+		done := prior.done
+		f.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return FleetSpawnAdmission{}, ctx.Err()
+		case <-done:
+			return prior.result, prior.err
+		}
+	}
+	claim := &fleetSpawnClaim{digest: digest, done: make(chan struct{})}
+	f.spawnClaims[claimKey] = claim
+	f.mu.Unlock()
+
+	result, err := admit()
+	f.mu.Lock()
+	claim.result, claim.err = result, err
+	if err != nil && f.spawnClaims[claimKey] == claim {
+		delete(f.spawnClaims, claimKey)
+	}
+	close(claim.done)
+	f.mu.Unlock()
+	return result, err
 }
 
 // SendMessage queues a message for delivery to the named agent's next
@@ -177,6 +249,47 @@ type Spawner interface {
 	SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error)
 }
 
+// SnapshotSpawner freezes any mutable parent-session source before Fleet
+// returns control to its caller. Without this seam an asynchronous child can
+// begin after the parent has already advanced, so a reviewer requested at one
+// application anchor may silently inspect a later tree. The pinned Spawner is
+// still used in the goroutine; only source selection happens synchronously.
+type SnapshotSpawner interface {
+	PinSpawnSource(context.Context) (Spawner, error)
+}
+
+// RequestSourceSpawner synchronously resolves the caller's requested source
+// before an asynchronous fleet launch returns. This is stronger than
+// SnapshotSpawner: an application can pass an authenticated immutable turn_ref
+// and know the child will inspect that exact tree even if the worker advances
+// before the launch goroutine runs.
+type RequestSourceSpawner interface {
+	PinSpawnRequestSource(context.Context, *subagent.Source) (Spawner, error)
+}
+
+// SpawnForkPoint is the runtime-neutral immutable source anchor admitted for
+// retained execution. It deliberately mirrors only source identity and
+// evidence coordinates; it carries no guest authority and does not import the
+// broker's retained-execution package into the ordinary fleet primitive.
+type SpawnForkPoint struct {
+	SourceSessionID    string
+	SourceGeneration   uint64
+	CommittedTurn      int
+	ConversationDigest string
+	CompactionLineage  string
+	TreeCommit         string
+	TraceCommit        string
+	EventSequence      uint64
+}
+
+// ForkPointSpawner consumes an already host-resolved immutable fork point
+// synchronously. Retained execution requires this stronger contract: the
+// returned Spawner must keep using this exact anchor across delayed launch and
+// restart, rather than resolving a mutable selector in its goroutine.
+type ForkPointSpawner interface {
+	PinSpawnForkPoint(context.Context, SpawnForkPoint) (Spawner, error)
+}
+
 // InboxAwareSpawner is the optional extension a Spawner implements
 // when it can deliver mid-loop operator/peer messages to the child.
 // Fleet.runGoroutine type-asserts to wire AgentSendMessage delivery.
@@ -201,6 +314,27 @@ func (f *Fleet) Spawn(rootCtx context.Context, spawner Spawner, prompt string, o
 	}
 	if spawner == nil {
 		return "", errors.New("fleet: spawner is nil")
+	}
+	if sourcePinner, ok := spawner.(RequestSourceSpawner); ok {
+		pinned, err := sourcePinner.PinSpawnRequestSource(rootCtx, opts.Source)
+		if err != nil {
+			return "", fmt.Errorf("fleet: pin requested source: %w", err)
+		}
+		if pinned == nil {
+			return "", errors.New("fleet: pin requested source returned nil spawner")
+		}
+		spawner = pinned
+	} else if opts.Source != nil {
+		return "", errors.New("fleet: requested source requires a source-pinning spawner")
+	} else if snapshotter, ok := spawner.(SnapshotSpawner); ok {
+		pinned, err := snapshotter.PinSpawnSource(rootCtx)
+		if err != nil {
+			return "", fmt.Errorf("fleet: pin spawn source: %w", err)
+		}
+		if pinned == nil {
+			return "", errors.New("fleet: pin spawn source returned nil spawner")
+		}
+		spawner = pinned
 	}
 
 	id := uuid.NewString()
@@ -238,20 +372,24 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 	}()
 
 	req := subagent.Request{
-		Prompt:         f.entryPrompt(id),
-		Role:           opts.Role,
-		Mode:           opts.Mode,
-		MaxTurns:       opts.MaxTurns,
-		TimeoutSeconds: opts.TimeoutSeconds,
-		Persona:        opts.Persona,
-		Ownership:      opts.Ownership,
-		WriteScope:     append([]string(nil), opts.WriteScope...),
-		Source:         opts.Source,
-		Model:          opts.Model,
-		ToolProfile:    opts.ToolProfile,
-		NarrowTools:    append([]string(nil), opts.NarrowTools...),
-		TokenBudget:    opts.TokenBudget,
-		Execution:      opts.Execution,
+		Prompt:               f.entryPrompt(id),
+		Role:                 opts.Role,
+		Mode:                 opts.Mode,
+		MaxTurns:             opts.MaxTurns,
+		TimeoutSeconds:       opts.TimeoutSeconds,
+		Persona:              opts.Persona,
+		Ownership:            opts.Ownership,
+		WriteScope:           append([]string(nil), opts.WriteScope...),
+		Source:               opts.Source,
+		Provider:             opts.Provider,
+		Model:                opts.Model,
+		Thinking:             opts.Thinking,
+		ThinkingBudgetTokens: opts.ThinkingBudgetTokens,
+		ReasoningEffort:      opts.ReasoningEffort,
+		ToolProfile:          opts.ToolProfile,
+		NarrowTools:          append([]string(nil), opts.NarrowTools...),
+		TokenBudget:          opts.TokenBudget,
+		Execution:            opts.Execution,
 	}
 
 	// Wire the inbox source so AgentSendMessage delivery actually
@@ -275,6 +413,7 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 	if res.ChildSession != "" {
 		entry.SessionID = res.ChildSession
 	}
+	entry.Terminal = res.Terminal
 	switch {
 	case err != nil && errors.Is(ctx.Err(), context.Canceled):
 		entry.Status = FleetStatusCancelled

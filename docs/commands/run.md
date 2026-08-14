@@ -4,6 +4,11 @@ Non-interactive: pipe a prompt through the agent loop and print the
 result. Used for scripting, CI integrations, one-shot reviews, and
 batch processing.
 
+`stado run` is not a lifecycle-application host in v0.80/v1. If global config
+or the selected persona enables a manifest-declared lifecycle application, run
+fails before provider/session work and directs the operator to the interactive
+TUI. The generic agent loop never creates a prompt-local application instance.
+
 ## What it does
 
 Given `--prompt "..."`:
@@ -171,8 +176,8 @@ Relevant `config.toml` sections:
 - `[defaults]` — `provider`, `model`, `allow_project_persona` (user only).
 - `[agent].thinking` / `thinking_budget_tokens` — extended-thinking
   on providers that support it.
-- `[budget]` — `warn_usd` / `hard_usd` and optional token caps
-  (`warn_tokens`, `hard_tokens`, per-direction variants). Crossing a
+- `[budget]` — token caps (`warn_tokens`, `hard_tokens`, and optional
+  per-direction variants). Crossing a
   hard cap exits 2. See [features/budget.md](../features/budget.md).
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
@@ -195,11 +200,10 @@ Relevant `config.toml` sections:
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.
 - **Sandbox-by-default since v0.57.0.** `stado run` applies Landlock
-  + the broker-projected ceiling-runner by default on Linux; macOS
-  gets the ceiling-runner + sandbox-exec for tool execution but no
-  Linux-style whole-process narrowing. Windows v2 sandboxing is
-  still deferred. Pass `--no-sandbox` to opt out (NoneRunner, no
-  Landlock).
+  + the broker-projected ceiling-runner by default on the supported Linux
+  platform. Pass `--no-sandbox` to opt out (NoneRunner, no Landlock) and run
+  without the v1 containment posture. Darwin and Windows are outside the
+  current and v1 support contract (EP-0065).
 - **`--sandbox-fs` retired in v0.57.0.** The pre-v0.57.0 flag is
   gone with no deprecation alias; passing it produces an "unknown
   flag" error. The new default is the sandboxed mode; `--no-sandbox`
@@ -208,7 +212,7 @@ Relevant `config.toml` sections:
   may appear in chunks. Use `--json` for deterministic event
   boundaries.
 - **Hard cap check is turn-boundary.** A single very long turn can
-  overshoot a USD or token cap — the loop checks after the turn
+  overshoot a token cap — the loop checks after the turn
   completes. `hard_tokens` uses session-cumulative input plus output
   (v0.75.2 fixed per-turn input counting).
 - **AGENTS.md loading is cwd-walk.** Run from a subdirectory and
@@ -219,5 +223,5 @@ Relevant `config.toml` sections:
 - [session.md](session.md) — what `--session` operates on
 - [features/skills.md](../features/skills.md) — the `--skill` flag
 - [features/tasks.md](../features/tasks.md) — the shared `tasks` tool
-- [features/budget.md](../features/budget.md) — the cost gate
+- [features/budget.md](../features/budget.md) — token guardrails
 - [features/instructions.md](../features/instructions.md) — AGENTS.md loader

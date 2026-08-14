@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/personas"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 )
@@ -132,18 +133,6 @@ var acpCmd = &cobra.Command{
 		} else if acpMaxTurns > 0 {
 			cfg.ACP.MaxTurns = acpMaxTurns
 		}
-		// Resolve --resume up front so a bad query fails before the
-		// JSON-RPC loop opens. Friendly forms (prefix / description
-		// substring) only work here — session/new on the wire takes
-		// canonical UUIDs only.
-		var resumeID string
-		if acpResume != "" {
-			resolved, err := resolveSessionID(cfg, acpResume)
-			if err != nil {
-				return fmt.Errorf("acp: --resume: %w", err)
-			}
-			resumeID = resolved
-		}
 		// Resolve --persona up front for the same reason: bad name
 		// fails before any RPC opens. Per-call session/new still wins
 		// over this CLI default. resolvePersona returns nil only when
@@ -156,6 +145,26 @@ var acpCmd = &cobra.Command{
 				return fmt.Errorf("acp: %w", err)
 			}
 			defaultPersona = p
+		}
+		var personaPlugins []string
+		if defaultPersona != nil {
+			personaPlugins = defaultPersona.Plugins
+		}
+		if err := runtime.RequireLifecycleApplicationSurface(cfg, personaPlugins, runtime.ApplicationSurfaceACP); err != nil {
+			return fmt.Errorf("stado acp: %w", err)
+		}
+		// Resolve --resume only after the application-surface preflight. A
+		// configured lifecycle application must fail before even read-only
+		// persisted-session lookup, not merely before provider construction.
+		// Friendly forms (prefix / description substring) only work here —
+		// session/new on the wire takes canonical UUIDs only.
+		var resumeID string
+		if acpResume != "" {
+			resolved, err := resolveSessionID(cfg, acpResume)
+			if err != nil {
+				return fmt.Errorf("acp: --resume: %w", err)
+			}
+			resumeID = resolved
 		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 			// Broker attachment is default-on; STADO_BROKER_ATTACH=0 is the

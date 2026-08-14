@@ -208,6 +208,10 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 			Capabilities: info.Capabilities,
 			Tools:        []plugins.ToolDef{bareToolDef},
 		}
+		identity, err := plugins.RuntimeIdentityForBundledSource(info.Name, manifest)
+		if err != nil {
+			return fmt.Errorf("bundled identity: %w", err)
+		}
 		wasmBytes, err := bundled.Wasm(info.Name)
 		if err != nil {
 			return fmt.Errorf("bundled wasm load: %w", err)
@@ -215,6 +219,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		installDir, _ := os.Getwd()
 		return runPluginInvocation(ctx, pluginInvokeArgs{
 			Manifest:   manifest,
+			Identity:   identity,
 			WasmBytes:  wasmBytes,
 			ToolName:   bareToolDef.Name,
 			ArgsJSON:   argsJSON,
@@ -228,7 +233,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	}
 
 	// Installed-plugin path.
-	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+	if mfst, identity, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
 		// #023: registry construction (registerInstalledPluginTools) only
 		// checks the trust-store signature + wasm sha — it does NOT consult
 		// the configured CRL or transparency log. Without re-running the
@@ -274,6 +279,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		installDir, _ := os.Getwd()
 		return runPluginInvocation(ctx, pluginInvokeArgs{
 			Manifest:   mfst,
+			Identity:   identity,
 			WasmBytes:  wasmBytes,
 			ToolName:   bareName,
 			ArgsJSON:   argsJSON,

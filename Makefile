@@ -1,7 +1,7 @@
 # stado — Makefile
 #
 # Default target builds `./stado`. The release pipeline uses goreleaser
-# (see .goreleaser.yaml) for cross-platform + signed artefacts; this
+# (see .goreleaser.yaml) for signed Linux artefacts; this
 # file is for the local dev loop.
 
 GO       ?= go

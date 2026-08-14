@@ -309,7 +309,7 @@ func TestNarrowEffective_TerminatedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if err := svc.TerminateSession(handle.SessionID); err != nil {
+	if err := svc.TerminateSession(handle.SessionID, handle.controllerToken); err != nil {
 		t.Fatalf("TerminateSession: %v", err)
 	}
 	err = svc.NarrowEffective(handle.SessionID, sandbox.Policy{})

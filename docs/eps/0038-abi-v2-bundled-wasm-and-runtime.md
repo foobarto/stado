@@ -2,15 +2,29 @@
 ep: 38
 title: ABI v2, bundled wasm tools, and runtime surface
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-05-05
-implemented-in: v0.33.0
 extends: ["EP-0002"]
+extended-by: ["EP-0065", "EP-0066"]
 requires: ["EP-0037"]
-supersedes: ["EP-0013", "EP-0028", "EP-0034"]
-see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0014", "EP-0017", "EP-0029", "EP-0031", "EP-0035", "EP-0037"]
+supersedes: ["EP-0013", "EP-0034"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0014", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035", "EP-0037"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      EP-0065 replaces this EP's historical macOS/Windows host-integration and
+      packaging goals with Linux-only current and v1 support. The ABI,
+      capability, and all-tools-as-WASM decisions remain in force.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Corrected a false Implemented marker. Native model tools, incomplete
+      migration scaffolding, display-name authority namespaces, and production
+      paths without loader-authenticated runtime identity still violate this EP.
+      EP-0028 was only amended in scope, so its wholesale supersession metadata
+      is removed while its surviving path-anchor decisions remain live.
   - date: 2026-05-05
     status: Draft
     note: Initial draft. Restores EP-0002's "all tools as wasm plugins" invariant. Adds Tier 1/2/3 host-import surface, supersedes EP-0013 (subagent_spawn tool surface), supersedes EP-0034 (background agents fleet), amends EP-0028 (--with-tool-host becomes default; bash refusal becomes operator-controlled).
@@ -61,7 +75,7 @@ history:
       Bundled plugins that need a path use `cfg:state_dir/...` today.
 ---
 
-> **Relationships:** **Extends:** [EP-0002](./0002-all-tools-as-plugins.md) · **Requires:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Supersedes:** [EP-0013](./0013-subagent-spawn-tool.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0034](./0034-background-agents-fleet.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0014](./0014-multi-session-tui.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md)
+> **Relationships:** **Extends:** [EP-0002](./0002-all-tools-as-plugins.md) · **Extended by:** [EP-0065](./0065-linux-only-platform-scope.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **Requires:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Supersedes:** [EP-0013](./0013-subagent-spawn-tool.md), [EP-0034](./0034-background-agents-fleet.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0014](./0014-multi-session-tui.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md)
 
 # EP-0038: ABI v2, bundled wasm tools, and runtime surface
 

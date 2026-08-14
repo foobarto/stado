@@ -137,7 +137,22 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 		if err != nil {
 			return err
 		}
-		// EP-0038d: sandbox wrap-mode — re-exec under bwrap/firejail/sandbox-exec
+		// EP-0064: non-interactive run does not own a persistent lifecycle-
+		// application composition. Resolve the launch persona before doing any
+		// provider/session work so its additive plugin declarations participate
+		// in the same fail-closed surface check as global background plugins.
+		persona, personaErr := resolvePersona(runPersona, cfg)
+		if personaErr != nil {
+			fmt.Fprintf(os.Stderr, "stado run: %v\n", personaErr)
+		}
+		var personaPlugins []string
+		if persona != nil {
+			personaPlugins = persona.Plugins
+		}
+		if err := runtime.RequireLifecycleApplicationSurface(cfg, personaPlugins, runtime.ApplicationSurfaceRun); err != nil {
+			return fmt.Errorf("stado run: %w", err)
+		}
+		// EP-0038d: sandbox wrap-mode — re-exec under bwrap/firejail
 		// when [sandbox] mode = "wrap" and not already inside a wrapper.
 		if err := sandbox.MaybeRewrap(sandbox.WrapConfig{
 			Mode:           cfg.Sandbox.Mode,
@@ -268,10 +283,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				// no-tool-calls-remain or context cancellation.
 				maxTurns = math.MaxInt32
 			}
-			persona, perr := resolvePersona(runPersona, cfg)
-			if perr != nil {
-				fmt.Fprintf(os.Stderr, "stado run: %v\n", perr)
-			}
 			effectiveSkills, skErr := runtime.EffectiveSkills(promptWorkdir, persona)
 			if skErr != nil {
 				fmt.Fprintf(os.Stderr, "stado run: skills load: %v\n", skErr)
@@ -300,7 +311,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				System:               sysPrompt,
 				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
 				MemoryContext:        memoryContext,
-				CostCapUSD:           cfg.Budget.HardUSD,
 				TokenCap:             cfg.Budget.HardTokens,
 				InputTokenCap:        cfg.Budget.HardInputTokens,
 				OutputTokenCap:       cfg.Budget.HardOutputTokens,
@@ -445,10 +455,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				}
 			}
 			if loopErr != nil {
-				if errors.Is(loopErr, runtime.ErrCostCapExceeded) {
-					fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
-					return &exitCodeError{Code: 2, Err: loopErr}
-				}
 				if runLoopUsesExitCode2(loopErr) {
 					return &exitCodeError{Code: 2, Err: loopErr}
 				}
@@ -575,6 +581,13 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		}
 		defaultPersona = p
 	}
+	var personaPlugins []string
+	if defaultPersona != nil {
+		personaPlugins = defaultPersona.Plugins
+	}
+	if err := runtime.RequireLifecycleApplicationSurface(cfg, personaPlugins, runtime.ApplicationSurfaceHeadless); err != nil {
+		return fmt.Errorf("stado run --headless: %w", err)
+	}
 	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 		cwd, _ := os.Getwd()
 		brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
@@ -635,7 +648,7 @@ func init() {
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runNoTurnLimit, "no-turn-limit", false,
-		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Useful for long-running multi-step tasks where the cap is the wrong control surface (use --budget hard_usd or context timeout instead).")
+		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Use token budgets or context timeout for bounded long-running work.")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,

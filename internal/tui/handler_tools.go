@@ -367,7 +367,7 @@ func onPluginRunResult(m *Model, msg pluginRunResultMsg) (tea.Model, tea.Cmd) {
 
 func onPluginFork(m *Model, msg pluginForkMsg) (tea.Model, tea.Cmd) {
 	if m.recoveryPluginActive && msg.plugin == m.recoveryPluginName {
-		return m, m.adoptForkedSession(msg.childID, msg.seed)
+		return m, m.adoptForkedSession(msg.childID, msg.atTurnRef, msg.seed)
 	}
 	// A plugin's session:fork capability just created a child session.
 	// DESIGN invariant 4: this is user-visible by default. Show both the
@@ -501,5 +501,8 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	m.drainSuperviseAdvisorySteering()
 	m.drainSteering()
 	m.renderBlocks()
+	if command := m.applicationTurnBoundary(msg.results, applicationBoundaryContinueTools); command != nil {
+		return m, command
+	}
 	return m, m.startStream()
 }

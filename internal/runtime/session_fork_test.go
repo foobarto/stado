@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,6 +79,29 @@ func TestForkSessionAtTurn_RejectsZeroCommit(t *testing.T) {
 	_, err := ForkSessionAtTurn(cfg, parent, plumbing.ZeroHash)
 	if err == nil {
 		t.Fatal("expected zero atCommit to be rejected")
+	}
+}
+
+func TestForkSessionAtSnapshot_ZeroRemainsEmptyAfterParentMoves(t *testing.T) {
+	cfg, sc, _ := forestEnv(t)
+	parent := seedSession(t, cfg, sc, "parent", 0)
+	if err := os.WriteFile(filepath.Join(parent.WorktreePath, "later.txt"), []byte("later"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := parent.BuildTreeFromDir(parent.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parent.CommitToTree(tree, stadogit.CommitMeta{Tool: "write", Summary: "later parent state"}); err != nil {
+		t.Fatal(err)
+	}
+
+	child, err := ForkSessionAtSnapshot(cfg, parent, plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(child.WorktreePath, "later.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty pinned snapshot inherited later parent file: %v", err)
 	}
 }
 

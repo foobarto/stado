@@ -2,14 +2,20 @@
 ep: 62
 title: Harness-Enforced Supervised Work
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Accepted
 type: Standards
 created: 2026-08-13
-implemented-in: v0.80.0
 requires: ["EP-0004", "EP-0007", "EP-0056", "EP-0059"]
 extends: ["EP-0046", "EP-0060"]
+extended-by: ["EP-0064"]
 see-also: ["EP-0009", "EP-0033", "EP-0044", "EP-0057"]
 history:
+  - date: 2026-08-14
+    status: Accepted
+    note: EP-64 replaces this EP's marker-based shared-task implementation and trusted approval-drawer wording with broker-owned immutable input routing and a quality-only application decision over generic tool facts; central host/broker policy remains the security authority.
+  - date: 2026-08-14
+    status: Accepted
+    note: Corrected a premature implementation marker; v0.80.0 remains in flight and EP-64 realigns the implementation with the WASM architecture while preserving this product contract.
   - date: 2026-08-13
     status: Accepted
     note: Accepted after the supervision brainstorm fixed authority, lifecycle, failure, and model-profile semantics.
@@ -19,7 +25,7 @@ history:
     note: Shipped the durable /supervise state machine, event/live watchdogs, independent verifier, trusted wizard, task deferral, evidence tools, native detectors, and comparative eval kit.
 ---
 
-> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extends:** [EP-0046](./0046-verify-work-phase.md), [EP-0060](./0060-native-harness-guidance.md) · **See also:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md)
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extends:** [EP-0046](./0046-verify-work-phase.md), [EP-0060](./0060-native-harness-guidance.md) · **Extended by:** [EP-0064](./0064-wasm-lifecycle-applications.md) · **See also:** [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md)
 
 # EP-0062: Harness-Enforced Supervised Work
 

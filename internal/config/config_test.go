@@ -53,6 +53,21 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeTokenBudgetDropsInvalidThresholds(t *testing.T) {
+	budget := Budget{
+		WarnTokens: -1, HardTokens: -2,
+		WarnInputTokens: 100, HardInputTokens: 100,
+		WarnOutputTokens: 50, HardOutputTokens: 40,
+	}
+	normalizeTokenBudget(&budget)
+	if budget.WarnTokens != 0 || budget.HardTokens != 0 || budget.HardInputTokens != 0 || budget.HardOutputTokens != 0 {
+		t.Fatalf("normalized budget = %#v", budget)
+	}
+	if budget.WarnInputTokens != 100 || budget.WarnOutputTokens != 50 {
+		t.Fatalf("valid warning thresholds changed: %#v", budget)
+	}
+}
+
 func TestLoadCustomTUIThinkingDisplay(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)

@@ -30,14 +30,14 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerUIApprovalImport(builder, host)
 	registerUIChooseImport(builder, host)
 	registerUIPrintImport(builder, host)
-	// F9b.1: stado_ui_render — structured-panel emit gated by
-	// ui:render. Bridge implementations land in F9b.2 (TUI) /
-	// F9b.3-5 (ACP/MCP/headless); host scaffolding ships first.
+	// EP-0064: stado_ui_render is a structured-panel emit gated by
+	// ui:render. Supported surfaces wire RenderBridge explicitly.
 	registerUIRenderImport(builder, host)
 	registerFSImports(builder, host)
 	registerSessionImports(builder, host)
 	registerLLMImport(builder, host)
-	registerMemoryImports(builder, host)
+	registerArtifactImports(builder, host)
+	registerApplicationImports(builder, host)
 	registerCfgImports(builder, host)
 	registerPTYImports(builder, host)
 	installNativeToolImports(builder, host)

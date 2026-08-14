@@ -29,13 +29,14 @@ Candidate review is available without starting another model turn:
 ```text
 /learn candidates
 /learn show art_...
-/learn approve art_...
 ```
 
-Approval is intentionally unavailable through ordinary `stado learn approve`.
-An agent can invoke a CLI through a shell, so that is not proof of operator
-intent. The interactive approval path creates a one-use broker grant bound to
-the exact artifact version, body, scope, and actor before committing activation.
+Activation is intentionally unavailable through ordinary `stado learn` and is
+being removed from the in-process TUI path. An agent can invoke a CLI, and a
+hostile orchestrator can forge its own callback, so neither proves operator
+intent. Activation remains withheld until a broker-owned predeclared policy or
+separately trusted presenter can authorize the exact artifact version, body,
+scope, and actor.
 
 ## Commands
 

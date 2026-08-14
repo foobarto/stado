@@ -7,11 +7,21 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+type tuiScheduleBroker struct {
+	failingTaintBroker
+	status runtime.ScheduleStatus
+}
+
+func (b tuiScheduleBroker) CheckSchedule(context.Context) (runtime.ScheduleStatus, error) {
+	return b.status, nil
+}
 
 // The interactive TUI streams the provider call directly (not through
 // runtime.AgentLoop), so the pre_llm / post_llm lifecycle points must be
@@ -86,6 +96,24 @@ func TestTUI_PreLLM_DenyAbortsTurn(t *testing.T) {
 	}
 	if !hasSystemBlockContaining(m, "policy says no") {
 		t.Fatalf("expected a system block naming the deny reason; blocks=%v", blockKinds(m))
+	}
+}
+
+func TestTUIBrokerHoldBlocksProviderBeforeLifecycle(t *testing.T) {
+	prov := &captureReqProvider{done: make(chan struct{})}
+	m := newLifecycleTestModel(t, prov)
+	m.broker = tuiScheduleBroker{status: runtime.ScheduleStatus{State: runtime.ScheduleHeld, ReasonCode: "watchdog.review"}}
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hello")}
+	if cmd := m.startStream(); cmd != nil {
+		t.Fatal("held turn returned stream command")
+	}
+	select {
+	case <-prov.done:
+		t.Fatal("provider started while broker hold was active")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if !hasSystemBlockContaining(m, "watchdog.review") {
+		t.Fatalf("hold reason not surfaced: %+v", m.blocks)
 	}
 }
 

@@ -60,10 +60,26 @@ var allBridgeImports = []thunkImport{
 	{"stado_session_next_event", 2, true},
 	{"stado_session_fork", 6, true},
 	{"stado_llm_invoke", 4, true},
-	// MemoryBridge
-	{"stado_memory_propose", 2, true},
-	{"stado_memory_query", 4, true},
-	{"stado_memory_update", 2, true},
+	// ArtifactBridge
+	{"stado_artifact_propose", 4, true},
+	{"stado_artifact_query", 4, true},
+	{"stado_artifact_edit", 4, true},
+	{"stado_artifact_observe", 4, true},
+	// ApplicationBridge
+	{"stado_session_journal_append", 4, true},
+	{"stado_session_projection_read", 4, true},
+	{"stado_session_hold_acquire", 4, true},
+	{"stado_session_hold_release", 4, true},
+	{"stado_session_request_pause", 4, true},
+	{"stado_session_request_stop", 4, true},
+	{"stado_session_complete", 4, true},
+	{"stado_session_input_route", 4, true},
+	{"stado_session_input_claim", 4, true},
+	{"stado_session_worker_request", 4, true},
+	{"stado_session_worker_resume", 4, true},
+	{"stado_session_worker_cancel", 4, true},
+	{"stado_timer_schedule", 4, true},
+	{"stado_timer_cancel", 4, true},
 	// ApprovalBridge
 	{"stado_ui_approve", 4, true},
 	// ChoiceBridge
@@ -102,9 +118,13 @@ func (h *bridgeHarness) withCaps(caps ...string) *bridgeHarness {
 	m := h.host.Manifest
 	m.Capabilities = append(append([]string{}, m.Capabilities...), caps...)
 	newH := NewHost(m, h.host.Workdir, h.host.Logger)
+	newH.Identity = h.host.Identity
+	newH.ApplicationAnchor = h.host.ApplicationAnchor
 	// Carry forward any bridges already wired.
 	newH.SessionBridge = h.host.SessionBridge
-	newH.MemoryBridge = h.host.MemoryBridge
+	newH.ArtifactBridge = h.host.ArtifactBridge
+	newH.ArtifactCaller = h.host.ArtifactCaller
+	newH.ApplicationBridge = h.host.ApplicationBridge
 	newH.ApprovalBridge = h.host.ApprovalBridge
 	newH.ChoiceBridge = h.host.ChoiceBridge
 	newH.FleetBridge = h.host.FleetBridge
@@ -116,8 +136,8 @@ func (h *bridgeHarness) withSessionBridge(b SessionBridge) *bridgeHarness {
 	h.host.SessionBridge = b
 	return h
 }
-func (h *bridgeHarness) withMemoryBridge(b MemoryBridge) *bridgeHarness {
-	h.host.MemoryBridge = b
+func (h *bridgeHarness) withArtifactBridge(b ArtifactBridge) *bridgeHarness {
+	h.host.ArtifactBridge = b
 	return h
 }
 func (h *bridgeHarness) withApprovalBridge(b ApprovalBridge) *bridgeHarness {
@@ -130,6 +150,17 @@ func (h *bridgeHarness) withChoiceBridge(b ChoiceBridge) *bridgeHarness {
 }
 func (h *bridgeHarness) withFleetBridge(b FleetBridge) *bridgeHarness {
 	h.host.FleetBridge = b
+	return h
+}
+
+func (h *bridgeHarness) withApplicationScope(sessionID string, generation uint64) *bridgeHarness {
+	h.t.Helper()
+	identity, err := plugins.RuntimeIdentityForLocal(h.host.Manifest)
+	if err != nil {
+		h.t.Fatalf("derive test application identity: %v", err)
+	}
+	h.host.Identity = identity
+	h.host.ApplicationAnchor = ApplicationAnchor{SessionID: sessionID, SessionGeneration: generation}
 	return h
 }
 

@@ -90,12 +90,15 @@ func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
 	if m.fleet == nil {
 		m.fleet = runtime.NewFleet()
 	}
-	fn := m.buildSubagentSpawner()
-	if fn == nil {
+	runner, ok := m.buildSubagentRunner()
+	if !ok {
 		m.appendBlock(block{kind: "system", body: "spawn: provider not ready — wait for session init"})
 		return nil
 	}
-	spawner := spawnerFunc(fn)
+	var spawner runtime.Spawner = runner
+	if publisher, ok := m.broker.(runtime.ApplicationEventPublisher); ok {
+		spawner = runtime.ApplicationEventLeasedSpawner(spawner, publisher)
+	}
 	id, err := m.fleet.Spawn(m.rootCtx, spawner, prompt, runtime.SpawnOptions{
 		Provider:        m.providerDisplayName(),
 		Model:           m.model,
@@ -235,6 +238,28 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	if parts[0] == "/skill" || strings.HasPrefix(parts[0], "/skill:") {
 		return m.handleSkillSlash(parts)
 	}
+	// Signed application commands are routed into the already-admitted
+	// persistent instance. The host selects the manifest-declared name; only
+	// the remaining text is guest input. This check intentionally precedes the
+	// legacy built-in switch so an explicitly configured migration application
+	// can replace its old native command during the pre-v1 deletion window.
+	if application := m.applicationCommands[strings.TrimPrefix(parts[0], "/")]; application != nil {
+		if m.applicationCommandRunning || m.applicationWorkerHandoffRunning {
+			m.appendBlock(block{kind: "system", body: "application command already running"})
+			return nil
+		}
+		name := strings.TrimPrefix(parts[0], "/")
+		args := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+		commandCtx := m.rootCtx
+		if commandCtx == nil {
+			commandCtx = context.Background()
+		}
+		m.applicationCommandRunning = true
+		return func() tea.Msg {
+			result, err := application.Application.RunCommand(commandCtx, name, args)
+			return applicationCommandResultMsg{name: name, application: application, result: result, err: err}
+		}
+	}
 	switch parts[0] {
 	case "/clear":
 		if m.verifying {
@@ -259,7 +284,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// Wiping the conversation also halts the background loop/monitor that
 		// were driving it (dead ↻ indicator + orphan monitor goroutine
 		// otherwise). Silent — the block list is blanked just below.
-		m.stopBackgroundActivity()
+		backgroundStop := m.stopBackgroundActivity()
 		m.blocks = nil
 		m.msgs = nil
 		m.queuedPrompt = ""
@@ -270,6 +295,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.turnToolCalls = nil
 		m.activatedTools = nil // EP-0037 lazy-load: clear per-session activations on /clear
 		m.renderBlocks()
+		return backgroundStop
 	case "/help":
 		m.showHelp = true
 		m.helpScroll = 0
@@ -1056,27 +1082,14 @@ func (m *Model) handleRetrySlash() tea.Cmd {
 //	/budget ack            → set budgetAcked = true (unblocks turns)
 //	/budget reset          → clear budgetAcked so the next breach re-blocks
 //
-// Raising the actual cap numbers is deliberately not exposed as a
-// runtime mutation — the cap lives in config.toml so cost controls
-// survive a session restart.
+// Raising caps is deliberately not exposed as a runtime mutation; token
+// ceilings live in config.toml so they survive a session restart.
 func (m *Model) handleBudgetSlash(parts []string) {
 	if len(parts) == 1 {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("cost so far: $%.4f\n", m.usage.CostUSD))
-		if m.budgetWarnUSD > 0 {
-			sb.WriteString(fmt.Sprintf("warn cap (USD): $%.2f\n", m.budgetWarnUSD))
-		} else {
-			sb.WriteString("warn cap (USD): (unset)\n")
-		}
-		if m.budgetHardUSD > 0 {
-			sb.WriteString(fmt.Sprintf("hard cap (USD): $%.2f\n", m.budgetHardUSD))
-		} else {
-			sb.WriteString("hard cap (USD): (unset)\n")
-		}
-		// Token caps. Only shown when at least one is configured —
-		// USD-only users (the common case) don't need the extra noise,
-		// but token-budget users (local runners with CostUSD always 0)
-		// must see why a turn is blocked. Mirrors budgetExceeded's set.
+		sb.WriteString("cost is observational; v1 budget enforcement is token-only\n")
+		// Token caps are shown when configured. Mirrors budgetExceeded's set.
 		if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
 			m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
 			m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
@@ -1237,7 +1250,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	// (and e.Registry) without locking, so refuse while a turn is streaming
 	// — otherwise swapping the executor/registry here races the in-flight
 	// call. The operator reloads between turns.
-	if m.state == stateStreaming {
+	if m.state == stateStreaming || m.applicationPollRunning || m.applicationCommandRunning || m.applicationWorkerHandoffRunning || m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning {
 		m.appendBlock(block{kind: "system", body: "/reload: busy — wait for the current turn to finish (a tool may be running)"})
 		return nil
 	}
@@ -1258,6 +1271,9 @@ func (m *Model) handleConfigReload() tea.Cmd {
 			ne.Registry = newReg
 			m.executor = &ne
 			runtime.PinInvokeExecutor(newReg, m.executor)
+			for _, warning := range m.rebindLifecycleApplications(m.rootCtx, newCfg) {
+				m.appendBlock(block{kind: "system", body: "/reload: " + warning})
+			}
 			tools = len(newReg.All())
 		} else {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
@@ -1289,7 +1305,6 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	m.sidebarSections = normalizeSidebarSections(newCfg.TUI.Sidebar.Sections)
 	m.footerSegments = normalizeFooterSegments(newCfg.TUI.Footer.Segments)
 	m.SetContextThresholds(newCfg.Context.SoftThreshold, newCfg.Context.HardThreshold)
-	m.SetBudget(newCfg.Budget.WarnUSD, newCfg.Budget.HardUSD)
 	m.SetBudgetTokens(newCfg.Budget.WarnTokens, newCfg.Budget.HardTokens)
 	m.SetBudgetTokensSplit(newCfg.Budget.WarnInputTokens, newCfg.Budget.HardInputTokens, newCfg.Budget.WarnOutputTokens, newCfg.Budget.HardOutputTokens)
 
@@ -1314,6 +1329,10 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "/plugin reload: no executor (run inside a session)"})
 		return nil
 	}
+	if m.applicationPollRunning || m.applicationCommandRunning || m.applicationWorkerHandoffRunning || m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: busy — wait for the lifecycle application callback to finish"})
+		return nil
+	}
 	// Use the full composition (MCP attach + wasm migration + overrides +
 	// tool filter), not the bare default registry — otherwise /plugin reload
 	// re-registers tools the operator disabled via [tools].enabled/disabled,
@@ -1327,6 +1346,9 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 	ne.Registry = newReg
 	m.executor = &ne
 	runtime.PinInvokeExecutor(newReg, m.executor)
+	for _, warning := range m.rebindLifecycleApplications(m.rootCtx, m.cfg) {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: " + warning})
+	}
 
 	// The plugin set may have changed (a disabled/uninstalled plugin drops
 	// out). Flush plugin-contributed chrome so a removed plugin's sidebar/
@@ -1455,6 +1477,11 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "plugin verify: " + err.Error()})
 		return nil
 	}
+	identity, err := runtime.RuntimeIdentityForPluginDir(pluginDir, *mf)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin identity: " + err.Error()})
+		return nil
+	}
 
 	// No tool name → describe the plugin and list its tools.
 	if len(parts) < 2 {
@@ -1490,7 +1517,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m}, tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
+	return runPluginToolAsync(m.cfg, pluginDir, mf, identity, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(identity.Canonical), tuiApprovalBridge{model: m}, tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 }
 
 // toolManageVerbs is the set of /tool sub-verbs that flow to the
@@ -1636,6 +1663,11 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			Capabilities: info.Capabilities,
 			Tools:        []plugins.ToolDef{bareToolDef},
 		}
+		identity, err := plugins.RuntimeIdentityForBundledSource(info.Name, manifest)
+		if err != nil {
+			m.appendBlock(block{kind: "system", body: "tool: bundled identity: " + err.Error()})
+			return nil
+		}
 		cwd, _ := os.Getwd()
 		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
 		if canonical == "" {
@@ -1646,13 +1678,13 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			body: fmt.Sprintf("tool %s: invoking…", canonical),
 		})
 		m.renderBlocks()
-		return runPluginToolAsync(cfg, cwd, &manifest, bareToolDef, argsJSON,
-			manifest.Name, wasmBytes, m.buildPluginBridge(manifest.Name), approval,
+		return runPluginToolAsync(cfg, cwd, &manifest, identity, bareToolDef, argsJSON,
+			manifest.Name, wasmBytes, m.buildPluginBridge(identity.Canonical), approval,
 			tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 	}
 
 	// Installed-plugin tool dispatch.
-	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+	if mfst, identity, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
 		wasmBytes, err := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
 		if err != nil {
 			m.appendBlock(block{kind: "system", body: "tool: verify: " + err.Error()})
@@ -1681,9 +1713,9 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			body: fmt.Sprintf("tool %s: invoking…", canonical),
 		})
 		m.renderBlocks()
-		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, *tdef, argsJSON,
+		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, identity, *tdef, argsJSON,
 			mfst.Name+"-"+mfst.Version, wasmBytes,
-			m.buildPluginBridge(mfst.Name), approval,
+			m.buildPluginBridge(identity.Canonical), approval,
 			tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 	}
 

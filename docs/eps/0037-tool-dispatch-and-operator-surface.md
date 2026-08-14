@@ -7,9 +7,21 @@ type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
 extends: ["EP-0017", "EP-0035"]
-extended-by: []
-see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035"]
+extended-by: ["EP-0050", "EP-0065", "EP-0066"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035", "EP-0050"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      EP-0065 replaces this EP's historical macOS/degraded-platform containment
+      claims with Linux-only current and v1 support. The dispatch, capability,
+      and operator-policy boundary remains in force.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      EP-0050 explicitly replaces this EP's permissive-by-default containment
+      posture with broker/sandbox-first admission. The plugin-policy and tool
+      dispatch boundary remains in force.
   - date: 2026-05-05
     status: Draft
     note: Initial draft. Companion to EP-0038 (ABI v2 + bundled wasm) and EP-0039 (plugin distribution and trust). Captures the philosophy + dispatch model decided across the EP-0037/0038/0039 design conversation.
@@ -57,7 +69,7 @@ history:
       unless --force, and resolves bundled + installed uniformly.
 ---
 
-> **Relationships:** **Extends:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0035](./0035-project-local-stado-dir.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md)
+> **Relationships:** **Extends:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0035](./0035-project-local-stado-dir.md) · **Extended by:** [EP-0050](./0050-broker.md), [EP-0065](./0065-linux-only-platform-scope.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md), [EP-0050](./0050-broker.md)
 
 # EP-0037: Tool dispatch, naming, and operator surface
 

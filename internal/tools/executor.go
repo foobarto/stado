@@ -55,6 +55,14 @@ type Executor struct {
 	// the result/error the model sees; deny -> replace the result with
 	// the reason). Nil / empty is a no-op — the common case. F1 seam.
 	Hooks *hooks.LifecycleRunner
+	// DispatchGate is the final host-enforced scheduling seam. It runs before
+	// every tool lookup or hook so a durable lifecycle-application hold cannot
+	// be bypassed by alternate call paths or an already-queued invocation.
+	DispatchGate DispatchGate
+}
+
+type DispatchGate interface {
+	BeforeTool(context.Context) error
 }
 
 // Run invokes a tool by name. Returns the tool result and writes the commit
@@ -72,6 +80,11 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 				))
 		}
 	}()
+	if e.DispatchGate != nil {
+		if err := e.DispatchGate.BeforeTool(ctx); err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
+	}
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}

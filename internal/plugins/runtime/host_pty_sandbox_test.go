@@ -13,7 +13,7 @@ import (
 // nativeSandboxAvailable reports whether a real confinement runner exists here.
 func nativeSandboxAvailable(t *testing.T) {
 	t.Helper()
-	if n := sandbox.Detect().Name(); n == "none" || n == "windows-passthrough" {
+	if n := sandbox.Detect().Name(); n == "none" {
 		t.Skipf("no native sandbox runner (%s)", n)
 	}
 }
@@ -33,8 +33,8 @@ func TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet(t *testing.T) {
 	if out.PreparedCmd == nil {
 		t.Fatal("expected a sandbox-wrapped PreparedCmd")
 	}
-	// The wrapper runs the detected runner binary (bwrap on Linux, sandbox-exec
-	// on macOS) — assert against the actual runner, not a hardcoded name (Codex).
+	// The wrapper runs the detected Linux runner — assert against the actual
+	// runner, not a hardcoded name.
 	if runner := sandbox.Detect().Name(); !strings.Contains(out.PreparedCmd.Path, runner) {
 		t.Errorf("PreparedCmd should run the %q runner; Path=%q", runner, out.PreparedCmd.Path)
 	}

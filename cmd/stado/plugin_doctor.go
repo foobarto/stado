@@ -15,7 +15,7 @@ import (
 
 // pluginDoctorCmd inspects an installed plugin and emits a
 // surface-compatibility report. Solves the "I built a plugin, ran
-// it, got `stado_http_get returned -1` — now what?" first-time-author
+// it, got a host-import capability error — now what?" first-time-author
 // pain. Doctor parses the manifest's declared capabilities and tells
 // the operator which `stado tool run` flag combination (or which
 // surface entirely) the plugin needs. (`plugin run` was removed in
@@ -81,6 +81,7 @@ const (
 	requireSession                                // needs `--session <id>` (or full agent loop)
 	requireFullAgentLoop                          // ONLY works in TUI / `stado run`
 	requireUIApproval                             // needs an approval bridge — TUI/headless agent loop
+	requireUnsupported                            // removed/invalid cap; no execution surface can satisfy it
 )
 
 type capabilityNote struct {
@@ -103,9 +104,17 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "absolute path; resolves identically on any surface"
 		return cn
-	case cap == "net:http_get" || strings.HasPrefix(cap, "net:"):
-		cn.requirement = requireToolHost
-		cn.note = "bundled-tool import (stado_http_get); provided by `stado tool run`"
+	case cap == "net:http_request" || strings.HasPrefix(cap, "net:http_request:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_http_request primitive; optional :<host> suffix narrows the host allowlist"
+		return cn
+	case cap == "net:http_request_private":
+		cn.requirement = requireNothing
+		cn.note = "allows stado_http_request to reach private, loopback, and link-local addresses"
+		return cn
+	case cap == "terminal:open" || strings.HasPrefix(cap, "terminal:open:"):
+		cn.requirement = requireUnsupported
+		cn.note = "removed capability; use exec:pty[:<binary-glob>]"
 		return cn
 	case cap == "exec:bash" || cap == "exec:shallow_bash":
 		cn.requirement = requireFullAgentLoop
@@ -182,7 +191,11 @@ func classifyCapability(cap string) capabilityNote {
 		return cn
 	case cap == "net:icmp":
 		cn.requirement = requireNothing
-		cn.note = "stado_net_icmp_echo — ICMP echo (ping). Tries unprivileged ICMP first (Linux ping_group_range / macOS default); falls back to raw if available. Set net.ipv4.ping_group_range or grant CAP_NET_RAW if echoes return 'operation not permitted'."
+		cn.note = "stado_net_icmp_echo — ICMP echo (ping). Tries Linux unprivileged ICMP first, then raw if available. Set net.ipv4.ping_group_range or grant CAP_NET_RAW if echoes return 'operation not permitted'."
+		return cn
+	case strings.HasPrefix(cap, "net:"):
+		cn.requirement = requireUnsupported
+		cn.note = "unsupported plugin capability; use an explicit net:http_request, net:dial, net:listen, net:http_client, net:multicast, or net:icmp capability"
 		return cn
 	case cap == "dns:resolve":
 		cn.requirement = requireNothing
@@ -378,6 +391,7 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 	hasSession := false
 	hasFullLoopOnly := false
 	hasUIApproval := false
+	hasUnsupported := false
 	for _, c := range mf.Capabilities {
 		cn := classifyCapability(c)
 		notes = append(notes, cn)
@@ -395,6 +409,8 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 			hasFullLoopOnly = true
 		case requireUIApproval:
 			hasUIApproval = true
+		case requireUnsupported:
+			hasUnsupported = true
 		}
 	}
 
@@ -417,32 +433,34 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 
 	// Per-surface compatibility.
 	b.WriteString("Compatible surfaces:\n")
-	fmt.Fprintf(&b, "  %s stado run / TUI                       full agent loop — always satisfies every capability above\n", "✓")
-
-	plainOK := !hasWorkdir && !hasSession && !hasFullLoopOnly && !hasUIApproval
 	mark := func(ok bool) string {
 		if ok {
 			return "✓"
 		}
 		return "✗"
 	}
+	fullLoopOK := !hasUnsupported
+	fmt.Fprintf(&b, "  %s stado run / TUI                       %s\n",
+		mark(fullLoopOK), surfaceReason(fullLoopOK, false, false, false, false, hasUnsupported, "full"))
+
+	plainOK := !hasWorkdir && !hasSession && !hasFullLoopOnly && !hasUIApproval && !hasUnsupported
 	fmt.Fprintf(&b, "  %s stado tool run                        %s\n",
 		mark(plainOK),
-		surfaceReason(plainOK, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, "plain"))
+		surfaceReason(plainOK, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported, "plain"))
 
-	workdirOK := !hasSession && !hasFullLoopOnly && !hasUIApproval
+	workdirOK := !hasSession && !hasFullLoopOnly && !hasUIApproval && !hasUnsupported
 	fmt.Fprintf(&b, "  %s stado tool run --workdir=$PWD         %s\n",
 		mark(workdirOK),
-		surfaceReason(workdirOK, false, hasSession, hasFullLoopOnly, hasUIApproval, "workdir"))
+		surfaceReason(workdirOK, false, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported, "workdir"))
 
-	sessionOK := !hasFullLoopOnly && !hasUIApproval
+	sessionOK := !hasFullLoopOnly && !hasUIApproval && !hasUnsupported
 	fmt.Fprintf(&b, "  %s stado tool run --session <id>%s        %s\n",
 		mark(sessionOK),
 		spaceForWorkdir(hasWorkdir),
-		surfaceReason(sessionOK, false, false, hasFullLoopOnly, hasUIApproval, "session"))
+		surfaceReason(sessionOK, false, false, hasFullLoopOnly, hasUIApproval, hasUnsupported, "session"))
 
 	b.WriteString("\nSuggested invocation:\n  ")
-	b.WriteString(suggestInvocation(mf, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval))
+	b.WriteString(suggestInvocation(mf, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported))
 	b.WriteString("\n")
 	return b.String(), nil
 }
@@ -454,9 +472,11 @@ func spaceForWorkdir(hasWorkdir bool) string {
 	return ""
 }
 
-func surfaceReason(ok bool, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval bool, surface string) string {
+func surfaceReason(ok bool, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported bool, surface string) string {
 	if ok {
 		switch surface {
+		case "full":
+			return "full agent loop — satisfies every supported capability above"
 		case "plain":
 			return "no flag-gated capabilities"
 		case "workdir":
@@ -473,6 +493,9 @@ func surfaceReason(ok bool, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApprov
 		return ""
 	}
 	var why []string
+	if hasUnsupported {
+		why = append(why, "manifest contains a removed or unsupported capability")
+	}
 	if hasWorkdir && surface == "plain" {
 		why = append(why, "needs --workdir")
 	}
@@ -488,7 +511,10 @@ func surfaceReason(ok bool, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApprov
 	return strings.Join(why, "; ")
 }
 
-func suggestInvocation(mf *plugins.Manifest, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval bool) string {
+func suggestInvocation(mf *plugins.Manifest, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported bool) string {
+	if hasUnsupported {
+		return "Fix the removed or unsupported manifest capability before running this plugin."
+	}
 	if hasFullLoopOnly || hasUIApproval {
 		return "Use the TUI / `stado run`. Plugins with `exec:bash` or `ui:approval` cannot run from `tool run`."
 	}

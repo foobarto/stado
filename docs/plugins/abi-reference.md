@@ -19,18 +19,20 @@ see [`docs/features/plugin-authoring.md`](../features/plugin-authoring.md).
 A stado plugin is a WebAssembly module compiled for `wasip1` (Go,
 Rust, Zig, AssemblyScript — whatever produces a WASI-compatible
 `.wasm`). The host loads the module via [wazero](https://wazero.io/)
-inside a sandboxed runtime; one runtime per plugin invocation, torn
-down on return.
+inside a sandboxed runtime. Ordinary tools use a fresh module per invocation.
+A manifest-declared lifecycle application instead receives one persistent,
+serialized module for an exact canonical plugin/session/generation tuple; see
+[§10.2](#102-lifecycle-application-contract).
 
 ### 1.1 Required exports
 
-Every module **must** export:
+Every loaded module **must** export:
 
 | Export | Signature | Purpose |
 |---|---|---|
 | `stado_alloc` | `(size i32) → i32` | Allocate a buffer in linear memory; return its base pointer (or 0 on failure). The host calls this to hand args + result buffers to the plugin. |
 | `stado_free` | `(ptr i32, size i32) → ()` | Free a previously-allocated buffer. The host calls this after a tool invocation. |
-| `stado_tool_<name>` | `(args_ptr i32, args_len i32, result_ptr i32, result_max i32) → i32` | One per tool the manifest declares. Returns bytes written to result (positive), or `-N` to signal an error envelope was written instead (see §5). |
+| `stado_tool_<name>` | `(args_ptr i32, args_len i32, result_ptr i32, result_max i32) → i32` | Required once for each tool the manifest declares. A lifecycle-only application may declare no tools. Returns bytes written to result (positive), or `-N` to signal an error envelope was written instead (see §5). A lifecycle application uses the same persistent instance for these exports. |
 
 Wasm names use snake_case; the host strips `stado_tool_` to get the
 tool's bare name, then maps it to wire form (`<plugin>__<tool>`) for
@@ -42,7 +44,10 @@ the registry. See §13 for full naming rules.
 |---|---|
 | `stado_plugin_init` | One-shot init called once after instantiation, before any tool call. Use for bootstrapping caches, opening long-lived handles. |
 | `stado_plugin_close` | Called before the runtime is torn down. Last chance to flush state. |
-| `stado_plugin_tick` | Background-plugin tick. Called periodically when the plugin is registered as a background plugin. |
+| `stado_plugin_tick` | Periodic tick for a legacy background plugin or persistent lifecycle application. |
+| `stado_plugin_lifecycle` | Required when `lifecycle.points` is non-empty. Receives one bounded `stado.dev/lifecycle/v1` envelope and returns a strict lifecycle decision. |
+| `stado_plugin_event` | Required when `lifecycle.events` is non-empty. Receives one durable broker event and returns exactly `{"status":"ack"}` or `{"status":"unregister"}`. |
+| `stado_plugin_command` | Required when `commands` is non-empty. Receives one host-selected `stado.dev/application-command/v1` envelope and returns a strict bounded command result. Each declaration may sign an independent `timeout_ms` up to 15 minutes for interactive UI workflows; zero inherits the lifecycle timeout. |
 
 ### 1.3 Required imports
 
@@ -101,31 +106,34 @@ the args JSON or omit the field.
 
 ## 3. Calling convention
 
-Wasm imports are plain functions; they take `i32`/`i64` parameters
-and return at most one value. There is no host-side multithreading
-or callbacks (despite a few imports being named `_observe` etc. —
-those are polling shims, see §5.4).
+WASM imports are plain synchronous functions; they take `i32`/`i64`
+parameters and return at most one value. Persistent applications additionally
+expose the serialized host-entry functions below.
 
-### 3.1 Synchronous, no callbacks
+### 3.1 Synchronous serialized entry
 
-Every host import is synchronous. The wasm caller blocks until the
-host returns. There is no callback ABI — when an event-style API
-is needed (session events, agent fleet output) the host exposes a
-**polling** import that returns 0 when no event is available right
-now.
+Every host import is synchronous. The WASM caller blocks until the host
+returns. Ordinary tools do not receive callbacks while an import is on their
+stack.
 
-This is a deliberate constraint: no closures cross the boundary;
-no host-side timer fires into wasm; no goroutines call back. It
-keeps the security model simple — every cross-boundary effect is on
-the wasm side's stack.
+A lifecycle application has additional host-initiated entry points:
+`stado_plugin_lifecycle`, `stado_plugin_event`, `stado_plugin_command`,
+`stado_plugin_tick`, and its declared `stado_tool_*` exports. The host admits
+all of them through one context-aware serialization gate; the module is never
+re-entered concurrently. Durable events are delivered and acknowledged in
+broker WAL order. A trap, timeout, cancellation, or malformed result leaves an
+event pending for replay instead of advancing the cursor.
+
+No closure or native pointer crosses the boundary. Timers and agent completion
+become broker events and enter the same serialized dispatcher; they do not
+invoke arbitrary guest code from a host goroutine.
 
 ### 3.2 No host-managed wasm threads
 
-The host runs one wasm module per plugin call. Concurrent plugin
-calls each get their own runtime. Inside the module, you can use
-goroutines (Go) or wasm threads (where supported) freely, but they
-share linear memory — pin pointers (Go: `runtime.KeepAlive`) before
-handing them to the host.
+Ordinary tool calls each get their own runtime. A lifecycle application keeps
+one module but the host never calls it concurrently. Inside a module, plugin
+code remains responsible for its own goroutines and shared linear memory; pin
+pointers (Go: `runtime.KeepAlive`) before handing them to the host.
 
 ---
 
@@ -181,7 +189,7 @@ handles**: a 32-bit ID prefixed with a stable type tag.
 | Tag | Resource | Allocator | Imports that produce it | Imports that consume it |
 |---|---|---|---|---|
 | `proc` | One-shot subprocess | `stado_proc_spawn`, `stado_exec` | proc_read/write/wait/kill/close |
-| `term` | PTY-backed terminal session | `stado_pty_create`, `stado_terminal_open` | pty_read/write/resize/signal/destroy/list/snapshot (no attach — EP-0043) |
+| `term` | PTY-backed terminal session | `stado_pty_create` | pty_read/write/resize/signal/destroy/list/snapshot/expect (no attach — EP-0043) |
 | `agent` | Sub-agent in the fleet | `stado_agent_spawn` | agent_list/read_messages/send_message/cancel |
 | `session` | Forked stado session | `stado_session_fork` | (operator-facing — referenced by session ID, not handle) |
 | `plugin` | Reference to another loaded plugin | (internal — used by `tool:invoke`) | — |
@@ -309,6 +317,7 @@ either get a partial result (binary streaming reads) or `-1`
 | stado_progress payload | per-call | 4 KiB |
 | stado_json_get / _format input | per-call | 256 KiB |
 | Session field (e.g. `history`) | per-call | bounded by session size |
+| Artifact request | per-call | 1 MiB |
 
 ### 7.2 Truncation strategies
 
@@ -331,7 +340,9 @@ Different imports handle "buffer too small" differently:
 Capabilities are declared in the manifest's `capabilities` array.
 Each cap is a colon-separated string. The host parses these at
 plugin-load time and gates every import call against the resulting
-allowlist. **Lacking the cap → import returns -1, never crashes.**
+allowlist. **Lacking the cap fails closed and never crashes:** most imports
+return `-1`; the generic artifact imports use their documented `-n` buffered
+error form.
 
 ### 8.1 Cap shapes
 
@@ -339,7 +350,6 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 |---|---|
 | `fs:read:<abs-or-rel-path>` | `stado_fs_read` of paths under that prefix. Relative paths resolve against the host's `Workdir`. |
 | `fs:write:<abs-or-rel-path>` | `stado_fs_write` |
-| `net:http_get` | DEAD — gated the removed `stado_http_get`; parses but unlocks nothing. Use `net:http_request[:<host>]` |
 | `net:http_request[:<host>]` | `stado_http_request` and `_stream` (optional host allowlist) |
 | `net:http_request_private` | Loosens dial guard to RFC1918 / loopback / link-local |
 | `net:http_client` | `stado_http_client_*` (cookie-jar HTTP) |
@@ -351,10 +361,8 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:listen:unix:<path-glob>` | Unix socket bind |
 | `net:multicast:udp` | `stado_net_setopt` keys: broadcast, multicast_join/leave/loopback/ttl |
 | `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
-| `net:<host>` | DEAD — was the `stado_http_get` host allowlist; that import is gone. Use `net:http_request:<host>` |
 | `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist). Replaces the dropped `exec:bash` / `exec:search` / `exec:ast_grep` caps — declare each binary your plugin runs (`exec:proc:/usr/bin/rg`) plus `bundled-bin:<name>` for stado-bundled tools (rg, ast-grep) |
-| `exec:pty` | all PTY imports — both the `stado_pty_*` and `stado_terminal_*` name families (they register under one `ExecPTY` gate) |
-| `terminal:open` | alias of `exec:pty` (the EP-0038c name) — sets the same `ExecPTY` flag, so either cap alone grants the full PTY surface. `terminal:open:<glob>` / `exec:pty:<glob>` scope `*_create`/`*_open` to matching binaries |
+| `exec:pty[:<path-glob>]` | all `stado_pty_*` imports; the optional glob scopes `stado_pty_create` to matching binaries |
 | `lsp:query` | bundled LSP imports |
 | `bundled-bin` | `stado_bundled_bin` access |
 | `dns:resolve` | `stado_dns_resolve` |
@@ -367,15 +375,30 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `session:observe` | `stado_session_next_event` |
 | `session:fork` | `stado_session_fork` |
 | `llm:invoke[:<token-budget>]` | `stado_llm_invoke` (optional per-session token cap) |
-| `memory:propose` / `read` / `write` | memory store imports |
-| `agent:fleet` | `stado_agent_*` (bundled agent plugin only) |
+| `artifact:propose:<local-kind>` | `stado_artifact_propose`; exact local kind declared in this plugin's signed manifest |
+| `artifact:read:<qualified-kind-pattern>` | `stado_artifact_query`; exact qualified kind, `*`, or one trailing-`*` prefix |
+| `artifact:edit:<local-kind>` | `stado_artifact_edit`; exact local kind declared in this plugin's signed manifest |
+| `artifact:observe:<qualified-kind-pattern>` | `stado_artifact_observe`; exact qualified kind, `*`, or one trailing-`*` prefix |
+| `session:journal:append`, `session:projection:read` | Broker-owned lifecycle journal append and caller-scoped projection read |
+| `session:schedule` | Leased hold acquire/release and typed pause/stop proposals |
+| `session:complete` | Typed durable successful-completion transition for one application run |
+| `session:input:route` | Claim an exact immutable input for asynchronous review, then classify it as `deliver` or `defer`; no discard or text replacement |
+| `session:worker:request` | Request a bounded durable application-owned worker run; activation remains native-only |
+| `session:worker:resume` | CAS-request resume of the same interrupted worker run; native activation rechecks pause/stop/completion, unexpired holds, and recurrence ownership |
+| `session:worker:cancel` | CAS-cancel the application's own requested, resume-requested, or active worker run |
+| `timer:schedule` | Durable timer schedule/cancel |
+| `agent:spawn`, `agent:list`, `agent:read`, `agent:send`, `agent:cancel` | The matching `stado_agent_*` operation. The removed aggregate `agent:fleet` capability grants no operation. |
+| `agent:spawn:configure` | Additional attenuation required with `agent:spawn` to override provider, model, thinking mode/token budget, or reasoning effort. Grants no operation or credential access by itself. |
 | `cfg:state_dir` | `stado_cfg_state_dir` (read state-dir path) |
 | `secrets:read[:<name-glob>]` | `stado_secrets_get` / `_list` |
 | `secrets:write[:<name-glob>]` | `stado_secrets_put` / `_delete` |
 | `state:read[:<key-glob>]` | `stado_instance_get` / `_list` |
 | `state:write[:<key-glob>]` | `stado_instance_set` / `_delete` |
 | `tool:invoke[:<name-glob>]` | `stado_tool_invoke` (call other registered tools). When a session executor is pinned (TUI, `stado run`, headless), nested invokes route through `Executor.Run` for audit + lifecycle hooks (v0.75.2). See [host-imports.md](host-imports.md). |
-| `ui:approval` | `stado_ui_approve` (request operator approval) |
+| `ui:approval` | `stado_ui_approve` (request a yes/no workflow decision; not durable authority) |
+| `ui:choice` | `stado_ui_choose` (interactive operator choice) |
+| `ui:print` | `stado_ui_print` (bounded plain-text operator output) |
+| `ui:render` | `stado_ui_render` (bounded structured operator panel) |
 
 ### 8.2 Glob semantics
 
@@ -385,6 +408,10 @@ Path/host globs use Go's `filepath.Match`:
 - `[abc]` matches a character class
 
 Host globs are case-insensitive. Paths are exact-segment.
+
+Artifact read/observe patterns do **not** use `filepath.Match`: EP-0063 limits
+them to an exact qualified kind, `*`, or a single trailing `*` prefix. Propose
+and edit grants are exact manifest-declared local kind names.
 
 ### 8.3 Capability auditing
 
@@ -426,7 +453,9 @@ Optional fields:
 |---|---|---|
 | `requires` | Array of `"<plugin-name>"` or `"<name> >= <semver>"` entries; install fails if a dep isn't present | v0.36.0 |
 | `tools[].categories` | Array of category tags (`file`, `code-search`, `network`, …); used by `[tools].autoload_categories` to surface tools without explicit names | v0.36.0 |
-| `background` | If true, the plugin's `stado_plugin_tick` is called periodically | — |
+| `artifact_kinds` | Signed EP-0063 local kind declarations: bounded object-root JSON Schema plus deterministic index projections | pre-1.0 |
+| `lifecycle` | Signed EP-0064 lifecycle point/event subscriptions, failure policy, and timeout | pre-1.0 |
+| `commands` | Signed operator command names/descriptions/usages and optional per-command `timeout_ms` (maximum 15 minutes) routed to the fixed `stado_plugin_command` export; a command grants no authority by itself | pre-1.0 |
 | `description` | One-line description | — |
 | `homepage`, `license` | Operator-facing metadata | — |
 
@@ -476,9 +505,66 @@ contained.
 
 State that needs to survive across calls within a session uses
 `stado_instance_*` (per-Runtime in-memory KV) or the operator
-secret store (`stado_secrets_*`).
+secret store (`stado_secrets_*`). Versioned durable application records belong
+in broker-owned EP-0063 artifacts; instance memory and
+`stado_cfg_state_dir` are not authority or shared-WAL bridges.
 
-### 10.2 Optional `tool.Host` extensions
+### 10.2 Lifecycle application contract
+
+[EP-0064](../eps/0064-wasm-lifecycle-applications.md) defines the corrective
+application mode for larger signed workflows: one serialized instance per
+effective plugin/session/generation, signed `lifecycle` subscriptions, bounded
+callbacks, durable broker events, and operation-scoped authority. Plugin
+documentation must not present native application policy or ambient filesystem
+state as a substitute.
+
+The persistent dispatcher, capability gates, durable event cursor, command
+router, and shared tool instance are implemented. Each callback receives the
+broker-admitted application identity and session/generation anchor; guest JSON
+cannot select either. The generic UI bridge used by these applications is
+named
+`stado_ui_choose` (`ui:choice`), `stado_ui_print` (`ui:print`), and
+`stado_ui_render` (`ui:render`). Operator interaction does not itself create
+artifact authority or scheduling authority.
+
+For v0.80/v1, the interactive TUI is the only supported application host. It
+routes commands, tools, hooks, events, ticks, and generic bridges through the
+same persistent instance. `stado run`, headless JSON-RPC, and ACP reject
+configured lifecycle applications before provider/session work; legacy
+background loading skips lifecycle manifests and ephemeral `plugin.run`
+rejects them. See [EP-0064](../eps/0064-wasm-lifecycle-applications.md#supported-host-surface-for-v1).
+
+Conditional exports use this common signature:
+
+```text
+stado_plugin_lifecycle(input_ptr, input_len, result_ptr, result_cap) -> i32
+stado_plugin_event(input_ptr, input_len, result_ptr, result_cap) -> i32
+stado_plugin_command(input_ptr, input_len, result_ptr, result_cap) -> i32
+```
+
+`stado_plugin_command` returns
+`{"status":"ok|error","message"?:string,"worker_run_id"?:string,"resume_worker_run_id"?:string}`.
+The two worker handoff fields are mutually exclusive and valid only with
+`status:"ok"`. `worker_run_id` names a new requested run;
+`resume_worker_run_id` names an exact durable `resume_requested` transition.
+Neither field carries authority
+or activate recurrence: the native command host fetches that exact run from
+the callback application's broker namespace through a dedicated
+session-controller-authenticated RPC, applies the generic recurrence conflict
+rule, and performs a versioned native-only activation. The ordinary
+application bearer cannot select native lookup, activation, or operator
+cancellation. A command may update the application's own capability-bounded
+quality workflow, but it cannot request an artifact authority transition.
+Operator-origin artifact activation remains a separate broker operation under
+EP-59.
+
+Commands inherit `lifecycle.timeout_ms` unless their signed manifest entry sets
+its own `timeout_ms`. The independent command ceiling is 15 minutes so a TUI
+workflow can make several bounded `stado_ui_choose` calls without granting the
+same delay to hooks, durable events, or ticks. Cancellation still closes the
+call, and a longer timeout never enables a missing UI bridge or capability.
+
+### 10.3 Optional `tool.Host` extensions
 
 Long-lived hosts (TUI session, MCP server, headless agent loop)
 share resources across the per-call runtimes by implementing
@@ -559,16 +645,13 @@ accept any of bare, wire, dotted, or globbed (`fs.*`) — see
 
 stado tags run `vMAJOR.MINOR.PATCH`. Pre-1.0 (current state):
 
-- **MINOR** bumps may add new host imports, new caps, new manifest
-  fields. Existing plugins keep working.
-- **MINOR** bumps may also add **new return-code sentinels** to
-  existing imports (e.g. `-2` for accept timeout was added in
-  v0.37). Plugins using a "negative = error" check still work; only
-  plugins that switch on `==-1` exclusively need updates.
+- Any pre-1.0 release may add, rename, or remove host imports, capabilities,
+  manifest fields, or return-code sentinels when required to restore the
+  accepted architecture. The current ABI reference is the contract; source
+  aliases are not a promise that an older plugin will keep working.
 - **PATCH** bumps are bug fixes / docs / dependency bumps.
-- Breaking ABI changes (renaming, removing imports) are still
-  allowed pre-1.0. They appear in CHANGELOG with explicit migration
-  notes.
+- Breaking changes appear in CHANGELOG with explicit migration notes, but do
+  not require a deprecation period before v1.
 
 `min_stado_version` in the manifest gates installation: a plugin
 that uses `stado_progress` (added in v0.38) declares
@@ -610,7 +693,7 @@ organized by tier:
   decompress, progress, json_get, json_format.
 - **Agent surface**: agent_spawn / list / read_messages /
   send_message / cancel.
-- **Memory**: memory_propose / query / update.
+- **Artifact surface**: artifact_propose / query / edit / observe (EP-0063).
 - **LSP primitives**: lsp_find_definition / find_references /
   document_symbols / hover (the wider tool-bridging surface —
   `stado_fs_tool_*`, `stado_exec_bash`, `stado_http_get`,

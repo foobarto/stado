@@ -112,7 +112,7 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		// linger. Without this the loop stayed non-nil (status bar shows a
 		// dead "↻ loop" forever) but never re-iterated — and blindly
 		// re-firing an immediate loop on error would be a no-delay runaway.
-		m.stopLoopOnError()
+		loopStop := m.stopLoopOnError()
 		// The turn is dead — finalize any in-flight thinking/tool block so
 		// `auto` mode collapses them. This branch returns before
 		// onTurnComplete (the normal finalize site), so without this an
@@ -122,7 +122,7 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		// about to execute), and the no-tool path finalizes in onTurnComplete.
 		m.finalizeStreamingBlocks()
 		m.renderBlocks()
-		return m, nil
+		return m, loopStop
 	}
 	m.maybeEmitBudgetWarning()
 	// post_llm fires first (it can rewrite m.turnText), then post_turn sees

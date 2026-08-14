@@ -138,7 +138,18 @@ func (s *Service) Run(ctx context.Context, req RunRequest) (Job, error) {
 		if err := validateCandidate(c, allowed); err != nil {
 			return s.fail(req, job, fmt.Errorf("candidate %d: %w", n, err))
 		}
-		item, err := s.artifacts.Create(ctx, artifacts.Artifact{Kind: artifacts.KindLesson, Scope: req.Scope, Binding: req.Binding, Summary: c.Summary, Content: c.Lesson, Trigger: c.Trigger, Tags: c.Tags, Groups: c.Groups, EvidenceRefs: c.EvidenceRefs, ExpectedOutcome: c.ExpectedOutcome, Provenance: []string{"untrusted:reviewer", "learn-job:" + job.ID}}, req.Principal, "learn-reviewer", req.IdempotencyKey+fmt.Sprintf(":candidate:%d", n))
+		proposal := artifacts.LearningArtifact(artifacts.KindLesson, req.Scope, req.Binding, artifacts.LearningData{
+			Summary: c.Summary, Content: c.Lesson, Trigger: c.Trigger,
+			ExpectedOutcome: c.ExpectedOutcome,
+		})
+		proposal.Tags, proposal.Groups = c.Tags, c.Groups
+		proposal.EvidenceRefs = c.EvidenceRefs
+		proposal.Provenance = artifacts.Provenance{
+			Origins:   []string{"untrusted:reviewer"},
+			CreatedBy: "learn-reviewer",
+			Refs:      []string{"learn-job:" + job.ID},
+		}
+		item, err := s.artifacts.Create(ctx, proposal, req.Principal, "learn-reviewer", req.IdempotencyKey+fmt.Sprintf(":candidate:%d", n))
 		if err != nil {
 			return s.fail(req, job, err)
 		}

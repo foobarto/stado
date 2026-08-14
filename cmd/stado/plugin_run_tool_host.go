@@ -23,9 +23,9 @@ import (
 //     are enforced by the wasm host imports against the manifest's
 //     declared capabilities, regardless of approval. EP-0005 §"Goals".
 //   - Runner() (sandbox.Runner) — the same `sandbox.Detect()` runner
-//     the agent loop uses (bwrap on Linux, sandbox-exec on macOS,
-//     NoneRunner elsewhere). Bash duck-types this to wrap commands in
-//     the platform sandbox. plugin_run.go refuses to start when the
+//     the agent loop uses (bwrap or firejail, otherwise NoneRunner).
+//     Bash duck-types this to wrap commands in the Linux sandbox.
+//     plugin_run.go refuses to start when the
 //     manifest declares `exec:bash` AND `Detect()` returns NoneRunner —
 //     that's the "approval ≠ policy" guard from EP-0005: we don't
 //     substitute the operator's CLI invocation for a real syscall

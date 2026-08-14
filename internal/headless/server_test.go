@@ -5,14 +5,72 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+func installHeadlessLifecycleFixture(t *testing.T, cfg *config.Config, id string) {
+	t.Helper()
+	dir := filepath.Join(cfg.StateDir(), "plugins", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"quality","version":"1.0.0","wasm_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capabilities":[],"tools":[],"lifecycle":{}}`
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHeadlessRejectsConfiguredLifecycleApplicationBeforeServing(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installHeadlessLifecycleFixture(t, cfg, "quality-1.0.0")
+	cfg.Plugins.Background = []string{"quality-1.0.0"}
+	applications, err := runtime.ConfiguredLifecycleApplications(cfg, nil)
+	if err != nil || len(applications) != 1 {
+		t.Fatalf("application classification = %#v, %v", applications, err)
+	}
+
+	err = NewServer(cfg, nil).Serve(context.Background(), strings.NewReader(""), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), applications[0].CanonicalID) || !strings.Contains(err.Error(), "interactive TUI") {
+		t.Fatalf("headless lifecycle diagnostic = %v", err)
+	}
+}
+
+func TestHeadlessPluginRunRejectsLifecycleManifestBeforeInstantiation(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installHeadlessLifecycleFixture(t, cfg, "quality-1.0.0")
+	srv := NewServer(cfg, nil)
+	srv.sessions["h-1"] = &hSession{id: "h-1"}
+	_, err = srv.pluginRun(context.Background(), json.RawMessage(`{"sessionId":"h-1","id":"quality-1.0.0","tool":"quality"}`))
+	if err == nil || !strings.Contains(err.Error(), "ephemeral plugin.run") || !strings.Contains(err.Error(), "interactive TUI") {
+		t.Fatalf("plugin.run lifecycle diagnostic = %v", err)
+	}
+}
 
 // stubProvider is a minimal agent.Provider for tests that only care
 // about the `Name()` seam. StreamTurn panics so we notice if a test

@@ -25,7 +25,7 @@ const (
 	maxPluginRuntimeUIChooseLabelBytes    int    = 256
 	maxPluginRuntimeUIChooseIDBytes       int    = 64
 	maxPluginRuntimeUIChoosePromptBytes   int    = 4 << 10
-	// F10 — per-option input fields. prefix is a short read-only
+	// Per-option input fields: prefix is a short read-only
 	// decoration shown alongside the editable field; default is the
 	// initial value populated into the field; validator.spec is the
 	// per-validator parameter (regex pattern, "min,max" length range,
@@ -34,14 +34,14 @@ const (
 	maxPluginRuntimeUIChoosePrefixBytes        int = 64
 	maxPluginRuntimeUIChooseInputDefaultBytes  int = 4 << 10
 	maxPluginRuntimeUIChooseValidatorSpecBytes int = 256
-	// stado_ui_print limits. F9a.
-	// Text capped at 8 KiB per call (per F9 spec); larger payloads
-	// belong in stado_ui_render with a code body (F9b). stream_id
+	// stado_ui_print limits (EP-0064 and the host-import reference).
+	// Text is capped at 8 KiB per call; larger payloads belong in
+	// stado_ui_render with a code body. stream_id
 	// is a short label for renderer coalescing.
 	maxPluginRuntimeUIPrintTextBytes     uint32 = 8 << 10
 	maxPluginRuntimeUIPrintStreamIDBytes int    = 64
-	// stado_ui_render limits. F9b spec
-	// (.agent/specs/open/f9b-ui-render.md). Per-section ceiling is
+	// stado_ui_render limits (EP-0064 and the host-import reference).
+	// Per-section ceiling is
 	// half the total so a single oversized section can't consume the
 	// whole envelope; row × column caps on table bodies bound the
 	// rendering cost in TUI / ACP. Per-string limits keep one
@@ -56,7 +56,8 @@ const (
 	maxPluginRuntimeUIRenderKVValueBytes int    = 1 << 10
 	maxPluginRuntimeUIRenderTableRows    int    = 200
 	maxPluginRuntimeUIRenderTableCols    int    = 16
-	maxPluginRuntimeMemoryPayloadBytes   uint32 = 1 << 20
+	maxPluginRuntimeArtifactPayloadBytes uint32 = 1 << 20
+	maxPluginRuntimeApplicationPayload   uint32 = 1 << 20
 	maxPluginRuntimeToolArgsBytes        uint32 = 1 << 20
 	// maxPluginRuntimeToolNameBytes caps the namePtr/nameLen pair
 	// passed to stado_tool_invoke. 1 KiB is comfortably above the
@@ -80,7 +81,7 @@ const (
 	// maxPluginRuntimeStateValueBytes shares the MemoryPayload ceiling
 	// (1 MiB). Aliased via the existing constant to prevent drift if
 	// MemoryPayload is ever resized (Copilot review on PR #70).
-	maxPluginRuntimeStateValueBytes   uint32 = maxPluginRuntimeMemoryPayloadBytes
+	maxPluginRuntimeStateValueBytes   uint32 = maxPluginRuntimeArtifactPayloadBytes
 	maxPluginRuntimeStatePrefixBytes  uint32 = 4 << 10  // 4 KiB
 	maxPluginRuntimeJSONPathBytes     uint32 = 4 << 10  // 4 KiB (dotted path expression)
 	maxPluginRuntimeNetTransportBytes uint32 = 32       // "tcp" / "udp" / "unix" etc.

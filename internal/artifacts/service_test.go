@@ -2,13 +2,32 @@ package artifacts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/foobarto/stado/internal/broker/authority"
 	"github.com/foobarto/stado/internal/broker/wal"
 )
+
+func TestProvenanceLegacyReadMigratesToStructuredWrites(t *testing.T) {
+	var provenance Provenance
+	if err := json.Unmarshal([]byte(`["session:parent","tool:shell"]`), &provenance); err != nil {
+		t.Fatal(err)
+	}
+	if len(provenance.Origins) != 2 || provenance.Origins[0] != "session:parent" || provenance.CreatedBy != "" {
+		t.Fatalf("provenance=%+v", provenance)
+	}
+	raw, err := json.Marshal(provenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"origins":["session:parent","tool:shell"]}` {
+		t.Fatalf("new write retained legacy shape: %s", raw)
+	}
+}
 
 func fixture(t *testing.T) (*Service, *authority.Issuer, *wal.Store) {
 	t.Helper()
@@ -24,10 +43,12 @@ func TestLessonValidationAndSessionDescendantScope(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	if _, err := svc.Create(ctx, Artifact{Kind: KindLesson, Scope: ScopeGlobal, Summary: "bad"}, "alice", "agent", "bad"); err == nil {
+	if _, err := svc.Create(ctx, testLesson(ScopeGlobal, ScopeBinding{}, "bad", ""), "alice", "agent", "bad"); err == nil {
 		t.Fatal("lesson without trigger accepted")
 	}
-	item, err := svc.Create(ctx, Artifact{Kind: KindLesson, Scope: ScopeSession, Binding: ScopeBinding{AnchorSessionID: "parent"}, Summary: "Retry JSON tool calls", Trigger: "tool rejects malformed JSON", Tags: []string{" Tool:JSON ", "tool:json"}}, "alice", "agent", "create")
+	proposal := testLesson(ScopeSession, ScopeBinding{AnchorSessionID: "parent"}, "Retry JSON tool calls", "tool rejects malformed JSON")
+	proposal.Tags = []string{" Tool:JSON ", "tool:json"}
+	item, err := svc.Create(ctx, proposal, "alice", "agent", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +83,7 @@ func TestActivationNeedsExactOneUseOperatorGrant(t *testing.T) {
 	svc, issuer, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	item, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeRepo, Binding: ScopeBinding{CanonicalRepoID: "repo-1"}, Summary: "Use app schema v2", Content: "Call with field x"}, "alice", "agent", "create")
+	item, err := svc.Create(ctx, testMemory(ScopeRepo, ScopeBinding{CanonicalRepoID: "repo-1"}, "Use app schema v2", "Call with field x"), "alice", "agent", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +108,7 @@ func TestActivationNeedsExactOneUseOperatorGrant(t *testing.T) {
 	if err != nil || active.Authority != AuthorityActive || active.Version != 2 {
 		t.Fatalf("active=%+v err=%v", active, err)
 	}
-	other, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeRepo, Binding: ScopeBinding{CanonicalRepoID: "repo-1"}, Summary: "Other"}, "alice", "agent", "other")
+	other, err := svc.Create(ctx, testMemory(ScopeRepo, ScopeBinding{CanonicalRepoID: "repo-1"}, "Other", ""), "alice", "agent", "other")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,18 +121,71 @@ func TestEditCASAndDeletedTombstone(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	item, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeGlobal, Summary: "one"}, "alice", "agent", "create")
+	item, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "one", ""), "alice", "agent", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Edit(ctx, item.ID, 99, Artifact{Kind: KindMemory, Summary: "two"}, "alice", "agent", "stale"); !errors.Is(err, ErrVersion) {
+	if _, err := svc.Edit(ctx, item.ID, 99, testMemory(ScopeGlobal, ScopeBinding{}, "two", ""), "alice", "agent", "stale"); !errors.Is(err, ErrVersion) {
 		t.Fatalf("got %v", err)
 	}
 	item, err = svc.SetAuthority(ctx, item.ID, 1, AuthorityDeleted, "", "alice", "operator", "delete")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Edit(ctx, item.ID, item.Version, Artifact{Kind: KindMemory, Summary: "resurrect"}, "alice", "agent", "resurrect"); err == nil {
+	if _, err := svc.Edit(ctx, item.ID, item.Version, testMemory(ScopeGlobal, ScopeBinding{}, "resurrect", ""), "alice", "agent", "resurrect"); err == nil {
 		t.Fatal("deleted item resurrected")
+	}
+}
+
+func TestVisibleChecksExactVersionAndScopeWithoutPagination(t *testing.T) {
+	svc, _, store := fixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	first, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "first", ""), "alice", "agent", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 55; i++ {
+		if _, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "newer", ""), "alice", "agent", fmt.Sprintf("newer-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if page, err := svc.Query(Query{Context: QueryContext{Principal: "alice"}, MaxItems: 50}); err != nil || len(page) != 50 {
+		t.Fatalf("bounded query len=%d err=%v", len(page), err)
+	} else {
+		for _, item := range page {
+			if item.ID == first.ID {
+				t.Fatal("fixture did not place exact target beyond first result page")
+			}
+		}
+	}
+	if item, ok, err := svc.Visible(first.ID, first.Version, QueryContext{Principal: "alice"}); err != nil || !ok || item.ID != first.ID {
+		t.Fatalf("exact visible item=%+v ok=%v err=%v", item, ok, err)
+	}
+	if exact, err := svc.Query(Query{
+		Context:  QueryContext{Principal: "alice"},
+		Refs:     []ArtifactRef{{ID: first.ID, Version: first.Version}},
+		MaxItems: 1,
+	}); err != nil || len(exact) != 1 || exact[0].ID != first.ID {
+		t.Fatalf("exact query items=%+v err=%v", exact, err)
+	}
+	if _, ok, err := svc.Visible(first.ID, first.Version+1, QueryContext{Principal: "alice"}); err != nil || ok {
+		t.Fatalf("wrong version ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := svc.Visible(first.ID, first.Version, QueryContext{Principal: "mallory"}); err != nil || ok {
+		t.Fatalf("wrong principal ok=%v err=%v", ok, err)
+	}
+}
+
+func TestArtifactReferenceFieldsAreBounded(t *testing.T) {
+	svc, _, store := fixture(t)
+	defer store.Close()
+	item := testMemory(ScopeGlobal, ScopeBinding{}, "bounded", "")
+	item.EvidenceRefs = make([]string, 65)
+	for i := range item.EvidenceRefs {
+		item.EvidenceRefs[i] = fmt.Sprintf("ref:%d", i)
+	}
+	if _, err := svc.Create(context.Background(), item, "alice", "agent", "too-many-refs"); err == nil {
+		t.Fatal("artifact with unbounded evidence references was accepted")
 	}
 }

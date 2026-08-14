@@ -2,13 +2,72 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/brokercredential"
+	"github.com/foobarto/stado/internal/daemon"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/sandbox"
 )
+
+func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, func()) {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "broker.sock")
+	service := broker.NewService(broker.LoadEmbeddedDefaultPolicy(), nil)
+	store, err := wal.Open(filepath.Join(t.TempDir(), "wal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier := broker.ArtifactPluginVerifierFunc(func(_ context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (plugins.RuntimeIdentity, plugins.Manifest, error) {
+		return identity, manifest, nil
+	})
+	if err := service.ConfigureArtifactStore(store, verifier); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigureSessionLineageVerifier(broker.SessionLineageVerifierFunc(func(context.Context, broker.SessionLineageCheck) error {
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	server := daemon.NewServer(daemon.ServerOpts{
+		SocketPath: socketPath, BrokerDispatcher: brokerDispatcherBridge(service),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	var client *daemon.Client
+	for time.Now().Before(deadline) {
+		candidate, _, err := daemon.DialAndHandshake(ctx, socketPath, "durable-session-test")
+		if err == nil {
+			client = candidate
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if client == nil {
+		cancel()
+		<-serveErr
+		t.Fatal("durable daemon never accepted handshake")
+	}
+	return client, service, func() {
+		_ = client.Close()
+		_ = server.Stop()
+		cancel()
+		select {
+		case <-serveErr:
+		case <-time.After(2 * time.Second):
+			t.Fatal("durable daemon did not stop")
+		}
+		_ = service.Close()
+	}
+}
 
 func TestAttachToBroker_DefaultOnTestBinaryRefused(t *testing.T) {
 	// v2 default: STADO_BROKER_ATTACH unset → attach. We're a Go
@@ -100,6 +159,172 @@ func TestBrokerSession_DoubleCloseSafe(t *testing.T) {
 	}
 	if err := sess.Close(); err != nil {
 		t.Errorf("second Close: %v", err)
+	}
+}
+
+func TestBrokerSessionDurableLogicalPeerCreateDetachAdopt(t *testing.T) {
+	client, _, teardown := startTestDurableDaemon(t)
+	defer teardown()
+	cwd := t.TempDir()
+	var rootHandle broker.SessionHandleResult
+	if err := client.Call(t.Context(), broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose: broker.PurposeMainChat, Profile: broker.ProfileDefault, CWD: cwd,
+	}, &rootHandle); err != nil {
+		t.Fatal(err)
+	}
+	credentialStore, err := brokercredential.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := &BrokerSession{
+		SessionID: rootHandle.SessionID, controllerToken: rootHandle.ControllerToken,
+		Purpose: rootHandle.Purpose, Profile: broker.ProfileDefault, client: client,
+		logicalCredentials: credentialStore,
+	}
+	firstController, err := root.OpenLogicalSession(t.Context(), cwd, "logical-session-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := firstController.(*BrokerSession)
+	firstID, firstToken := first.SessionID, first.controllerToken
+	credential, err := credentialStore.Load("logical-session-a")
+	if err != nil || credential.Subject != "logical-session-a" {
+		t.Fatalf("stored credential=%+v err=%v", credential, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if first.heartbeatStop != nil || first.heartbeatDone != nil {
+		t.Fatal("detached logical peer retained heartbeat resources")
+	}
+
+	secondController, err := root.OpenLogicalSession(t.Context(), cwd, "logical-session-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := secondController.(*BrokerSession)
+	if second.SessionID != firstID || second.controllerToken == firstToken {
+		t.Fatalf("adopted session/controller=%q/%q initial=%q/%q", second.SessionID, second.controllerToken, firstID, firstToken)
+	}
+	stable, err := credentialStore.Load("logical-session-a")
+	if err != nil || stable != credential {
+		t.Fatalf("adoption rewrote stable recovery bearer: before=%+v after=%+v err=%v", credential, stable, err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrokerSessionLogicalHandoffStagesBeforeCommitAndRotatesInPlace(t *testing.T) {
+	client, service, teardown := startTestDurableDaemon(t)
+	defer teardown()
+	cwd := t.TempDir()
+	var rootHandle broker.SessionHandleResult
+	if err := client.Call(t.Context(), broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose: broker.PurposeMainChat, Profile: broker.ProfileDefault, CWD: cwd,
+	}, &rootHandle); err != nil {
+		t.Fatal(err)
+	}
+	credentialStore, err := brokercredential.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := &BrokerSession{
+		SessionID: rootHandle.SessionID, controllerToken: rootHandle.ControllerToken,
+		Purpose: rootHandle.Purpose, Profile: broker.ProfileDefault, client: client,
+		logicalCredentials: credentialStore,
+	}
+	controller, err := root.OpenLogicalSession(t.Context(), cwd, "logical-session-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := controller.(*BrokerSession)
+	oldToken := peer.controllerToken
+	sourceCredential, err := credentialStore.Load("logical-session-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnRef := "refs/sessions/logical-session-source/turns/1"
+	reservation, err := peer.ReserveLogicalSessionHandoff(t.Context(), "logical-session-child", turnRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := credentialStore.Load("logical-session-child")
+	if err != nil || staged.Ticket != sourceCredential.Ticket || staged.ResumeSecret != sourceCredential.ResumeSecret {
+		t.Fatalf("pre-staged child=%+v err=%v", staged, err)
+	}
+	if _, err := credentialStore.Load("logical-session-source"); err != nil {
+		t.Fatalf("reserve removed authoritative source before commit: %v", err)
+	}
+	if err := peer.CommitLogicalSessionHandoff(t.Context(), reservation); err != nil {
+		t.Fatal(err)
+	}
+	if peer.durableSubject != "logical-session-child" || peer.controllerToken == oldToken {
+		t.Fatalf("committed peer subject/token=%q/%q", peer.durableSubject, peer.controllerToken)
+	}
+	if _, err := credentialStore.Load("logical-session-source"); !errors.Is(err, brokercredential.ErrNotFound) {
+		t.Fatalf("committed source credential remains: %v", err)
+	}
+	oldCredential := sourceCredential
+	if _, _, err := service.AdoptSession(oldCredential, cwd); !errors.Is(err, broker.ErrSessionScopeCredential) {
+		t.Fatalf("old subject remained adoptable: %v", err)
+	}
+	if err := peer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrokerSession_CloseDefersUntilApplicationEventLeaseReleased(t *testing.T) {
+	client, teardown := startTestDaemon(t, broker.LoadEmbeddedDefaultPolicy())
+	defer teardown()
+
+	var handle broker.SessionHandleResult
+	if err := client.Call(t.Context(), broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose: broker.PurposeMainChat, Profile: broker.ProfileDefault, CWD: "/work",
+	}, &handle); err != nil {
+		t.Fatal(err)
+	}
+	sess := &BrokerSession{
+		SessionID: handle.SessionID, controllerToken: handle.ControllerToken,
+		Purpose: handle.Purpose, Profile: broker.ProfileDefault, client: client,
+		applicationGeneration: 1,
+	}
+	scope, release, err := sess.LeaseApplicationEventContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.SessionID != handle.SessionID || scope.Generation != 1 {
+		t.Fatalf("leased scope=%+v", scope)
+	}
+	if err := sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if sess.SessionID != handle.SessionID || !sess.applicationClosePending || sess.applicationClosed {
+		t.Fatalf("close did not defer: session=%q pending=%v closed=%v", sess.SessionID, sess.applicationClosePending, sess.applicationClosed)
+	}
+
+	// The old controller remains authenticated while the observation is live.
+	var tainted broker.SessionTaintResult
+	if err := client.Call(t.Context(), broker.MethodSessionTaint, broker.SessionTaintParams{
+		SessionID: handle.SessionID, ControllerToken: handle.ControllerToken, Taint: "tainted",
+	}, &tainted); err != nil {
+		t.Fatalf("leased session retired early: %v", err)
+	}
+	release()
+	release() // idempotent lease release
+	if sess.SessionID != "" || !sess.applicationClosed || sess.applicationLeases != 0 {
+		t.Fatalf("last release did not retire session: session=%q leases=%d closed=%v", sess.SessionID, sess.applicationLeases, sess.applicationClosed)
+	}
+	if err := client.Call(t.Context(), broker.MethodSessionTaint, broker.SessionTaintParams{
+		SessionID: handle.SessionID, ControllerToken: handle.ControllerToken, Taint: "clean",
+	}, &tainted); err == nil {
+		t.Fatal("released session remained authenticated")
 	}
 }
 

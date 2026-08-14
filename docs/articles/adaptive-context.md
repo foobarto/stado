@@ -27,9 +27,10 @@ worth carrying across a context boundary, and who gets to decide?
 I want to be precise about the word *adaptive*. Stado does not continuously
 fine-tune a model, and it does not treat a successful tool call as proof that a
 new rule is true. It records a small set of observable events, lets an isolated
-reviewer propose lessons, requires a trusted operator action before those
-lessons become active, and retrieves active material under explicit scope and
-size limits.
+reviewer propose lessons, requires an explicit broker activation grant before
+those lessons become active, and retrieves active material under explicit scope
+and size limits. That grant comes from predeclared policy or a separately
+trusted presenter; an in-process confirmation alone is only workflow input.
 
 The system can become better informed by its history. It cannot promote its own
 interpretation of that history into policy.
@@ -100,24 +101,24 @@ the result pending.
 
 Pending is not a euphemism for active.
 
-## Approval is an authority event
+## Activation is an authority event
 
 An agent can run shell commands. Therefore a CLI command executed through a
 shell is not evidence that the human operator approved anything.
 
-Stado exposes inspection through `stado learn`, but activation uses a fresh
-operator-origin action in the trusted TUI:
+Stado exposes inspection through `stado learn` and the TUI:
 
 ```text
 /learn candidates
 /learn show art_...
-/learn approve art_...
 ```
 
-The approval is bound to the exact artifact text, version, and scope the
-operator saw. If the candidate changes, the approval does not float to the new
-version. The grant is consumed when activation is committed to the broker's
-durable log.
+Activation is deliberately withheld until a broker-owned predeclared policy or
+a separately trusted presenter can prove operator intent for the exact artifact
+text, version, and scope. An in-process TUI callback, command-origin label,
+plugin UI response, or session-controller token is not that proof. If the
+candidate changes, any eventual exact grant cannot float to the new version;
+it must be consumed when activation is committed to the broker's durable log.
 
 This is not ceremony around a confidence score. A lesson may be well supported
 and remain inactive. Another may be activated for a narrow experiment despite
@@ -240,34 +241,43 @@ again automatically.
 Durability is useful. Indiscriminate persistence is just a loop with better
 storage.
 
-## Native harness guidance
+## Guidance belongs with the workflow
 
-Making `memory__research`, `session__research`, `/learn`, retained agents, and
+Making artifact research, session research, `/learn`, retained agents, and
 mailboxes available does not mean a model will know when to use them. Tool
 descriptions explain what a mechanism does. They rarely notice that the current
 turn is the moment to use it.
 
-Stado adds a small host-native guidance section at model-turn boundaries. If a
-strong mechanical signal has not been reviewed, it can suggest preserving a
-candidate lesson and asking the operator to run `/learn`. If a prompt is clearly
-about prior sessions and fast retrieval found nothing, it can suggest isolated
-research. If retained children or unread messages exist, it can suggest checking
-them before duplicating the work.
+The first implementation solved this with native harness guidance. Host code
+looked at signals, chose one of several fixed recommendations, and inserted the
+result before the next model turn. It was bounded and useful. It was also a
+small application policy hiding in the native runtime: stado itself decided
+when a failure deserved learning, when a historical question deserved a
+researcher, and when an unread child deserved attention.
 
-The guidance is intentionally boring. At most three fixed templates fit under
-a separate byte cap. Raw tool arguments, signal attributes, artifact bodies,
-and mailbox payloads are not interpolated into the text. A suggestion appears
-only when the corresponding tool is actually available.
+Those decisions now belong to a signed lifecycle application. The host exposes
+the smaller facts it actually knows: a stable failure fingerprint repeated, a
+retrieval returned no match, a child remains active, a mailbox has unread data,
+and a particular capability is available. The application chooses whether any
+of that deserves guidance, what threshold to use, and how to word the nudge.
+Another application can make different choices without teaching native stado a
+second product's workflow.
+
+The useful constraints survive the move. Guidance is intentionally boring. At
+most a few fixed templates fit under a separate byte cap. Raw tool arguments,
+signal attributes, artifact bodies, and mailbox payloads are not interpolated
+into the text. A suggestion appears only when the corresponding capability is
+actually available.
 
 Guidance does not approve a lesson, widen a tool set, choose a recipient the
 caller could not already address, or override operator and repository
-instructions. It teaches the model about workflow opportunities using facts the
-host already owns.
+instructions. The application can teach the model about a workflow opportunity.
+The broker still decides what that application and model are allowed to do.
 
-There is an important humility in fixed wording. The harness does not need a
-second model call to tell the first model that two identical failures were
-observed. It can state the observation, offer the appropriate mechanism, and
-leave the semantic decision where it belongs.
+There is an important humility in fixed wording. No second model call is needed
+to tell the first model that two identical failures were observed. A small
+sandboxed application can state the observation, offer the appropriate
+mechanism, and leave both semantic judgment and authority where they belong.
 
 ## Adaptation without the success mythology
 

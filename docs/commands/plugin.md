@@ -18,7 +18,7 @@ plugin can run, stado verifies:
 
 - the manifest signature
 - the `plugin.wasm` sha256 recorded in the manifest
-- rollback protection (`name` + `version` monotonicity per signer)
+- rollback protection for the canonical source/version identity per signer
 - optional CRL state (`[plugins].crl_url`)
 - optional Rekor transparency-log inclusion (`[plugins].rekor_url`)
 
@@ -29,8 +29,10 @@ instantiates the owning module in the wazero runtime and invokes one
 declared tool by name. Add `--session <id>` to bind the run to a
 persisted session so session-aware capabilities work on the CLI too.
 
-The repo also ships a product-facing plugin catalog under
-[`plugins/`](../../plugins/). The bundled default plugin source is
+The stado repository keeps reproducible bundled plugin source under
+[`plugins/bundled/`](../../plugins/bundled/). Official optional plugins and
+cross-language examples live in
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins). The bundled default plugin source is
 [`plugins/bundled/auto-compact/`](../../plugins/bundled/auto-compact/):
 stado loads that one automatically as a background plugin in the TUI
 and headless server, and you can also build/install it manually if you
@@ -104,7 +106,9 @@ stado tool run --session abc123 compact '{"threshold_tokens":5000}'
 Installed plugin IDs match the directory names under their project or global
 plugin root. `plugin installed` lists those IDs with `scope=project` or
 `scope=global`; `stado tool run` then takes the tool name (not the plugin ID)
-and resolves the owning plugin for you.
+and resolves the owning plugin for you. These names are presentation/install
+aliases. Runtime authority comes from the verified lock/source identity and
+manifest digest; `Manifest.Name` is not an authority namespace (EP-0066).
 
 ## Command reference
 
@@ -153,16 +157,24 @@ file, while local installs and updates keep their lock in the project.
 
 `stado tool run --session <id>` binds the tool's plugin to the target
 session's persisted conversation and worktree, so `session:read`,
-`session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
-declare `memory:propose`, `memory:read`, or `memory:write` are wired to
-the local append-only memory store under the stado state directory; use
-`stado memory list|show|edit|approve|supersede|reject|delete|compact|export`
-to review that store. Approved memory enters model prompts by default
-(`[memory].enabled` defaults to true; set it to `false` to opt out);
-candidate memories remain review-only. `stado learn propose` stores stricter legacy lesson
-candidates in the same append-only store for explicit review.
-Without `--session`, the command stays a one-shot no-session path and
-session-aware capabilities see zeroed fields.
+`session:fork`, `llm:invoke`, and the broker-backed EP-0063 artifact imports
+work on the CLI path too. Artifact-capable plugins declare their local data
+shapes in `artifact_kinds` and request operation-scoped capabilities:
+`artifact:propose:<local-kind>`, `artifact:edit:<local-kind>`,
+`artifact:read:<qualified-kind-pattern>`, or
+`artifact:observe:<qualified-kind-pattern>`. The host injects canonical plugin
+and session identity; plugin JSON cannot choose its own scope authority.
+
+`stado memory ...` is the native operator UX for the legacy memory JSONL store,
+not a plugin host-import contract and not a generic artifact administration
+surface. Use `stado learn migrate` for its one-way import into broker-owned
+memory/lesson artifact kinds. The remaining native memory commands and config
+names are explicit migration debt rather than a reason for new plugins to use
+the removed `memory:*` ABI.
+
+Without `--session`, the command stays a one-shot no-session path. Ordinary
+session reads see no live session; declaring artifact capabilities without an
+authenticated broker binding fails closed before tool dispatch.
 
 ## Config
 
@@ -176,8 +188,9 @@ Relevant `config.toml` sections:
 - `[plugins].allow_project_plugins` — opt-in to autoload plugins from
   `{cwd}/.stado/plugins/` (default false; cannot be set from project
   config — the gate itself is stripped per EP-0044)
-- `[memory].enabled` — inject approved plugin memories as bounded
-  untrusted prompt context (on by default; set `false` to opt out)
+- `[memory].enabled` — inject approved memory artifacts plus any not-yet-migrated
+  legacy memories as bounded untrusted prompt context (on by default; set
+  `false` to opt out)
 - `[tools].overrides` — map bundled tool names to installed plugin IDs
 
 `stado config show` prints the resolved values.
@@ -201,13 +214,13 @@ Relevant `config.toml` sections:
 - **`tool run` without `--session` is not a live session.** If a
   plugin needs `session:*` or `llm:invoke`, either pass `--session <id>`
   or run it from the TUI/headless surfaces.
-- **Bundled tool imports work without any flag.** Plugins that import
-  `stado_http_get`, `stado_fs_tool_*`, `stado_lsp_*`, or
-  `stado_search_*` run fine: the tool host is attached on every
-  `stado tool run` (the old opt-in `--with-tool-host` flag from EP-0028
-  became the default under EP-0038). Plugins that declare `exec:bash`
-  are still refused — no `sandbox.Runner` is available; use `stado run`
-  for those.
+- **Removed delegate imports have no compatibility aliases.** Plugins using
+  `stado_http_get`, `stado_fs_tool_*`, `stado_search_*`, or
+  `stado_exec_bash` fail to instantiate. Use `stado_http_request`,
+  `stado_fs_*`, `stado_proc_*` plus `bundled-bin:<name>`, and the retained
+  `stado_lsp_*` primitives. The tool host is attached on every
+  `stado tool run`; subprocess and PTY imports still require a surface with a
+  sandbox runner such as `stado run` or the TUI.
 - **`tool run --workdir` defaults to the plugin's install dir, not
   the operator's CWD.** Plugins that scope `fs:read:.` to project
   files (htb-cve-lookup-style lookups against the operator's repo)
@@ -224,7 +237,7 @@ Relevant `config.toml` sections:
 - **When in doubt, run `plugin doctor <id>`.** It parses the
   plugin's manifest and prints which surfaces / flags it needs.
   Faster than reading the source for "why does my plugin fail with
-  `stado_http_get returned -1`?" and friends.
+  `stado_http_request returned -1`?" and friends.
 
 ## See also
 

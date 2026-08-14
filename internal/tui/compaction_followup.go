@@ -50,6 +50,13 @@ func (m *Model) tryContextOverflowRecovery(err error) (tea.Cmd, bool) {
 	if !isContextOverflowError(err) || !m.hasAutoCompactBackgroundPlugin() {
 		return nil, false
 	}
+	// C35: automatic child transfer is not yet a generic broker primitive.
+	// Forking here would strand or copy an exact-generation application run and
+	// its pending input. Fail closed; the ordinary error path terminalizes the
+	// run and lets C28 recover queued/ready originals in the source session.
+	if m.applicationOwnsOperatorInput() {
+		return nil, false
+	}
 	prompt := latestUserPrompt(m.msgs)
 	if prompt == "" {
 		return nil, false

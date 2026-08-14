@@ -1,11 +1,9 @@
 // Multicast helpers for stado_net_setopt — split into its own file so
-// the platform-specific syscall hop (SO_BROADCAST is OS-level, not
+// the Linux syscall hop (SO_BROADCAST is OS-level, not
 // available through Go's net.UDPConn directly) lives next to the
 // x/net/ipv4 / ipv6 multicast wrapper. EP-0038i.
 //
-// The setBroadcastFD helper is split into _unix.go / _windows.go
-// because syscall.SetsockoptInt takes int on POSIX and
-// syscall.Handle on Windows.
+// setBroadcastFD lives in the Linux host implementation.
 package runtime
 
 import (

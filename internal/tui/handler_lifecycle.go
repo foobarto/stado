@@ -8,10 +8,12 @@ package tui
 // ticks, recovery timeouts, etc.
 
 import (
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/supervise"
 )
 
@@ -81,9 +83,9 @@ func onLocalFallbackReady(m *Model, msg localFallbackReadyMsg) (tea.Model, tea.C
 	return m, nil
 }
 
-func onLoopTick(m *Model, _ loopTickMsg) (tea.Model, tea.Cmd) {
+func onLoopTick(m *Model, msg loopTickMsg) (tea.Model, tea.Cmd) {
 	// EP-0036: timed loop interval elapsed — start next iteration if idle.
-	if m.loop != nil && m.state != stateStreaming {
+	if m.loop != nil && msg.generation == m.loop.generation && m.state != stateStreaming {
 		return m, m.loopIterate()
 	}
 	// If busy, reschedule — the turn-done path will call loopTick again.
@@ -141,6 +143,113 @@ func onBackgroundTickResult(m *Model, msg backgroundTickResultMsg) (tea.Model, t
 		cmds = append(cmds, m.tickBackgroundPluginsWithEvent(payload))
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func onApplicationCommandResult(m *Model, msg applicationCommandResultMsg) (tea.Model, tea.Cmd) {
+	m.applicationCommandRunning = false
+	body := msg.result.Message
+	if msg.err != nil {
+		body = msg.err.Error()
+	} else if body == "" {
+		body = msg.result.Status
+	}
+	if body == "" {
+		body = "completed"
+	}
+	prefix := msg.name + ": "
+	if msg.result.Status == "error" || msg.err != nil {
+		prefix += "error: "
+	}
+	m.appendBlock(block{kind: "system", body: prefix + body})
+	m.renderBlocks()
+	if msg.err == nil && msg.result.Status == "ok" && msg.result.WorkerRunID != "" && msg.application != nil {
+		m.applicationWorkerHandoffRunning = true
+		return m, applicationWorkerRunLookupCmd(msg.application, msg.result.WorkerRunID, applicationWorkerHandoffInitial)
+	}
+	if msg.err == nil && msg.result.Status == "ok" && msg.result.ResumeWorkerRunID != "" && msg.application != nil {
+		m.applicationWorkerHandoffRunning = true
+		return m, applicationWorkerRunLookupCmd(msg.application, msg.result.ResumeWorkerRunID, applicationWorkerHandoffResume)
+	}
+	return m, nil
+}
+
+func onApplicationBoundaryResult(m *Model, msg applicationBoundaryMsg) (tea.Model, tea.Cmd) {
+	if msg.applications != nil {
+		survivors := msg.applications[:0:len(msg.applications)]
+		for _, application := range msg.applications {
+			if application != nil {
+				survivors = append(survivors, application)
+			}
+		}
+		m.lifecycleApplications = survivors
+	}
+	if msg.err != nil {
+		if !errors.Is(msg.err, runtime.ErrSchedulePaused) && !errors.Is(msg.err, runtime.ErrScheduleStopped) {
+			m.setApplicationFailureSource(applicationFailureTurnBoundary, msg.err)
+		} else {
+			m.clearApplicationFailureSource(applicationFailureTurnBoundary)
+		}
+		m.state = stateIdle
+		if (errors.Is(msg.err, runtime.ErrSchedulePaused) || errors.Is(msg.err, runtime.ErrScheduleStopped)) && m.loop != nil && m.loop.application != nil {
+			// CheckSchedule returns pause/stop only after schedule.consume has
+			// durably terminalized this run, so clearing local recurrence here
+			// cannot resurrect it after a restart.
+			m.loop = nil
+		}
+		m.appendBlock(block{kind: "system", body: "application turn boundary stopped worker dispatch: " + msg.err.Error()})
+		m.renderBlocks()
+		if errors.Is(msg.err, runtime.ErrSchedulePaused) || errors.Is(msg.err, runtime.ErrScheduleStopped) {
+			return m, m.reconcileApplicationOperatorInput(applicationInputAfterNone)
+		}
+		return m, nil
+	}
+	m.clearApplicationFailureSource(applicationFailureTurnBoundary)
+	m.applicationIteration++
+	if msg.completed {
+		m.closeTurnWithoutTools()
+		m.loop = nil
+		m.appendBlock(block{kind: "system", body: "lifecycle application completed the worker run"})
+		m.renderBlocks()
+		return m, m.reconcileApplicationOperatorInput(applicationInputAfterCompletion)
+	}
+	switch msg.continuation {
+	case applicationBoundaryFinishTurn:
+		command := m.finishTurnWithoutToolsAfterApplications()
+		if m.applicationOwnsOperatorInput() {
+			return m, tea.Batch(command, m.reconcileApplicationOperatorInput(applicationInputAfterWorkerTurn))
+		}
+		return m, command
+	case applicationBoundaryContinueTools:
+		return m, m.reconcileApplicationOperatorInput(applicationInputAfterToolResults)
+	default:
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "application turn boundary returned an unknown continuation"})
+		m.renderBlocks()
+		return m, nil
+	}
+}
+
+func onApplicationPollResult(m *Model, msg applicationPollResultMsg) (tea.Model, tea.Cmd) {
+	m.applicationPollRunning = false
+	if msg.applications != nil {
+		survivors := msg.applications[:0:len(msg.applications)]
+		for _, application := range msg.applications {
+			if application != nil {
+				survivors = append(survivors, application)
+			}
+		}
+		m.lifecycleApplications = survivors
+	}
+	if msg.err != nil {
+		previous := m.applicationFailureSources[applicationFailureEventPoll]
+		if previous == nil || previous.Error() != msg.err.Error() {
+			m.recordBackgroundPluginIssue("lifecycle application event dispatcher: " + msg.err.Error())
+		}
+		m.setApplicationFailureSource(applicationFailureEventPoll, msg.err)
+	} else {
+		m.clearApplicationFailureSource(applicationFailureEventPoll)
+	}
+	return m, tea.Batch(applicationPollTickCmd(), m.reconcileApplicationOperatorInput(applicationInputAfterNone), m.continueApplicationWorkerRunRecovery())
 }
 
 func onRecoveryTimeout(m *Model, _ recoveryTimeoutMsg) (tea.Model, tea.Cmd) {

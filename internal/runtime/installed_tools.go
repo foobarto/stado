@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,6 +55,7 @@ func pickActiveVersion(stateDir, pluginName string, candidates []string) string 
 // installed plugins as first-class entries.
 type installedPluginTool struct {
 	manifest plugins.Manifest
+	identity plugins.RuntimeIdentity
 	def      plugins.ToolDef
 	schema   map[string]any
 	class    tool.Class
@@ -75,13 +77,14 @@ type installedPluginTool struct {
 	invokeExec *tools.Executor
 }
 
-func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
+func newInstalledPluginTool(mf plugins.Manifest, identity plugins.RuntimeIdentity, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
 	var schema map[string]any
 	if def.Schema != "" {
 		_ = json.Unmarshal([]byte(def.Schema), &schema)
 	}
 	return &installedPluginTool{
 		manifest:  mf,
+		identity:  identity,
 		def:       def,
 		schema:    schema,
 		class:     class,
@@ -127,6 +130,7 @@ func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h t
 	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
 		Manifest:  t.manifest,
+		Identity:  t.identity,
 		WasmBytes: wasmBytes,
 		ToolName:  t.def.Name,
 		Args:      args,
@@ -192,6 +196,7 @@ var (
 
 type installedRecord struct {
 	Manifest plugins.Manifest
+	Identity plugins.RuntimeIdentity
 	WasmPath string
 }
 
@@ -306,6 +311,11 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s wasm verify: %v; not registered\n", name, version, err)
 			continue
 		}
+		identity, err := RuntimeIdentityForPluginDir(dir, *mf)
+		if err != nil {
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s identity: %v; not registered\n", name, version, err)
+			continue
+		}
 		for _, def := range mf.Tools {
 			if _, exists := reg.Get(def.Name); exists {
 				emitInstalledPluginDiagnosticOnce("stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
@@ -315,11 +325,12 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 				emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to exec\n",
 					name, version, def.Name, err)
 			}
-			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class, cfg, reg))
+			reg.Register(newInstalledPluginTool(*mf, identity, def, wasmPath, class, cfg, reg))
 
 			installedRegistryMu.Lock()
 			installedByTool[def.Name] = installedRecord{
 				Manifest: *mf,
+				Identity: identity,
 				WasmPath: wasmPath,
 			}
 			installedRegistryMu.Unlock()
@@ -331,14 +342,37 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 // named installed-plugin tool. Symmetric with
 // bundled.LookupModuleByToolName. Used by cmd/stado/tool_run.go
 // to dispatch installed-plugin invocation through runPluginInvocation.
-func LookupInstalledModule(toolName string) (plugins.Manifest, string, bool) {
+func LookupInstalledModule(toolName string) (plugins.Manifest, plugins.RuntimeIdentity, string, bool) {
 	installedRegistryMu.Lock()
 	defer installedRegistryMu.Unlock()
 	rec, ok := installedByTool[toolName]
 	if !ok {
-		return plugins.Manifest{}, "", false
+		return plugins.Manifest{}, plugins.RuntimeIdentity{}, "", false
 	}
-	return rec.Manifest, rec.WasmPath, true
+	return rec.Manifest, rec.Identity, rec.WasmPath, true
+}
+
+// RuntimeIdentityForPluginDir resolves an installed plugin's signed EP-39 lock
+// identity, or an explicit source-bound local-development identity when the
+// directory was installed without a remote lock entry.
+func RuntimeIdentityForPluginDir(pluginDir string, manifest plugins.Manifest) (plugins.RuntimeIdentity, error) {
+	lockPath := filepath.Join(filepath.Dir(filepath.Dir(pluginDir)), "plugin-lock.toml")
+	lock, err := plugins.ReadLock(lockPath)
+	if err == nil {
+		identity, identityErr := plugins.RuntimeIdentityFromLock(lock, manifest)
+		if identityErr == nil {
+			return identity, nil
+		}
+		if !errors.Is(identityErr, plugins.ErrRuntimeIdentityNotFound) {
+			return plugins.RuntimeIdentity{}, identityErr
+		}
+		// The lock may contain only other remote packages. This package was
+		// then installed explicitly from a local development directory.
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return plugins.RuntimeIdentity{}, fmt.Errorf("read plugin lock: %w", err)
+	}
+	return plugins.RuntimeIdentityForLocalSource(manifest, pluginDir)
 }
 
 // ResolveInstalledPluginDir takes an operator-friendly bare plugin name

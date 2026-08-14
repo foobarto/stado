@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,7 +18,7 @@ import (
 // Cases covered:
 // 1. Plain .git/HEAD — must reject (baseline)
 // 2. Symlink-into-.git — must reject (was bypass pre-fix)
-// 3. Mixed-case .GIT/config — must reject on macOS/Windows (was
+// 3. Mixed-case .GIT/config — must reject on case-insensitive filesystems (was
 //    bypass on case-insensitive FS pre-fix); rejection is uniform
 //    everywhere because EqualFold is platform-independent.
 // 4. Plain source file — must pass through (baseline)
@@ -86,7 +85,7 @@ func TestDefaultGitWritePathGuard_RejectsDotGitSymlinkToOtherDir(t *testing.T) {
 	}
 }
 
-// macOS HFS+/APFS and Windows NTFS treat .GIT and .git as the same
+// Case-insensitive mounted filesystems treat .GIT and .git as the same
 // directory. Operators on those platforms get a case-insensitive
 // bypass pre-fix.
 func TestDefaultGitWritePathGuard_RejectsMixedCaseDotGit(t *testing.T) {
@@ -149,9 +148,6 @@ func TestDefaultGitWritePathGuard_EmptyWorkdir(t *testing.T) {
 
 // Skip-stable for runtime platforms where /tmp differs.
 func TestDefaultGitWritePathGuard_AbsolutePathTargetingGit(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("path-handling on Windows differs; skipped")
-	}
 	workdir := t.TempDir()
 	abs := filepath.Join(workdir, ".git", "config")
 	// Absolute path containing .git anywhere in the segments — reject.

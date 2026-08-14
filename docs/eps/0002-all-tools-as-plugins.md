@@ -2,13 +2,19 @@
 ep: 2
 title: All Tools as WASM Plugins
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-04-22
-implemented-in: v0.33.0
-extended-by: ["EP-0038"]
+extended-by: ["EP-0038", "EP-0066"]
 see-also: ["EP-0005", "EP-0006", "EP-0037", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Corrected a false Implemented marker during the PR-257 architecture audit.
+      Stado still exposes native registry meta-tools, skills/research/tasks, and
+      native supervise tools. The shrinking native-surface guard defines the
+      remaining debt; this EP returns to Implemented only when it reaches zero.
   - date: 2026-04-22
     status: Draft
     note: Initial draft — converted from brainstorming session on tools-to-plugins migration.
@@ -39,7 +45,7 @@ history:
       remains for tools not yet migrated but is no longer the primary path.
 ---
 
-> **Relationships:** **Extended by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
+> **Relationships:** **Extended by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-2: All Tools as WASM Plugins
 

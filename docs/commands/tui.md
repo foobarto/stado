@@ -372,8 +372,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/memory [on|off|status]` — show or toggle approved-memory retrieval
   for this session
 - `/learn [focus]` — review the completed trajectory for evidence-backed lesson
-  candidates; `/learn candidates`, `/learn show <id>`, and `/learn approve <id>`
-  provide the trusted interactive review path
+  candidates; `/learn candidates` and `/learn show <id>` inspect exact versions;
+  activation is withheld pending a separately trusted presenter or broker policy
 - `/btw` — off-band side-question mode
 - `/skill` — list user-invocable skills (`[user-only]` marks entries hidden
   from the model); `/skill:<name>` injects a skill body into the conversation.
@@ -462,7 +462,7 @@ relevant sections:
 | `[defaults]` | provider, model, `allow_project_persona` (user only) |
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
-| `[budget]` | warn + hard caps on cumulative cost and tokens |
+| `[budget]` | warn + hard caps on cumulative tokens |
 | `[hooks]` | `post_turn` lifecycle shell hook (user only) |
 | `[plugins]` | `allow_project_plugins`, `background` (user only), CRL, Rekor |
 | `[mcp.servers.<name>]` | external MCP tool servers (user only) |

@@ -60,7 +60,7 @@ Three drivers:
 | **Tools** | ripgrep, ast-grep, gopls (optional), git, cosign |
 | **Sandboxing** | `bwrap` presence, Landlock kernel support, active sandbox backend |
 | **Providers** | Resolved default provider, token counter availability |
-| **Config** | Context thresholds, budget caps (USD + token fields), hooks, tools filter, project-overlay strip warnings |
+| **Config** | Context thresholds, token budget caps, hooks, tools filter, project-overlay strip warnings |
 | **Local runners** | Probes ollama / llamacpp / vllm / lmstudio endpoints |
 
 Each probe is intentionally stateless — no network calls beyond

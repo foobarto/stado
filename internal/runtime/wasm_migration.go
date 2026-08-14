@@ -271,7 +271,7 @@ func (t *wasmMigrationTool) Schema() map[string]any {
 
 func (t *wasmMigrationTool) Run(ctx context.Context, args json.RawMessage, h pkgtool.Host) (pkgtool.Result, error) {
 	manifest := plugins.Manifest{
-		Name:         "stado-builtin-" + t.alias,
+		Name:         bundled.ManifestNamePrefix + "-" + t.alias,
 		Version:      "ep-0038",
 		Author:       "stado",
 		Capabilities: t.wt.caps,
@@ -282,7 +282,11 @@ func (t *wasmMigrationTool) Run(ctx context.Context, args json.RawMessage, h pkg
 	}
 	defer func() { _ = rt.Close(ctx) }()
 
-	host := pluginRuntime.NewHost(manifest, h.Workdir(), nil)
+	identity, err := plugins.RuntimeIdentityForBundledSource(t.alias, manifest)
+	if err != nil {
+		return pkgtool.Result{Error: err.Error()}, err
+	}
+	host := pluginRuntime.NewHostWithIdentity(manifest, identity, h.Workdir(), nil)
 	// EP-0029 D4: populate StateDir unconditionally so a builtin tool
 	// migrated to wasm that declares cfg:state_dir reads the real path.
 	// This path doesn't route through pluginrun.Run, which wires it for

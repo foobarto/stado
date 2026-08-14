@@ -1,136 +1,91 @@
 # No Internal Tools
 
-**Status as of 2026-08-12:** Steps 0–7 shipped. Steps 8–10 remain
-planned. See [EP-0002 — All Tools as WASM Plugins](../eps/0002-all-tools-as-plugins.md)
-and [EP-0037 — Tool dispatch and operator surface](../eps/0037-tool-dispatch-and-operator-surface.md).
+**Accepted contract:** every stado-owned model-visible product behavior belongs
+in a signed WASM plugin. Native Go exposes generic primitives and enforcement;
+it does not own application workflow. See
+[EP-0002](../eps/0002-all-tools-as-plugins.md),
+[EP-0037](../eps/0037-tool-dispatch-and-operator-surface.md),
+[EP-0038](../eps/0038-abi-v2-bundled-wasm-and-runtime.md), and
+[EP-0066](../eps/0066-canonical-plugin-authority-and-application-placement.md).
 
-The model-facing tool surface in stado is plugin-shaped end-to-end.
-Stado without any wasm plugins exposes an LLM chat plus a tight
-**registry-bootstrap carve-out** of eight non-disableable tools, the conditional
-`skills.load` loader, the two native isolated-research dispatchers, and the
-transitional native `tasks` tool. Ordinary task tools — `fs.read`,
-`shell.bash`, `web.fetch`, `rg.search`, agent-spawn, etc. — come from a wasm
-plugin (bundled or installed).
+## The boundary
 
-## Why
+Native stado may provide capabilities WASM cannot obtain from inside its
+garden:
 
-- **Stado provides primitives. Plugins decide policy.** The runtime
-  is unbiased: it offers mechanisms (exec, file ops, network, sandbox
-  wrap, approval prompts, http proxy, etc.) that plugin authors
-  compose into tools. Stado does not embed policy choices like "bash
-  gets bwrap" into the runtime — that lives in the plugin manifest
-  and source.
+- filesystem, process, network, terminal, provider, and cryptographic
+  primitives;
+- broker-stamped session/turn anchors and bounded host observations about tree,
+  trace, repository, and child execution;
+- broker-owned artifacts, journals, mailboxes, timers, budgets, leases, and
+  state transitions;
+- operator UI transport and operator-origin grants;
+- sandbox, audit, capability, identity, ordering, and scheduling enforcement.
 
-- **Single dispatch path.** Every plugin invocation site (agent loop,
-  MCP server, CLI `stado tool run`, the `stado_tool_invoke` callback,
-  plugin-override wrapping) routes through one shared
-  `internal/runtime/pluginrun.Run` entry point. No path-specific
-  special-cases means cap enforcement, audit trails, lifecycle
-  bridges, and progress emission behave identically everywhere.
+WASM applications decide things two implementations could reasonably decide
+differently:
 
-- **Auditability.** Tool implementations are wasm modules with
-  signed manifests. Verification happens against the same machinery
-  whether the plugin is "bundled" (shipped inside the stado binary
-  via `go:embed`) or "installed" (downloaded by the operator).
-  Step 10 of the migration extends this to a `stado plugin verify
-  --bundled` walk over every embedded manifest.
+- tool schemas, prompts, output formatting, and integration behavior;
+- discovery, skills, research, learning, task, and guidance workflows;
+- supervision contracts, detectors, cadence, evidence selection, verdict
+  policy, correction, pivots, and completion policy.
 
-## Carve-outs
+A large plugin is not a failure of this boundary. The plugin sandbox and a
+clean core exist precisely so product applications can grow and innovate
+without gaining ambient host authority.
 
-Eight registry-self-management tools are registered as native
-`tool.Tool` instances on the agent and MCP-server registries
-unconditionally, since plugins need somewhere to be discoverable
-from before they're loaded:
+## No permanent carve-outs
 
-| Tool | Purpose |
-|---|---|
-| `tools.search` | fuzzy search over registered tools |
-| `tools.describe` | schema + cap surface for one or more tools |
-| `tools.in_category` | tools by category tag |
-| `tools.categories` | list categories |
-| `tools.activate` | activate an autoloaded tool |
-| `tools.deactivate` | deactivate an active tool |
-| `plugin.load` | load a plugin into the live registry |
-| `plugin.unload` | unload a plugin |
+Bootstrapping does not justify native model tools. The operator and loader can
+enable signed plugins without giving the model an application-specific native
+registry API. If a WASM application lacks a necessary capability, add the
+smallest generic primitive and keep the product policy in WASM.
 
-These survive `ApplyToolFilter` regardless of operator config
-patterns — the model needs at least these to reach the rest of the
-plugin surface.
+External MCP tools are a different category: stado adapts a tool implemented by
+an operator-enabled external server. The adapter remains broker-, sandbox-,
+taint-, audit-, and schema-bounded. “External” is not an authority exemption.
 
-`skills.load` is also native, but is intentionally not part of this
-non-disableable kernel: it appears only when model-invocable skills exist and
-can be denied through `[tools].disabled`. `memory.research` and
-`session.research` are native bounded dispatchers into isolated agents rather
-than corpus-reading implementations; their host bridges enforce authorization
-and return cited syntheses. The native `tasks` tool remains the explicitly
-tracked Step 8 migration exception.
+## Current migration debt
 
-## What's NOT a carve-out
+The source tree still contains native model-visible behavior from the earlier
+migration. These are tracked deletions, not accepted exceptions:
 
-- **`llm.invoke`** is registered on the MCP server's tool list only,
-  not on the agent's. It wraps the `stado_llm_invoke` host primitive
-  so external MCP clients can ask stado's configured provider to run
-  inference. The agent itself uses `stado_agent_spawn` and the
-  `agent.*` plugin family when it wants to delegate to a sub-agent.
-  Structurally separated, not a special case.
+- registry meta-tools (`tools.*`, `plugin.load`, `plugin.unload`);
+- `skills.load`;
+- memory/session research dispatchers;
+- the `tasks` tool;
+- native guidance composition;
+- native supervise tools, detectors, prompts, and workflow services.
 
-- **`tasks`** is not migrated to a wasm plugin yet. Step 8 will rewrite it using
-  `stado_fs_*` + `stado_instance_*` state primitives. Until then the native
-  `internal/tools/tasktool/` remains a transitional model-facing exception.
+The architecture guard carries a shrinking allowlist for these paths. It may
+shrink; it may not grow. The target before v1 is empty.
 
-## Migration phases
+## Shared dispatch and identity
 
-| Step | Status | Cut |
-|---|---|---|
-| 0 / 0.1 / 0.2 / 0.5 | **Shipped** | `pluginrun` invoker carved out; all four invocation sites unified |
-| 1 | **Shipped** | `stado_http_request` is a primitive (was a delegate to native `httpreq`) |
-| 2 | **Shipped** | `webfetch` + `web` plugins use `stado_http_request` |
-| 3 | **Shipped** | `sandbox` arg on `stado_exec` / `stado_proc_spawn`; new `stado_fs_readdir` / `stado_fs_stat` primitives |
-| 4 | **Shipped** | `bash` plugin uses `stado_exec`; `stado_exec_bash` import + `exec:bash` cap deleted |
-| 5 | **Shipped** | `ripgrep` + `ast_grep` plugins use `stado_exec`; native `internal/tools/{rg,astgrep}/` deleted |
-| 6 | **Shipped** | `stado_lsp_*` lifted to primitive; native `internal/tools/lspfind/` deleted |
-| 7 | **Shipped (v0.45.0)** | `fs.*` family + `readctx.*` rewritten in wasm using `stado_fs_*` primitives |
-| 8 | Planned | `tasks` plugin wasm rewrite; deletion of `internal/tools/{tasktool,llmtool}/` |
-| 9 | Planned | `VerifiedPluginSource` abstraction; deletion of `bundledPluginTool` shim, `wasmFamilies`, `[runtime.use_wasm]` config; manifest+sig embedding |
-| 10 | Planned | `stado plugin verify --bundled` walks embedded manifests + signatures |
+Every plugin invocation surface uses the shared runtime path so capability
+checks, canonical identity, broker bindings, audit attribution, lifecycle
+bridges, and output bounds do not depend on whether a call came from TUI,
+`stado run`, headless, ACP, MCP, an override, or another plugin.
 
-## Operator-facing impact
+`Manifest.Name` is presentation metadata. Installed and bundled production
+paths must supply source-bound canonical identity; they never fall back
+to a local identity. That identity owns secrets, instance state, artifact kinds,
+lifecycle instances, broker admission, idempotency, and audit attribution.
 
-- **Tool wire vs. display names.** Wire form is what the model sees
-  and what `stado tool run <name>` accepts: `fs__read`, `shell__bash`,
-  `web__fetch`. Human surfaces (TUI listings, `stado tool list` output,
-  CHANGELOG) display dotted form (`fs.read`, `shell.bash`) via the
-  wire-to-display computation. Both names route to the same plugin
-  tool — no need to memorise the mapping.
+## Author checklist
 
-- **Tool filtering and overrides** keep working unchanged. The
-  carve-out class is filter-immune so `[tools].include = []` doesn't
-  accidentally lock the operator out of `tools.activate`.
+Before adding native model-visible code, ask:
 
-- **`STADO_NO_BUNDLED_PLUGINS=1`** (planned for Step 9) will pin
-  stado to "carve-outs only," primarily for tests and minimal-image
-  deployments where the operator brings every plugin themselves.
+1. Is this a broker-verified or kernel-observed fact the guest cannot supply,
+   an OS/runtime operation, a durable authority write, or an enforcement seam
+   that WASM cannot provide?
+2. Could two product implementations choose different policy here?
+3. Can one smaller typed host import make the application possible in WASM?
 
-- **Plugin authors** can target stado as a standard wasm host with
-  documented host imports
-  ([`docs/plugins/host-imports.md`](../plugins/host-imports.md)),
-  no internal-tool-specific contracts.
+If the second answer is yes, the behavior belongs in a plugin. If the third is
+yes, add the primitive rather than the native application.
 
-## Stale state to know about
-
-Until Steps 8–9 ship, the following migration scaffolding is
-intentionally still present in the tree:
-
-- `internal/tools/tasktool/` — replaced by Step 8's wasm `tasks`
-  plugin.
-- `internal/tools/llmtool/` — superseded by the MCP-server-only
-  `llm.invoke` registration that calls `stado_llm_invoke` directly.
-- `bundledPluginTool` shim and `wasmFamilies` map in
-  `internal/runtime/{bundled_plugin_tools,wasm_migration}.go` —
-  collapse into `VerifiedPluginSource` at Step 9.
-- `[runtime.use_wasm]` config block — deleted at Step 9.
-
-These are visible in source today; the spec's risk-and-self-critique section
-calls them out explicitly. `tasktool` remains model-facing as the declared Step
-8 exception; `llmtool` is not registered on the ordinary agent surface, and the
-bundled shim is an implementation wrapper around the wasm tools the agent sees.
+Plugin authors should use the current
+[host-import reference](../plugins/host-imports.md) and
+[ABI conventions](../plugins/abi-reference.md). Removed delegate imports and
+memory-specific aliases are not compatibility surfaces before v1.

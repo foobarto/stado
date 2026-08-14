@@ -15,7 +15,7 @@ package main
 // runner-plumb-through):
 //
 // The legacy in-process bash tool consulted Runner() on the host to
-// confine itself with bubblewrap / sandbox-exec. That tool is gone —
+// confine itself with bubblewrap or firejail. That tool is gone —
 // `bash` is now the wasm tool `shell.exec`, which routes through
 // stado_exec. The original 2026-05-09 review caught a comment here
 // claiming Runner() still confined bash; it didn't, because the wasm
@@ -26,7 +26,7 @@ package main
 // pluginRuntime.NewDefaultSandboxPolicy. host_proc.go:resolveSandboxPolicy
 // applies this default when the wasm guest doesn't supply its own.
 // Net effect: bash invocations through MCP run under bwrap /
-// sandbox-exec by default (PID + uid namespace isolation).
+// a Linux containment runner by default.
 //
 // Host-as-ceiling (post-2026-05-09 redesign): when a guest supplies
 // its own `sandbox` field, the resolver intersects host and guest —
@@ -203,7 +203,7 @@ var mcpServerCmd = &cobra.Command{
 // plugin-run with --with-tool-host). MCP clients now show up in the
 // audit trail with `tool.name` + `tool.outcome` + `tool.duration_ms`
 // like any other caller. The wasm shell path picks up bwrap /
-// sandbox-exec confinement via the host's DefaultSandboxPolicy.
+// Linux confinement via the host's DefaultSandboxPolicy.
 func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, executor *tools.Executor) {
 	mcpTool := mcp.NewToolWithRawSchema(t.Name(), t.Description(), rawSchema(t.Schema()))
 	name := t.Name()
@@ -266,7 +266,7 @@ func rawSchema(m map[string]any) json.RawMessage {
 // calls don't have a running session to dedup against. The Runner()
 // method makes the bash tool sandbox-aware (it does an interface
 // type-assert to find this method); without Runner() exposed, bash
-// would run unsandboxed even on hosts where bwrap/sandbox-exec is
+// would run unsandboxed even on hosts where bwrap/firejail is
 // available — silent and bad.
 type stadoMCPHost struct {
 	workdir         string
@@ -298,7 +298,7 @@ func (h stadoMCPHost) PTYManager() any { return h.pty }
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider. Plugins
 // calling stado_exec / stado_proc_spawn from MCP without supplying
 // their own `sandbox` field get the host-default protective policy
-// (PID + uid namespace isolation via bwrap / sandbox-exec, plus the
+// (process containment via bwrap/firejail, plus the
 // FSRead/FSWrite/Net values defined by NewDefaultSandboxPolicy).
 //
 // Plugins supplying an explicit `sandbox` field intersect with this

@@ -2,6 +2,8 @@ package broker
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -20,6 +22,12 @@ import (
 // purged). Surfaced as the JSON-RPC ErrCodeBrokerSessionNotFound.
 var ErrSessionNotFound = errors.New("broker: session not found")
 
+// ErrSessionController is returned when a native-only operation does not
+// present the controller capability minted with the target session. A matching
+// local UID authenticates the outer OS principal, not control of a particular
+// session.
+var ErrSessionController = errors.New("broker: session controller authentication failed")
+
 // ErrSessionTerminated is returned when an operation is attempted
 // against a SessionID that was minted but has since been
 // terminated. Distinguished from ErrSessionNotFound so the
@@ -30,9 +38,22 @@ var ErrSessionTerminated = errors.New("broker: session terminated")
 // sessionState is the broker-internal record of a minted session.
 // Held under sessions.mu. Not exposed across the IPC.
 type sessionState struct {
-	handle       SessionHandle
-	terminated   bool
-	terminatedAt time.Time
+	handle     SessionHandle
+	controller [sha256.Size]byte
+	// controllerVersion changes whenever a durable logical-session scope is
+	// adopted. Opaque plugin bindings capture this value so rotating a native
+	// controller invalidates every old binding without changing generation (and
+	// therefore without abandoning the durable application journal).
+	controllerVersion uint64
+	terminated        bool
+	terminatedAt      time.Time
+	scope             sessionScopeState
+	// Artifact scope is broker-derived when the session is admitted. A WASM
+	// guest never supplies these values on artifact calls.
+	principal  string
+	repoID     string
+	parentID   string
+	generation uint64
 	// taint is the session's current provenance state (phase 6).
 	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
 	// for capability-grant decisions that should refuse when the
@@ -60,6 +81,20 @@ type Service struct {
 	// log. nil = decision logging disabled (test mode). Phase 5
 	// hardens the writer; phase 1 wires the surface.
 	decisionsLog DecisionWriter
+
+	// artifacts is nil until the daemon attaches its canonical WAL-backed
+	// artifact authority. Keeping the authority on Service makes broker.v1 the
+	// only production write path while unit tests that exercise policy alone
+	// remain lightweight.
+	artifacts *artifactBrokerState
+
+	// sessionScopes is installed with the canonical broker WAL. Only logical
+	// git sessions opt into this durable scope; short-lived tool/subagent/root
+	// connection handles remain process-local.
+	sessionScopes *sessionScopeStore
+	// sessionLineage independently verifies exact git parent/turn refs before
+	// the broker moves a durable logical scope to an automatic-recovery child.
+	sessionLineage SessionLineageVerifier
 
 	// now is overridable for tests.
 	now func() time.Time
@@ -113,6 +148,35 @@ func (s *Service) evaluate(req CapabilityRequest) Decision {
 // approximation derived from purpose+profile (phase 4 will tighten
 // the projection from the full request shape).
 func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision, error) {
+	return s.createSession(req, SessionAdoptionCredential{})
+}
+
+// CreateSessionForSubject creates a durable broker scope for one exact logical
+// git-session subject. The subject is association metadata, not authority: the
+// broker-issued adoption credential is what permits a later process to reopen
+// the scope.
+func (s *Service) CreateSessionForSubject(req CapabilityRequest, subject string) (SessionHandle, Decision, error) {
+	repoID, err := canonicalArtifactRepoID(req.CWD)
+	if err != nil || repoID == "" {
+		return SessionHandle{}, Decision{}, ErrSessionScopeCredential
+	}
+	credential, _, err := s.reserveSessionScope("", localArtifactPrincipal(), subject, repoID)
+	if err != nil {
+		return SessionHandle{}, Decision{}, err
+	}
+	return s.createSession(req, credential)
+}
+
+// CreateSessionForCredential records an already-prestaged native recovery
+// bearer. Pre-staging closes the first-create response-loss window: the broker
+// still derives all authority and stores only digests, while a client crash
+// cannot orphan a scope whose only plaintext bearer was in the lost reply.
+func (s *Service) CreateSessionForCredential(req CapabilityRequest, credential SessionAdoptionCredential) (SessionHandle, Decision, error) {
+	return s.createSession(req, credential)
+}
+
+func (s *Service) createSession(req CapabilityRequest, credential SessionAdoptionCredential) (SessionHandle, Decision, error) {
+	subject := credential.Subject
 	if !req.Purpose.Valid() {
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: invalid purpose %q", req.Purpose)
 	}
@@ -120,7 +184,13 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: invalid profile %q", req.Profile)
 	}
 	if req.Purpose == PurposeSubagent {
+		if subject != "" {
+			return SessionHandle{}, Decision{}, errors.New("broker: subagent cannot own a logical-session subject")
+		}
 		return s.createSubagentSession(req)
+	}
+	if subject != "" && req.Purpose != PurposeMainChat {
+		return SessionHandle{}, Decision{}, errors.New("broker: durable logical-session scope requires main-chat purpose")
 	}
 	d := s.Evaluate(req)
 	if !d.Admit {
@@ -149,8 +219,42 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 		CreatedAt: now,
 	}
 
+	repoID, err := canonicalArtifactRepoID(handle.CWD)
+	if err != nil {
+		return SessionHandle{}, d, fmt.Errorf("broker: canonical repository scope: %w", err)
+	}
+	controllerToken, controllerDigest, err := mintControllerToken()
+	if err != nil {
+		return SessionHandle{}, d, fmt.Errorf("broker: mint session controller: %w", err)
+	}
+	handle.controllerToken = controllerToken
+	storedHandle := handle
+	storedHandle.controllerToken = ""
+	state := &sessionState{
+		handle: storedHandle, controller: controllerDigest, controllerVersion: 1,
+		principal: localArtifactPrincipal(), repoID: repoID, generation: 1,
+	}
+	if subject != "" {
+		if err := s.prepareDurableSessionScope(state, credential); err != nil {
+			return SessionHandle{}, d, err
+		}
+		handle.subject = subject
+		handle.adoptionTicket = state.scope.ticket
+		handle.resumeSecret = state.scope.resumeSecret
+		// The broker needs only digests after the one-shot response is built.
+		state.scope.ticket = ""
+		state.scope.resumeSecret = ""
+		state.scope.reservationParentID = req.SessionID
+	}
+
 	s.sessionsMu.Lock()
-	s.sessions[id] = &sessionState{handle: handle}
+	if state.scope.durable {
+		if err := s.persistNewSessionScopeLocked(state); err != nil {
+			s.sessionsMu.Unlock()
+			return SessionHandle{}, d, err
+		}
+	}
+	s.sessions[id] = state
 	s.sessionsMu.Unlock()
 
 	return handle, d, nil
@@ -213,7 +317,20 @@ func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, D
 		ExpiresAt: time.Time{},
 		CreatedAt: s.now(),
 	}
-	s.sessions[id] = &sessionState{handle: handle}
+	controllerToken, controllerDigest, err := mintControllerToken()
+	if err != nil {
+		s.sessionsMu.Unlock()
+		s.logDecision(req, d)
+		return SessionHandle{}, d, fmt.Errorf("broker: mint session controller: %w", err)
+	}
+	handle.controllerToken = controllerToken
+	storedHandle := handle
+	storedHandle.controllerToken = ""
+	s.sessions[id] = &sessionState{
+		handle: storedHandle, controller: controllerDigest, controllerVersion: 1,
+		principal: parentState.principal, repoID: parentState.repoID,
+		parentID: parent.SessionID, generation: 1,
+	}
 	s.sessionsMu.Unlock()
 	s.logDecision(req, d)
 	return handle, d, nil
@@ -297,19 +414,60 @@ func isSubpath(parent, child string) bool {
 // ErrSessionNotFound if the SessionID was never minted, or
 // ErrSessionTerminated if it was already terminated. Idempotent
 // callers should ignore ErrSessionTerminated.
-func (s *Service) TerminateSession(sessionID string) error {
+func (s *Service) TerminateSession(sessionID, controllerToken string) error {
 	s.sessionsMu.Lock()
-	defer s.sessionsMu.Unlock()
 	st, ok := s.sessions[sessionID]
 	if !ok {
+		s.sessionsMu.Unlock()
 		return ErrSessionNotFound
 	}
 	if st.terminated {
+		s.sessionsMu.Unlock()
 		return ErrSessionTerminated
 	}
+	if err := authenticateControllerLocked(st, controllerToken); err != nil {
+		s.sessionsMu.Unlock()
+		return err
+	}
+	terminatedAt := s.now()
+	if st.scope.durable {
+		if err := s.persistSessionScopeTransitionLocked(st, sessionScopeTerminated, terminatedAt); err != nil {
+			s.sessionsMu.Unlock()
+			return err
+		}
+	}
 	st.terminated = true
-	st.terminatedAt = s.now()
+	st.terminatedAt = terminatedAt
+	st.controller = [sha256.Size]byte{}
+	if st.scope.durable {
+		st.scope.status = sessionScopeTerminated
+		st.scope.version++
+		st.scope.leaseUntil = time.Time{}
+	}
+	s.invalidateSessionBindingsLocked(sessionID)
+	s.sessionsMu.Unlock()
 	return nil
+}
+
+// invalidateSessionBindingsLocked removes native-held opaque capabilities for
+// one broker session. Callers hold sessionsMu; bind paths take locks in the
+// same sessions -> artifacts order.
+func (s *Service) invalidateSessionBindingsLocked(sessionID string) {
+	if s.artifacts == nil {
+		return
+	}
+	s.artifacts.mu.Lock()
+	defer s.artifacts.mu.Unlock()
+	for token, binding := range s.artifacts.bindings {
+		if binding.sessionID == sessionID {
+			delete(s.artifacts.bindings, token)
+		}
+	}
+	for key := range s.artifacts.lifecycleBindings {
+		if key.sessionID == sessionID {
+			delete(s.artifacts.lifecycleBindings, key)
+		}
+	}
 }
 
 // LookupSession returns the SessionHandle for sessionID along with
@@ -350,6 +508,45 @@ func mintSessionID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b[:]), nil
+}
+
+// mintControllerToken returns a 256-bit bearer and the only representation the
+// broker retains. The plaintext token is delivered once in session.create and
+// must remain in the native controller; it is never an operator-origin grant.
+func mintControllerToken() (string, [sha256.Size]byte, error) {
+	var random [32]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", [sha256.Size]byte{}, err
+	}
+	token := "controller_" + hex.EncodeToString(random[:])
+	return token, sha256.Sum256([]byte(token)), nil
+}
+
+// authenticateControllerLocked validates a session-scoped native capability.
+// The caller must hold sessionsMu for reading or writing. Constant-time digest
+// comparison avoids turning the broker into a token-prefix oracle.
+func authenticateControllerLocked(session *sessionState, token string) error {
+	if session == nil || token == "" {
+		return ErrSessionController
+	}
+	digest := sha256.Sum256([]byte(token))
+	if subtle.ConstantTimeCompare(digest[:], session.controller[:]) != 1 {
+		return ErrSessionController
+	}
+	return nil
+}
+
+func (s *Service) authenticateSessionController(sessionID, token string) error {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return ErrSessionNotFound
+	}
+	if session.terminated {
+		return ErrSessionTerminated
+	}
+	return authenticateControllerLocked(session, token)
 }
 
 // projectCeiling produces a sandbox.Policy from the mount-and-

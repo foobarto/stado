@@ -17,7 +17,7 @@ import (
 // text body. Severity is validated at decode against a fixed set so
 // an unrecognised value can't silently become "info" downstream.
 // EOL is a *bool so absence vs explicit-false are distinguishable
-// (default = true when absent). F9a.
+// (default = true when absent).
 type printRequestWire struct {
 	Text     string `json:"text"`
 	Severity string `json:"severity,omitempty"`
@@ -29,7 +29,7 @@ type printRequestWire struct {
 // decode time. Empty string is treated as "info" by renderers; that
 // normalisation lives bridge-side, not in the wire layer, so a
 // plugin that wants to be explicit can ship "" without tripping
-// the gate. F9a.
+// the gate.
 var validPrintSeverities = map[string]bool{
 	"":      true,
 	"info":  true,
@@ -46,10 +46,9 @@ var validPrintSeverities = map[string]bool{
 // error message of n bytes is at err_ptr.
 //
 // Cap-gated by ui:print. Routes to host.PrintBridge; nil bridge =
-// drop on the floor with success (per F9 spec — a print on a
-// disconnected channel should not error). Errors only on
-// shape / size violations and explicit bridge rejections. F9a
-// (2026-05-08).
+// drop on the floor with success (the EP-0064 disconnected-channel
+// contract). Errors only on shape / size violations and explicit
+// bridge rejections.
 func registerUIPrintImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -89,8 +88,7 @@ func registerUIPrintImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			// nil bridge = drop on the floor (success). The plugin
 			// can't observe whether a render channel is wired; this
-			// matches the F9 spec's "if channel disconnected, emit
-			// succeeds silently" rule.
+			// matches EP-0064's disconnected-channel contract.
 			if host.PrintBridge == nil {
 				stack[0] = api.EncodeI32(0)
 				return

@@ -3,6 +3,7 @@ package headless
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/foobarto/stado/internal/acp"
@@ -13,6 +14,12 @@ import (
 // cfg.Plugins.Background plugins before dispatch starts; tears them
 // down on exit.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
+	// EP-0064: headless has neither the persistent per-session application
+	// owner nor the complete command/tool/hook/event bridge set. Reject before
+	// loading a legacy background instance or accepting session work.
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, nil, runtime.ApplicationSurfaceHeadless); err != nil {
+		return fmt.Errorf("headless: %w", err)
+	}
 	s.conn = acp.NewConn(r, w)
 	s.loadBackgroundPlugins(ctx)
 	defer s.closeBackgroundPlugins(context.Background())

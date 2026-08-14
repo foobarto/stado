@@ -184,17 +184,17 @@ func TestAgentLoopClosesPendingVerificationOnGenerationError(t *testing.T) {
 	}
 }
 
-func TestAgentLoopClosesPendingVerificationAtCostCap(t *testing.T) {
+func TestAgentLoopClosesPendingVerificationAtTokenCap(t *testing.T) {
 	var statuses []VerifyStatus
 	var published []agent.Event
 	final, _, err := AgentLoop(context.Background(), AgentLoopOptions{
 		Provider: verifyCostProvider{}, Model: "m",
 		Messages: []agent.Message{agent.Text(agent.RoleUser, "done")}, MaxTurns: 1,
-		CostCapUSD: 1, Verify: VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1},
+		TokenCap: 1, Verify: VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1},
 		OnEvent:       func(event agent.Event) { published = append(published, event) },
 		OnVerifyEvent: func(event VerifyEvent) { statuses = append(statuses, event.Status) },
 	})
-	if !errors.Is(err, ErrCostCapExceeded) || final != "" || len(published) != 0 {
+	if !errors.Is(err, ErrTokenCapExceeded) || final != "" || len(published) != 0 {
 		t.Fatalf("cap final=%q published=%v error=%v", final, published, err)
 	}
 	want := []VerifyStatus{VerifyPending, VerifyGenerationError}
@@ -342,7 +342,7 @@ func (verifyCostProvider) Capabilities() agent.Capabilities { return agent.Capab
 func (verifyCostProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
 	events := make(chan agent.Event, 2)
 	events <- agent.Event{Kind: agent.EvTextDelta, Text: "unaccepted candidate"}
-	events <- agent.Event{Kind: agent.EvDone, Usage: &agent.Usage{CostUSD: 2}}
+	events <- agent.Event{Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 2}}
 	close(events)
 	return events, nil
 }

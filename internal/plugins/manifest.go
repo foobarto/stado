@@ -35,16 +35,19 @@ const (
 // Manifest describes one plugin. The bytes that are signed are the
 // canonicalised JSON (object keys sorted, compact encoding, UTF-8).
 type Manifest struct {
-	Name            string    `json:"name"`
-	Version         string    `json:"version"`
-	Author          string    `json:"author"`
-	AuthorPubkeyFpr string    `json:"author_pubkey_fpr"`
-	WASMSHA256      string    `json:"wasm_sha256"`
-	Capabilities    []string  `json:"capabilities"`
-	Tools           []ToolDef `json:"tools"`
-	MinStadoVersion string    `json:"min_stado_version"`
-	TimestampUTC    string    `json:"timestamp_utc"`
-	Nonce           string    `json:"nonce"`
+	Name            string            `json:"name"`
+	Version         string            `json:"version"`
+	Author          string            `json:"author"`
+	AuthorPubkeyFpr string            `json:"author_pubkey_fpr"`
+	WASMSHA256      string            `json:"wasm_sha256"`
+	Capabilities    []string          `json:"capabilities"`
+	Tools           []ToolDef         `json:"tools"`
+	Commands        []CommandDef      `json:"commands,omitempty"`
+	ArtifactKinds   []ArtifactKindDef `json:"artifact_kinds,omitempty"`
+	Lifecycle       *LifecycleDef     `json:"lifecycle,omitempty"`
+	MinStadoVersion string            `json:"min_stado_version"`
+	TimestampUTC    string            `json:"timestamp_utc"`
+	Nonce           string            `json:"nonce"`
 
 	// Requires is the optional plugin-dependency list. Each entry is
 	// "<plugin-name>" or "<plugin-name> >= <version>" (semver).
@@ -89,6 +92,20 @@ type ToolDef struct {
 	// Not validated against the canonical taxonomy; marked distinctly
 	// in tools.describe output.
 	ExtraCategories []string `json:"extra_categories,omitempty"`
+}
+
+// CommandDef declares one operator-invoked application command. Commands are
+// not model tools and grant no authority by themselves; they are a signed
+// routing surface into the same persistent application instance. The host
+// chooses the declared name and calls the fixed stado_plugin_command export.
+type CommandDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Usage       string `json:"usage,omitempty"`
+	// TimeoutMS is the command callback's wall-clock budget. Zero inherits the
+	// lifecycle timeout. Interactive commands may request a larger bounded
+	// budget without weakening hook, event, or tick timeouts.
+	TimeoutMS int `json:"timeout_ms,omitempty"`
 }
 
 // ClassValue parses the manifest-declared tool class. Empty means the
@@ -249,6 +266,9 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, "", fmt.Errorf("plugin: parse manifest: %w", err)
+	}
+	if err := m.ValidateExtensions(); err != nil {
+		return nil, "", fmt.Errorf("plugin: manifest extensions: %w", err)
 	}
 	sigBytes, err := readRootPackageFile(root, "plugin.manifest.sig", maxPluginSignatureBytes)
 	if err != nil {

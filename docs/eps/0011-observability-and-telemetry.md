@@ -170,4 +170,4 @@ runtime contract instead of adding per-surface instrumentation models.
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
 - [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
 - [README.md](../../README.md#stado)
-- [PLAN.md](../../PLAN.md#phase-6--otel--)
+- [DESIGN.md — Audit, telemetry, and release integrity](../../DESIGN.md#audit-telemetry-and-release-integrity)

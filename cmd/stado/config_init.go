@@ -215,16 +215,16 @@ const defaultConfigTemplate = `# stado — config.toml
 # hard_threshold = 0.90   # future turns blocked pending fork / compact / abort
 
 # ---------------------------------------------------------------------------
-# [budget] — cumulative cost guardrail per session. Both values are in USD.
-#            Zero (the default) disables the guard; set either to opt in.
-# warn_usd paints a yellow status-bar pill + one-time system block.
-# hard_usd blocks further turns pending '/budget ack' (or raising this cap).
-# stado run exits 2 with ErrCostCapExceeded if hard_usd is crossed.
-# hard_usd must be > warn_usd — a pair where hard ≤ warn is ignored (stderr warning).
+# [budget] — cumulative token guardrails per session. Currency estimates are
+#            observational only. Zero disables a threshold.
 # ---------------------------------------------------------------------------
 # [budget]
-# warn_usd = 1.00
-# hard_usd = 5.00
+# warn_tokens = 100000
+# hard_tokens = 500000
+# warn_input_tokens = 0
+# hard_input_tokens = 0
+# warn_output_tokens = 0
+# hard_output_tokens = 0
 
 # ---------------------------------------------------------------------------
 # [verify] — opt-in command gates at the agent loop's natural completion.

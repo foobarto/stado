@@ -1,14 +1,20 @@
 # stado — Threat model
 
-> Last reviewed: 2026-07-10 (EP-0050 top-level process-ceiling parity).
-> **Every tool is now a signed wasm plugin** dispatched
-> through capability-gated host imports — there are no in-process native
-> tools (the pre-EP-0037/0038 `internal/tools/*` surface is gone). See
+> Last reviewed: 2026-08-14 (EP-0063/0064 artifact and lifecycle boundary;
+> EP-0065 Linux-only platform scope).
+> Model-facing product tools are signed WASM plugins dispatched through
+> capability-gated host imports; native code supplies the documented runtime
+> primitives. Remaining native model surfaces are shrinking pre-v1 migration
+> debt under EP-0066, not bootstrap exceptions or parallel application policy. See
 > `docs/eps/0037-tool-dispatch-and-operator-surface.md`,
 > `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`,
 > `docs/eps/0005-capability-based-sandboxing.md`,
 > `docs/eps/0030-security-research-default-harness.md`, and
-> `docs/eps/0044-repo-config-trust-boundary.md`. The central shift
+> `docs/eps/0044-repo-config-trust-boundary.md`,
+> `docs/eps/0063-plugin-defined-harness-artifacts.md`,
+> `docs/eps/0064-wasm-lifecycle-applications.md`, and
+> `docs/eps/0065-linux-only-platform-scope.md`, and
+> `docs/eps/0066-canonical-plugin-authority-and-application-placement.md`. The central shift
 > since the 2026-04-25 review: filesystem and network access are gated by
 > per-plugin **capabilities** enforced at the host-import boundary, not
 > left to in-process trust. Update when re-walking.
@@ -25,8 +31,8 @@ calling plugin's declared FS/net/exec capability. Second, the broker projects a
 per-session process ceiling that is composed with OS subprocess containment.
 TUI, `stado run`, `stado run --headless`, ACP, and `mcp-server` all derive the
 same executor sandbox decision and retain it for every executor they create.
-`stado_exec`, `stado_proc_spawn`, and PTY creation use that executor's runner;
-on Linux this is bubblewrap plus seccomp, and on macOS it is sandbox-exec.
+`stado_exec`, `stado_proc_spawn`, and PTY creation use that executor's Linux
+runner: bubblewrap plus seccomp.
 `--no-sandbox` is the explicit process-containment opt-out on every top-level
 surface. `STADO_BROKER_ATTACH=0` skips broker mediation only; it does not select
 `NoneRunner` or remove the local host-default process policy. Network
@@ -54,11 +60,21 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - stado runs as a single local user; there is no multi‑tenant or network‑exposed service surface.
 - The OS user remains the outer security boundary. The sandbox narrows what a
   subprocess running as that user can see and mutate.
-- **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. Human approval still exists but as an **opt-in capability** (`stado_ui_approve`) a plugin invokes deliberately, not a blanket gate.
-- Sandboxing is platform-dependent (Linux Landlock + bwrap, macOS
-  sandbox-exec). Windows has no native confinement runner yet: a requested
-  subprocess policy fails closed instead of silently using the
-  `windows-passthrough` runner; `--no-sandbox` is the explicit override. Broker
+- Durable TUI broker scopes use a no-follow 0600 recovery bearer bound to the
+  broker-recorded canonical repository and current exact git-session subject.
+  It prevents guessing and accidental cross-client attachment, but not theft
+  or interference by a malicious process already running as the same UID. On
+  adoption the broker rotates the live controller and binding version while
+  preserving the session/generation application state; the disk bearer stays
+  stable because safe rotation would require a two-phase confirmation
+  protocol. Automatic compacted-child recovery pre-stages that same bearer and
+  atomically moves the broker-recorded subject only after broker-owned direct
+  lineage verification; manual forks never inherit it. An ambiguous handoff
+  outcome is fail-closed.
+- **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. `stado_ui_approve` is an opt-in yes/no workflow interaction, not an authentication primitive or a blanket containment gate.
+- Linux is the only supported platform now and through v1 (EP-0065). Existing
+  Darwin or Windows source remnants are unsupported and carry no current
+  containment guarantee. `--no-sandbox` is the explicit Linux override. Broker
   attachment is default-on for TUI, `stado run`, `stado run --headless`, ACP,
   and `mcp-server`; its projected process ceiling reaches all five. Direct
   `stado run` additionally applies Landlock to the stado process itself.
@@ -87,12 +103,14 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - Residual risk: capabilities are declared per plugin and approved at install/trust time; an over-broad grant or a trusted-but-coerced tool still operates within its granted scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control
-**Surface:** `internal/sandbox` runners (bwrap, sandbox‑exec), landlock/seccomp, HTTPS proxy allow‑list.
+**Surface:** the supported Linux `internal/sandbox` runner (bubblewrap),
+Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 
 **Risks/attacker stories:**
-- On Windows, or hosts without bwrap/sandbox-exec, sandboxed subprocess calls
-  fail because no native runner can enforce the requested policy. The explicit
-  `--no-sandbox` override restores direct execution.
+- On a Linux host without the required containment primitives, a requested
+  subprocess policy fails because no supported runner can enforce it. The
+  explicit `--no-sandbox` override restores direct execution without the v1
+  containment posture.
 - Pre-v0.57.0 `stado run` defaulted to no sandbox. v0.57.0 reversed
   that. Operators who set `--no-sandbox` retake the direct-execution risk;
   `STADO_BROKER_ATTACH=0` only removes the broker-projected ceiling.
@@ -103,7 +121,7 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 **Mitigations:**
 - **Host-default protective policy** (EP-0030): on all five top-level
   orchestrator surfaces, process and PTY imports that omit a guest policy get
-  bwrap/sandbox-exec isolation, a restricted FS view, and the launch cwd as a
+  bubblewrap isolation, a restricted FS view, and the launch cwd as a
   write boundary. The broker ceiling can only narrow that policy.
 - Network allow‑listing via a local CONNECT proxy (host allow‑list).
 - Every top-level surface gets the protective default without configuration.
@@ -130,6 +148,14 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - Ed25519‑signed manifests; trust store with fingerprint pinning and rollback protection.
 - Optional CRL/Rekor verification paths for plugins.
 - Capability‑gated host imports for plugin FS/net/session/LLM access.
+- Generic artifact imports are kind- and operation-scoped. The host injects
+  canonical plugin identity and session scope; guest JSON cannot forge those
+  authority fields, and the broker remains the sole authoritative writer
+  (EP-0063).
+- Lifecycle applications and watchdogs are quality gates, not security
+  boundaries. Their pause/stop requests are enforced only through the broker's
+  scoped scheduling primitives and never gain authority from model prose or a
+  mailbox message (EP-0064).
 - Host-import resource caps (v0.75.2): `stado_json_format` output capped at 4 MiB with 64-level nesting limit; `stado_dns_resolve_axfr` capped at 50k records / 120s timeout.
 - Nested `stado_tool_invoke` routes through the session `Executor.Run` when pinned (TUI/`/reload`, `stado run`, headless) so inner calls get the same audit + hook + sandbox path as top-level tools.
 
@@ -175,28 +201,43 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - Telemetry is opt‑in (`STADO_OTEL_ENABLED` / config).
 - Hooks are operator‑configured; execution is time‑bounded and output is isolated to stderr.
 
-### Supervision reviewers
+### Supervision reviewers (accepted target, migration in flight)
 
-`/supervise` watchdogs and verifiers consume untrusted repository, transcript,
-tool, diff, and child evidence. They are not a new trusted execution principal:
-their only tools are bounded read/search/follow views anchored to the current
-root/plan/tree state, including immutable repo-relative reads from the audited
-session tree rather than the moving worktree. Model JSON is a proposal; the host checks role, state,
-version, anchor, decision shape, and limits before any transition. Reviewers
-cannot mutate files, run shell/network calls, access credentials, approve their
-own baseline, change the contract, or accept completion outside their role.
-Automatic context-recovery forks must durably move the worker-session
-attachment and advance its sequence/tree anchor before adoption; otherwise the
-host stays on the parent. Manual forks receive no supervision authority by
-inheritance.
+EP-0064 moves `/supervise` workflow policy into the official signed WASM
+application released from `foobarto/stado-plugins`. The plugin owns contract
+setup, review cadence, deterministic
+detectors, reviewer/verifier prompts, verdict interpretation, stale-result
+policy, retries, plan/completion policy, and recovery workflow. Those are
+quality decisions two supervision applications could make differently; they
+are not native security primitives. The current native workflow implementation
+is migration debt, not a new architectural exception.
 
-The operator approval drawer remains required for contract and high-risk
-external boundaries. Native risk matching is defense in depth, not the sandbox
-or broker ceiling. A compromised reviewer can cause noisy corrections or a
-pause, but cannot widen capabilities, perform deployment, or forge an anchored
-completion verdict. Reviewer failure follows explicit retry/pause rules and
-never silently authorizes a pivot or completion. See
-[EP-0062](../eps/0062-harness-enforced-supervised-work.md).
+The host and broker own the facts and effects a sandboxed application cannot
+provide for itself: canonical plugin/session identity, broker-stamped current
+turn/tree/trace anchors, immutable evidence references, artifact and journal
+ordering, attenuated reviewer capabilities, separately issued operator-origin
+grants where policy provides them, and enforcement of holds, pause, stop,
+cancel, and budget ceilings. Guest JSON and mailbox prose cannot choose those
+fields or transitions. A plugin may request an allowed effect; the broker
+checks identity, scope, current anchor, capability, and CAS, not whether the
+model's semantic judgment was wise. An in-process UI callback is not proof of a
+fresh operator gesture against the EP-0050 threat model.
+
+Watchdogs and verifiers consume untrusted repository, transcript, tool, diff,
+and child evidence through bounded capabilities. They are not trusted execution
+principals and do not become a security boundary merely because the application
+calls them reviewers. The accepted stale-result policy is asymmetric: discard
+an earlier-anchor approval, deliver an earlier-anchor correction only as
+labelled advisory steering, and turn an earlier-anchor pause/stop into a durable
+hold plus a fresh current-anchor review. Only a current authorized request may
+apply the final scheduling transition.
+
+The operator remains the authority for the supervision contract and high-risk
+external boundaries. A steered reviewer can waste tokens, produce bad advice,
+or cause a scoped pause request; it cannot widen capabilities, perform a
+deployment, or manufacture an anchored completion record. See
+[EP-0062](../eps/0062-harness-enforced-supervised-work.md) and
+[EP-0064](../eps/0064-wasm-lifecycle-applications.md).
 
 The selected reviewer provider receives requested evidence and is therefore a
 data-egress trust choice. This is particularly important when watchdog or

@@ -27,7 +27,7 @@ func TestAgentLoopCreatesTurnBoundaryOnSession(t *testing.T) {
 	exec := &tools.Executor{Registry: tools.NewRegistry(), Session: sess}
 
 	if _, _, err := AgentLoop(context.Background(), AgentLoopOptions{
-		Provider: costAwareProvider{},
+		Provider: &systemCaptureProvider{},
 		Executor: exec,
 		Model:    "m",
 		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")},

@@ -4,7 +4,6 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -47,9 +46,9 @@ var (
 
 var selfUpdateCmd = &cobra.Command{
 	Use:   "self-update",
-	Short: "Download + install the latest stado release for this OS/arch",
+	Short: "Download + install the latest stado release for this Linux architecture",
 	Long: "Queries the GitHub Releases API of --repo (default foobarto/stado),\n" +
-		"picks the archive matching this host's GOOS/GOARCH, downloads it,\n" +
+		"picks the archive matching this host's Linux GOARCH, downloads it,\n" +
 		"verifies the sha256 from the release's checksums.txt, extracts the\n" +
 		"stado binary, and atomically swaps it into place.\n\n" +
 		"Keeps the previous binary at <bin>.prev so you can roll back.\n\n" +
@@ -170,25 +169,20 @@ func fetchLatestRelease(repo string) (*ghRelease, error) {
 	return &rel, nil
 }
 
-// pickAsset chooses the archive matching this host's GOOS/GOARCH.
-// Goreleaser names archives "stado_<ver>_<os>_<arch>.tar.gz" (.zip on windows).
+// pickAsset chooses the Linux archive matching this host's GOARCH.
+// Goreleaser names archives "stado_<ver>_linux_<arch>.tar.gz".
 func pickAsset(assets []ghAsset) (ghAsset, error) {
-	suffix := ".tar.gz"
-	if runtime.GOOS == "windows" {
-		suffix = ".zip"
-	}
-	osName := runtime.GOOS
 	arch := runtime.GOARCH
 	for _, a := range assets {
-		if !strings.HasSuffix(a.Name, suffix) {
+		if !strings.HasSuffix(a.Name, ".tar.gz") {
 			continue
 		}
 		n := strings.ToLower(a.Name)
-		if strings.Contains(n, "_"+osName+"_") && strings.Contains(n, "_"+arch+".") {
+		if strings.Contains(n, "_linux_") && strings.Contains(n, "_"+arch+".") {
 			return a, nil
 		}
 	}
-	return ghAsset{}, fmt.Errorf("no release asset matches %s/%s", osName, arch)
+	return ghAsset{}, fmt.Errorf("no release asset matches linux/%s", arch)
 }
 
 // fetchChecksums parses checksums.txt (one "sha256  filename" per line) into
@@ -349,9 +343,12 @@ func downloadAndVerifyLimited(url, wantHex string, advertisedSize, maxBytes int6
 	return tmp, nil
 }
 
-// extractBinary opens archivePath (.tar.gz or .zip) and writes the `stado`
+// extractBinary opens a Linux .tar.gz archive and writes the `stado`
 // entry into a new temp file, returning its path.
 func extractBinary(archivePath, assetName string) (string, error) {
+	if !strings.HasSuffix(assetName, ".tar.gz") {
+		return "", fmt.Errorf("unsupported non-Linux release archive %q", assetName)
+	}
 	tmp, err := os.CreateTemp("", "stado-bin-*")
 	if err != nil {
 		return "", err
@@ -368,93 +365,48 @@ func extractBinary(archivePath, assetName string) (string, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	if strings.HasSuffix(assetName, ".zip") {
-		if err := extractZipBinary(f, tmp); err != nil {
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		cleanup()
+		return "", err
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
 			cleanup()
-			return "", err
+			return "", fmt.Errorf("stado binary not found in archive")
 		}
-	} else {
-		gz, err := gzip.NewReader(f)
 		if err != nil {
 			cleanup()
 			return "", err
 		}
-		defer func() { _ = gz.Close() }()
-		tr := tar.NewReader(gz)
-		for {
-			hdr, err := tr.Next()
-			if err == io.EOF {
-				cleanup()
-				return "", fmt.Errorf("stado binary not found in archive")
-			}
-			if err != nil {
-				cleanup()
-				return "", err
-			}
-			base := filepath.Base(hdr.Name)
-			if base == "stado" || base == "stado.exe" {
-				if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != 0 {
-					cleanup()
-					return "", fmt.Errorf("archive entry %s is not a regular file", hdr.Name)
-				}
-				if hdr.Size > maxSelfUpdateBinaryBytes {
-					cleanup()
-					return "", fmt.Errorf("archive entry %s exceeds %d bytes", hdr.Name, maxSelfUpdateBinaryBytes)
-				}
-				if err := writeSelfUpdatePayload(tmp, tr); err != nil {
-					cleanup()
-					return "", err
-				}
-				if err := tmp.Chmod(0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
-					cleanup()
-					return "", err
-				}
-				if err := tmp.Close(); err != nil {
-					_ = os.Remove(out)
-					return "", err
-				}
-				return out, nil
-			}
+		if filepath.Base(hdr.Name) != "stado" {
+			continue
 		}
-	}
-	if err := tmp.Chmod(0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
-		cleanup()
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(out)
-		return "", err
-	}
-	return out, nil
-}
-
-func extractZipBinary(archive *os.File, out *os.File) error {
-	info, err := archive.Stat()
-	if err != nil {
-		return err
-	}
-	r, err := zip.NewReader(archive, info.Size())
-	if err != nil {
-		return err
-	}
-	for _, zf := range r.File {
-		base := filepath.Base(zf.Name)
-		if base == "stado" || base == "stado.exe" {
-			if !zf.FileInfo().Mode().IsRegular() {
-				return fmt.Errorf("zip entry %s is not a regular file", zf.Name)
-			}
-			if zf.UncompressedSize64 > uint64(maxSelfUpdateBinaryBytes) {
-				return fmt.Errorf("zip entry %s exceeds %d bytes", zf.Name, maxSelfUpdateBinaryBytes)
-			}
-			rc, err := zf.Open()
-			if err != nil {
-				return err
-			}
-			defer func() { _ = rc.Close() }()
-			return writeSelfUpdatePayload(out, rc)
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != 0 {
+			cleanup()
+			return "", fmt.Errorf("archive entry %s is not a regular file", hdr.Name)
 		}
+		if hdr.Size > maxSelfUpdateBinaryBytes {
+			cleanup()
+			return "", fmt.Errorf("archive entry %s exceeds %d bytes", hdr.Name, maxSelfUpdateBinaryBytes)
+		}
+		if err := writeSelfUpdatePayload(tmp, tr); err != nil {
+			cleanup()
+			return "", err
+		}
+		if err := tmp.Chmod(0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
+			cleanup()
+			return "", err
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(out)
+			return "", err
+		}
+		return out, nil
 	}
-	return fmt.Errorf("stado binary not found in zip")
 }
 
 func writeSelfUpdatePayload(out *os.File, in io.Reader) error {

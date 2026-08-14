@@ -39,14 +39,14 @@ func TestContextStatus_SurfacesBudgetInstructionsSkills(t *testing.T) {
 	m := NewModel(root, "model", "prov",
 		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
 
-	m.SetBudget(1.00, 5.00)
+	m.SetBudgetTokens(1000, 5000)
 	m.SetHooks("notify-send done")
 	m.usage.CostUSD = 0.17
 
 	got := m.renderContextStatus()
 	for _, needle := range []string{
 		"cost: $0.17",
-		"budget: warn=$1.00 · hard=$5.00",
+		"token budget (total): warn=1.0k · hard=5.0k",
 		"instructions: AGENTS.md",
 		"skills: 1 loaded",
 		"refactor",

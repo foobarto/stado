@@ -321,7 +321,7 @@ func validateUnixSocketPath(path string) error {
 	return nil
 }
 
-// maxUnixSocketPath is the conservative cross-platform upper bound for
+// maxUnixSocketPath is a conservative Linux Unix-socket path bound for
 // sockaddr_un.sun_path (BSD = 104, Linux = 108). Pick the smaller.
 const maxUnixSocketPath = 104
 

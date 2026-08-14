@@ -75,11 +75,18 @@ func (id Identity) Key() string {
 
 // Canonical returns the normalised identity string.
 func (id Identity) Canonical() string {
+	return id.Namespace() + "@" + id.Version
+}
+
+// Namespace is the stable, unversioned source identity. Artifact kinds use
+// this namespace so a plugin upgrade does not create a different logical kind;
+// the exact version/commit remains in the kind schema descriptor (EP-0063).
+func (id Identity) Namespace() string {
 	s := id.Host + "/" + id.Owner + "/" + id.Repo
 	if id.Subdir != "" {
 		s += "/" + id.Subdir
 	}
-	return s + "@" + id.Version
+	return s
 }
 
 // OwnerKey returns the owner-scoped identifier used for anchor trust.

@@ -31,7 +31,7 @@ type SessionBridgeImpl struct {
 	Session     *stadogit.Session
 	Provider    agent.Provider
 	Model       string
-	PluginName  string                 // for Plugin: audit trailer
+	PluginName  string                 // canonical runtime identity for audit trailers
 	MessagesFn  func() []agent.Message // snapshot of current conversation
 	TokensFn    func() int             // current input-token count
 	LastTurnRef func() string          // ref like refs/sessions/<id>/turns/N

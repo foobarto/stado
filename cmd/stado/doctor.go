@@ -384,18 +384,15 @@ func modelPreview(models []string) string {
 // report. Each row is ✓ regardless of setting — we just want the
 // value to be visible. Users often forget which knobs exist.
 func checkOptInFeatures(d *report, cfg *config.Config) {
-	// [budget]
-	budgetVal := "(unset — no cost guardrail)"
-	if cfg.Budget.WarnUSD > 0 || cfg.Budget.HardUSD > 0 {
-		w := "(unset)"
-		if cfg.Budget.WarnUSD > 0 {
-			w = fmt.Sprintf("$%.2f", cfg.Budget.WarnUSD)
-		}
-		h := "(unset)"
-		if cfg.Budget.HardUSD > 0 {
-			h = fmt.Sprintf("$%.2f", cfg.Budget.HardUSD)
-		}
-		budgetVal = fmt.Sprintf("warn=%s hard=%s", w, h)
+	// [budget] — token-only; provider currency is observational telemetry.
+	budgetVal := "(unset — no token guardrail)"
+	if cfg.Budget.WarnTokens > 0 || cfg.Budget.HardTokens > 0 ||
+		cfg.Budget.WarnInputTokens > 0 || cfg.Budget.HardInputTokens > 0 ||
+		cfg.Budget.WarnOutputTokens > 0 || cfg.Budget.HardOutputTokens > 0 {
+		budgetVal = fmt.Sprintf("total warn=%d hard=%d; input warn=%d hard=%d; output warn=%d hard=%d",
+			cfg.Budget.WarnTokens, cfg.Budget.HardTokens,
+			cfg.Budget.WarnInputTokens, cfg.Budget.HardInputTokens,
+			cfg.Budget.WarnOutputTokens, cfg.Budget.HardOutputTokens)
 	}
 	d.check("Budget caps", budgetVal, "ok", true)
 

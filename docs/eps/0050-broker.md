@@ -5,8 +5,16 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-05-27
+extends: ["EP-0037"]
+extended-by: ["EP-0067"]
 see-also: ["EP-0030", "EP-0032", "EP-0037", "EP-0038", "EP-0042"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Relationship clarification: this EP replaces EP-0037's original
+      permissive-by-default containment posture with broker/sandbox-first
+      admission; EP-0037's tool/application boundary remains unchanged.
   - date: 2026-05-27
     status: Draft
     note: >
@@ -44,7 +52,7 @@ history:
       to GitHub #238; phases 5, 7, and 8 keep this EP Partial.
 ---
 
-> **Relationships:** **See also:** [EP-0030](./0030-security-research-default-harness.md), [EP-0032](./0032-acp-client-wrap-external-agents.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0042](./0042-binaries-out-of-source-tree.md)
+> **Relationships:** **Extends:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Extended by:** [EP-0067](./0067-session-controller-and-application-selection.md) · **See also:** [EP-0030](./0030-security-research-default-harness.md), [EP-0032](./0032-acp-client-wrap-external-agents.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0042](./0042-binaries-out-of-source-tree.md)
 
 # EP-50: Broker
 

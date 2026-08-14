@@ -1,9 +1,7 @@
 // Package sandbox implements platform-abstracted policy enforcement for
 // stado's tool runtime.
 //
-// Tools declare the capabilities they need; the platform Runner enforces them.
-// PLAN.md §3.1–3.7 covers the design; Linux landlock/seccomp/bwrap, macOS
-// sandbox-exec, Windows job objects (minimal v1).
+// Tools declare the capabilities they need; Linux runners enforce them.
 package sandbox
 
 import (
@@ -31,18 +29,14 @@ type Policy struct {
 	// but the .ssh key dir must not be exfiltratable). The Linux runner
 	// shadows each Mask path with an empty --tmpfs placed AFTER the
 	// FSRead binds; safe files inside it (known_hosts, ssh config) are
-	// re-bound on top via FSRead. macOS deny-default already hides
-	// unlisted paths, so Mask is a no-op there (just keep the path out
-	// of FSRead). Merge UNIONs Mask: masking is a restriction, so the
+	// re-bound on top via FSRead. Merge UNIONs Mask: masking is a restriction, so the
 	// combined policy hides everything either side wants hidden.
 	Mask []string
 
 	// Sockets names host unix-socket paths to bind read-write into the
 	// sandbox (e.g. $SSH_AUTH_SOCK for ssh-agent forwarding). Only the
-	// socket crosses the boundary — never key bytes. The Linux runner
-	// emits --bind <sock> <sock>; macOS emits file-read* + a
-	// network-outbound allow for the path (a unix connect counts as
-	// network egress under sandbox-exec). Merge INTERSECTS Sockets: a
+	// socket crosses the boundary — never key bytes. The runner emits
+	// --bind <sock> <sock>. Merge INTERSECTS Sockets: a
 	// bind is an allow, so only sockets both sides grant survive.
 	Sockets []string
 }

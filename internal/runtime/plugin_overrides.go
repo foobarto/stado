@@ -31,6 +31,7 @@ type pluginOverrideTool struct {
 	pluginID  string
 	pluginDir string
 	manifest  plugins.Manifest
+	identity  plugins.RuntimeIdentity
 	def       plugins.ToolDef
 	schema    map[string]any
 	class     tool.Class
@@ -64,6 +65,7 @@ func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h to
 	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
 		Manifest:       p.manifest,
+		Identity:       p.identity,
 		WasmBytes:      p.wasm,
 		ToolName:       p.def.Name,
 		Args:           args,
@@ -127,7 +129,11 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: plugin %s class: %w", target, pluginID, err)
 	}
-	host := pluginRuntime.NewHost(*mf, pluginDir, nil)
+	identity, err := RuntimeIdentityForPluginDir(pluginDir, *mf)
+	if err != nil {
+		return nil, fmt.Errorf("tool override %q: plugin %s identity: %w", target, pluginID, err)
+	}
+	host := pluginRuntime.NewHostWithIdentity(*mf, identity, pluginDir, nil)
 	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 		return nil, fmt.Errorf("tool override %q: plugin %s declares session/llm capabilities that registry overrides cannot supply", target, pluginID)
 	}
@@ -135,6 +141,7 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 		pluginID:  pluginID,
 		pluginDir: pluginDir,
 		manifest:  *mf,
+		identity:  identity,
 		def:       *def,
 		schema:    schema,
 		class:     class,

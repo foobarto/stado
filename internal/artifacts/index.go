@@ -3,6 +3,7 @@ package artifacts
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/plugins"
 	_ "modernc.org/sqlite"
 )
 
@@ -50,6 +52,7 @@ func (i *Index) Rebuild(records []wal.Record) error {
 	if err != nil {
 		return err
 	}
+	descriptors := archivedKindDescriptors(records)
 	tmp := i.path + ".rebuild"
 	_ = os.Remove(tmp)
 	db, err := sql.Open("sqlite", tmp)
@@ -60,7 +63,7 @@ func (i *Index) Rebuild(records []wal.Record) error {
 	if _, err = db.Exec(`PRAGMA journal_mode=DELETE;
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE artifacts(id TEXT PRIMARY KEY, version INTEGER NOT NULL, authority TEXT NOT NULL, sensitivity TEXT NOT NULL);
-CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, summary, content, trigger, tags, groups);`); err != nil {
+CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, title, text, trigger, tags, groups);`); err != nil {
 		return fail(err)
 	}
 	tx, err := db.Begin()
@@ -75,7 +78,12 @@ CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, summary, content, tri
 		// Normal content only. Private/secret metadata and bodies do not enter
 		// the ordinary FTS corpus.
 		if a.Sensitivity == "normal" && a.Authority != AuthorityDeleted {
-			if _, err = tx.Exec(`INSERT INTO artifact_fts(id,summary,content,trigger,tags,groups) VALUES(?,?,?,?,?,?)`, a.ID, a.Summary, a.Content, a.Trigger, strings.Join(a.Tags, " "), strings.Join(a.Groups, " ")); err != nil {
+			desc, ok := descriptorForArtifact(descriptors, a)
+			if !ok {
+				continue
+			}
+			title, text, trigger := projectIndexText(a.Data, desc.Definition.Index)
+			if _, err = tx.Exec(`INSERT INTO artifact_fts(id,title,text,trigger,tags,groups) VALUES(?,?,?,?,?,?)`, a.ID, title, text, trigger, strings.Join(a.Tags, " "), strings.Join(a.Groups, " ")); err != nil {
 				_ = tx.Rollback()
 				return fail(err)
 			}
@@ -157,10 +165,68 @@ func queryLimit(n int) int {
 func checkpoint(records []wal.Record) (uint64, string) {
 	for i := len(records) - 1; i >= 0; i-- {
 		for _, event := range records[i].Transaction.Events {
-			if event.Store == artifactStore && (event.Type == "artifact.create" || event.Type == "artifact.edit" || event.Type == "artifact.authority") {
+			if event.Store == artifactStore && (event.Type == "kind.registered" || event.Type == "artifact.create" || event.Type == "artifact.edit" || event.Type == "artifact.authority") {
 				return records[i].Sequence, records[i].Digest
 			}
 		}
 	}
 	return 0, ""
+}
+
+func archivedKindDescriptors(records []wal.Record) map[Kind][]KindDescriptor {
+	out := make(map[Kind][]KindDescriptor)
+	for _, rec := range records {
+		for _, event := range rec.Transaction.Events {
+			if event.Store != artifactStore || event.Type != "kind.registered" {
+				continue
+			}
+			var payload kindEvent
+			if json.Unmarshal(event.Data, &payload) == nil {
+				out[payload.Descriptor.Kind] = append(out[payload.Descriptor.Kind], payload.Descriptor)
+			}
+		}
+	}
+	// Pre-EP-63 logs have no descriptor archive. The legacy reader converts
+	// only memory/lesson records, whose bundled signed definitions are stable.
+	legacy := DefaultKindRegistry()
+	for _, kind := range []Kind{KindMemory, KindLesson} {
+		if len(out[kind]) != 0 {
+			continue
+		}
+		if desc, ok := legacy.Lookup(kind); ok {
+			out[kind] = append(out[kind], desc)
+		}
+	}
+	return out
+}
+
+func descriptorForArtifact(all map[Kind][]KindDescriptor, a Artifact) (KindDescriptor, bool) {
+	for _, desc := range all[a.Kind] {
+		if desc.Schema.SchemaDigest == a.KindSchema.SchemaDigest &&
+			desc.Schema.PluginIdentity == a.KindSchema.PluginIdentity {
+			return desc, true
+		}
+	}
+	return KindDescriptor{}, false
+}
+
+func projectIndexText(data json.RawMessage, projections []plugins.ArtifactIndexProjection) (string, string, string) {
+	roles := map[string][]string{"title": {}, "text": {}, "trigger": {}}
+	for _, projection := range projections {
+		value, ok := resolveJSONPointer(data, projection.Pointer)
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case string:
+			roles[projection.Role] = append(roles[projection.Role], typed)
+		case []any:
+			for _, item := range typed {
+				if text, ok := item.(string); ok {
+					roles[projection.Role] = append(roles[projection.Role], text)
+				}
+			}
+		}
+	}
+	return strings.Join(roles["title"], " "), strings.Join(roles["text"], " "), strings.Join(roles["trigger"], " ")
 }

@@ -1,144 +1,284 @@
-# stado — Roadmap
+# stado — Plan
 
-The phased greenfield rollout (Phases 0–11) shipped between v0.1.0
-and v0.48.x; that history lives in
-[`CHANGELOG.md`](CHANGELOG.md) and the per-EP designs under
-[`docs/eps/`](docs/eps/). For the as-built architecture, see
-[`DESIGN.md`](DESIGN.md). This file is the forward-looking ledger:
-deferred work + product gaps + non-goals.
+[DESIGN.md](DESIGN.md) is the architectural destination distilled from accepted
+EPs. This file is the forward ledger: what remains incomplete, in what order,
+and what evidence closes each item. Release history belongs in
+[CHANGELOG.md](CHANGELOG.md), not here.
 
-## Architectural north star
+## v1 outcome
 
-- Sandboxed, git-native coding-agent runtime — not an LLM
-  abstraction. A tight `pkg/agent` interface (~200 LOC) with four
-  direct implementations (Anthropic, OpenAI, Google, OAI-compat).
-- The user's repo stays pristine. Agent state lives in a sidecar
-  bare repo with alternates pointing back at the user's objects.
-- Dual-ref model: `tree` for executable state + turn/compaction
-  boundaries; `trace` for every tool call (the audit log).
-- Every tool call runs through an OS-level sandbox with a
-  capability manifest. Capabilities are declared by the plugin,
-  the kernel enforces.
-- WASM plugins with capability-bound signed manifests. Post
-  EP-0037/EP-0038, **every tool is a plugin** — a curated set is
-  bundled into the binary, the rest are operator-installed.
-- TUI + headless + ACP + MCP server all compose the same
-  agent-loop core.
-- OTel everywhere. Reproducible signed releases (cosign keyless +
-  minisign).
+V1 is a Linux-only, broker-mediated, git-native agent runtime and signed WASM
+application platform with these properties:
 
-## Current product gaps (ranked)
+- the default execution path is mechanically contained by Linux and WASM
+  capabilities;
+- operator authority, model content, plugin policy, and broker control are
+  separate concepts in code and storage;
+- every model-facing tool and larger lifecycle application is WASM-backed;
+- canonical state is single-writer, typed, scoped, replayable, and auditable;
+- sessions, retained agents, mailboxes, budgets, jobs, holds, and forks survive
+  process boundaries without inventing duplicate authority;
+- adaptive context, learning, research, verification, and supervision improve
+  work quality without pretending to be security proofs;
+- TUI, run, headless, ACP, and MCP share generic runtime boundaries, while
+  lifecycle-application support is explicit per surface; v0.80/v1 hosts
+  applications only in the TUI and the other surfaces fail closed;
+- current documentation and EP status are checked as part of the build.
 
-| Rank | Gap | Current state |
-|------|-----|---------------|
-| 0 | **Adaptive context, learning, and supervised work** | SHIPPED across v0.78.0–v0.80.0 — EP-0052–0059 delivered the durable substrate, artifacts, signals/learn, research, retained orchestration/mailboxes, and shadow ranking; EP-0060 added native bounded guidance; EP-0062 adds opt-in harness-enforced contracts, event/live watchdogs, task deferral, and independent verification for long-running work. |
-| 1 | **v1 security architecture rollout** | Largely SHIPPED in v0.57.0 — sandbox-by-default, the privileged broker, session-scoped capabilities with an immutable ceiling, the mount-table CI invariant, and the taint substrate all landed (phase table below + EP-0050). Remaining: phase 6 taint-ingestion wiring and phase 7 ssh-agent + git sub-agent socket bind-mount. Decision record at [`.agent/decisions/2026-05-27-v1-security-architecture.md`](.agent/decisions/2026-05-27-v1-security-architecture.md). |
-| 2 | **Windows sandbox v2** | Windows still runs unsandboxed behind `WinWarnRunner`. Job objects + restricted tokens remain the largest security/runtime gap for that platform. Re-open when someone with a Windows dev environment picks it up. |
-| 3 | **Signed apt/rpm hosted repos** | goreleaser emits `.deb` / `.rpm` artifacts and the Homebrew tap publishes on every release. External repo hosting (apt/rpm) needs an operator with infra. |
+macOS and Windows are not current or v1 targets
+([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). Their old roadmap
+items are removed rather than deferred.
 
-Other surfaces — multi-session switching, alternative sandbox
-backends — are net-new capabilities rather than half-shipped
-work, so they live in EP backlog conversations, not here.
+## Current corrective release: PR #257 and v0.80.0
 
-### Adaptive context implementation order
+PR #257 began as a native implementation of supervised work. Review found both
+valuable defects and a deeper architecture drift: large native application
+policy, model-visible native tools, direct TUI/WASM-side WAL access, hardcoded
+artifact concepts, and plugin capabilities too weak to host the application the
+EP architecture actually calls for.
 
-Adversarial review rejected broad parallel implementation. The dependency order
-is narrow and evidence-driven:
+The correction is deliberately sweeping and pre-v1. Preserve authoritative
+data through explicit one-way migration, but do not preserve obsolete imports,
+wrappers, aliases, config, fallback writers, native application paths, or
+platform shims merely for compatibility.
 
-| Phase | EP / slice | Gate |
-|---|---|---|
-| A | EP-0059 single-writer events, snapshots, jobs, budget reservations | shipped — v0.78.0 |
-| B | EP-0053 `memory|lesson` migration, scope binding, tags/groups, FTS | shipped — v0.78.0 |
-| C | EP-0057 minimal state + five deterministic mistake/correction signals | shipped — v0.78.0 |
-| D | EP-0052 `stado learn` + `/learn` candidate review | shipped — v0.78.0 |
-| E | EP-0054 memory research, then session research | shipped — v0.78.0 |
-| F | EP-0055 retained/historical children | shipped — v0.78.0 |
-| G | EP-0056 mailboxes/supervision | shipped — v0.78.0 |
-| H | EP-0058 shadow evaluation/adaptive retrieval | shipped in shadow mode — v0.78.0 |
-| I | EP-0060 signal/research/mailbox-aware native harness guidance | shipped — v0.79.0 |
-| J | EP-0062 `/supervise` contract/watchdog/verifier workflow | implemented — v0.80.0 |
+The release sequence is:
 
-General artifact kinds, retained tool-output blobs, model reranking, and automatic
-non-use demotion remain deferred pending usage evidence. The small
-`related|supports|contradicts|supersedes` relation vocabulary is implemented with
-endpoint scope checks; broader graph semantics remain deferred.
-Phases D and E additionally require v1 security phase 6 taint ingestion wiring;
-origin metadata must be populated at every ingestion point, not merely represented
-by dormant substrate.
+1. **Architecture compass and guardrails.** Rewrite DESIGN/PLAN, accept
+   [EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md),
+   [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md),
+   [EP-0065](docs/eps/0065-linux-only-platform-scope.md),
+   [EP-0066](docs/eps/0066-canonical-plugin-authority-and-application-placement.md),
+   and
+   [EP-0067](docs/eps/0067-session-controller-and-application-selection.md),
+   correct stale EP
+   relationships/status, and add executable drift/documentation checks.
+2. **Canonical plugin authority and generic artifacts.** Remove display-name
+   identity from secrets, instance state, artifacts, lifecycle instances, and
+   audit attribution. Require loader-supplied canonical lock/bundled identity
+   on every production path, make local identity source-bound and explicitly
+   unstable. Mint an unguessable broker session-controller capability, retain
+   only its hash, require it for native session-bound broker operations, and
+   make lifecycle admission exclusive per exact session/generation/plugin
+   namespace. This authenticates session control but must not be described as
+   proof of a fresh operator gesture. Then finish plugin-defined
+   schemas/projections, archived descriptors, dynamic `data`, and idempotent
+   memory/lesson migration.
+3. **Broker-owned artifact API.** Add authenticated kind registration and typed
+   propose/query/edit/observe RPC. Derive principal, repository, session,
+   ancestry, generation, capability ceiling, idempotency, and actor from a
+   broker-minted admission binding independently verified against installed
+   package, signature, lock identity, session, and policy. The guest never sees
+   that binding. Keep authority-grant issuance private to the broker. A
+   separate exact activation coordinator may accept a candidate reference, but
+   security-significant fresh operator intent requires a predeclared policy or
+   presenter outside the hostile orchestrator boundary; an in-process TUI
+   confirmation is only a quality/user-experience step. Remove
+   `stado_memory_*`, direct legacy JSONL, and every non-broker canonical writer.
+4. **WASM lifecycle applications.** Implement one persistent serialized
+   per-session instance across tools, EP-51 hooks, durable broker events, ticks,
+   UI, and close. Make reentrancy, ordering, timeout, failure posture,
+   acknowledgement, and restart behavior explicit.
+5. **Generic orchestration primitives.** Operation-scoped
+   `agent:{spawn,list,read,send,cancel}` capabilities and exact retained-source
+   pinning are implemented; the obsolete `agent:fleet` aggregate grants
+   nothing. Finish mailboxes, journal projections, timers, budgets, jobs,
+   leases, scheduling holds, exact-parent terminal events, successful
+   completion, followup/continuation delivery, and lifecycle composition
+   recovery. That includes broker-owned logical-session admission/adoption
+   across full process restart and an ancestry-checked transfer for automatic
+   compacted-child recovery. The latter reassigns the whole existing broker
+   application scope to the broker-minted child and fences the source; it must
+   not copy worker/input/hold records into a second authority. Surviving WAL
+   bytes are not recovery while their authoritative scope is unreachable. Keep mailbox data separate from
+   pause/stop/cancel/down authority.
+6. **Supervise application migration.** Move contract flow, tools, detectors,
+   cadence, evidence policy, prompts, reviewer/verifier orchestration, stale
+   verdict handling, correction, pivot, and completion policy into the official
+   sandboxed WASM application. Keep only generic facts and enforcement native.
+7. **Delete drift.** Remove every stado-owned native model tool and workflow:
+   supervise, registry meta-tools, skills loading, research dispatchers, tasks,
+   and the carve-outs in `docs/features/no-internal-tools.md`. Keep external MCP
+   tools explicitly classified as typed external implementations rather than
+   stado-owned native applications. Remove TUI direct WAL opens, artifact
+   compatibility aliases, currency-based budget caps, native fallback writers, and
+   obsolete platform/release targets. Add architecture tests that make each
+   removal permanent.
+8. **Conformance and documentation.** Run EP-62 eval scenarios plus strict-live,
+   periodic-event, stale-steer, stale-stop-confirmation, restart, trap, lease,
+   and surface-parity cases. Update feature references, ABI/host imports, threat
+   model, README, and the narrative articles with the final implementation.
+9. **Pre-release review and validation.** Treat Copilot/Codex findings as hypotheses; validate
+   them against EPs and agreed tradeoffs. Obtain clean raw reviews and green
+   focused/race/full/static/reproducibility/PTY gates. Prepare the real official
+   signing workflow, but do not merge or publish yet. An ephemeral `/tmp` key is
+   permitted only for local path testing.
+10. **Repository-wide EP drift audit.** After every preceding item, compare the
+    complete implementation and current documentation against all accepted EPs
+    and decision records. Reproduce suspected mismatches, correct confirmed
+    drift, and require operator review for any changed tradeoff. This remains
+    the final item of the corrective sequence.
 
-## v1 security architecture rollout
+The release is blocked until all ten items are complete. A clean item-10 audit
+then unlocks merge, real-key build/sign/publish, independent fetch, and v0.80.0
+verification. Green CI on the old native architecture is not sufficient.
 
-DESIGN.md specifies v1's security posture; this section tracked the
-implementation. Phases 0-5 and 8 shipped in v0.57.0 (CHANGELOG: "v1
-security architecture — broker, sandbox-first default, mount table,
-ceiling/effective, taint substrate"); phases 6 (taint) and 7 (ssh-agent +
-git sub-agent) have their substrate in place, with full enforcement/wiring
-still in progress.
+## V1 workstreams after the corrective release
 
-| Phase | Scope | Status |
-|---|---|---|
-| 0 | **Doc pass.** DESIGN.md sections: Sessions and sub-agents, Broker, revised Sandbox (sandbox-first default + `--no-sandbox` flag + mount-and-namespace invariant table + launch-cwd RW boundary + sandbox-mode startup announcement), Context management → Provenance and taint, Audit (trust-root invariant + audit-trace writer invariant + broker-decision log), Sessions → Git sub-agent. PLAN.md phasing (this section). | shipped — 2026-05-27 |
-| 1 | **Broker as an evolution of `stado daemon`.** Long-running per-user privileged process picks up policy validation and session construction in addition to today's PTY/state-hosting role. Narrow-typed-unspoofable IPC for session-creation requests. Reverses today's "TUI / `stado run` / `stado mcp-server` host PTYs without the daemon" line: in v1 they all attach to the broker because the broker constructs the sandbox they run in. | shipped — v0.57.0 |
-| 2 | **Sandbox-first default execution.** Rename `--sandbox-fs` → `--no-sandbox` with inverted polarity (pre-1.0 breaking, no deprecation alias). Default `BwrapRunner` on Linux / `SbxRunner` on macOS everywhere. Apply Landlock with both reads and writes enumerated per the mount table — retire the `WorktreeWrite` reads-everywhere pattern. TUI startup announcement of sandbox state + mount summary. Reverses the earlier UX-pressured retreat documented in `cmd/stado/run.go:281–290`. | shipped — v0.57.0 |
-| 3 | **Mount-and-namespace invariant table in code + CI.** Lift the table from DESIGN.md into the broker's enforced policy. Add a CI assertion that the runtime's actual mount layout matches the table — so a refactor cannot silently widen a mount. Resolve the `~/.ssh/config` default-profile decision point flagged in DESIGN.md. | shipped — v0.57.0 |
-| 4 | **Session capability model in code.** Ceiling/effective vocabulary applied to `Policy`; effective set drop-only; widening-via-fork is the only path. Broker validates each `spawn_agent` request against the operator's global policy and projects a ceiling mechanically from the declared `role`/`mode`/`write_scope`. | shipped — v0.57.0 |
-| 5 | **Trust-root + audit-trace writer invariants.** Plugin trust ring + anchor-trust + revocation list + signing-verification keys mounted RO into agent namespaces (or compiled-in under hardened profile). Broker (or a dedicated trace-writer subprocess) becomes sole owner of the writable handle to `$XDG_DATA_HOME/stado/sessions/<repo-id>.git`; agent emits trace events over the broker IPC and never opens the sidecar for write. Broker-decision log lands at `$XDG_DATA_HOME/stado/broker/decisions.jsonl` (or equivalent). | shipped — v0.57.0 |
-| 6 | **Provenance / taint tagging.** Origin labels assigned at every ingestion point (operator turns → TRUSTED; tool results / file reads / web fetches / plugin output / sub-agent results → UNTRUSTED). Labels are harness-side metadata, never in-band markers. Taint propagates conservatively: any UNTRUSTED span in the turn taints all subsequent tool calls in that turn. Taint feeds the broker's capability-grant policy and (in phase 7) the socket-bearing sub-agent approval prompt. | substrate shipped (v0.57.0); ingestion wiring in progress |
-| 7 | **ssh-agent + git sub-agent.** Private key material not mounted into any session. ssh-agent socket bind-mounted only into single-purpose, broker-projected, broker-terminated sub-agents whose ceiling carries only the declared host's key(s) and scoped egress. `git push` denied at the tool-call dispatch point in a fetch-purposed sub-agent regardless of what the socket would sign. Approval-once gated on taint state of the requesting context. Last per operator ruling — most tuning expected. | substrate shipped (v0.57.0); ssh-agent socket bind-mount in progress |
-| 8 | **`stado session tree` as broker client.** Standalone cobra subcommand issues session-fork requests over the broker IPC rather than materialising sessions client-side. PTY tests in `cmd/stado/session_tree_pty_test.go` continue to cover user-facing behaviour; implementation moves under the broker. | shipped — v0.57.0 |
+### Linux security closure
 
-### Explicit non-goals for v1
+Owning EPs: [EP-0030](docs/eps/0030-security-research-default-harness.md),
+[EP-0050](docs/eps/0050-broker.md),
+[EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md), and
+[EP-0065](docs/eps/0065-linux-only-platform-scope.md).
 
-| Non-goal | Rationale |
-|---|---|
-| **CONNECT / egress proxy as the v1 enforcement floor.** | The Linux network namespace is the enforcement floor (`--unshare-net` for `NetDenyAll`, `pasta --splice-only` private netns for `NetAllowHosts`). The existing HTTPS CONNECT allowlist proxy at `internal/sandbox/proxy.go` is a *refinement layer* above the namespace and is preserved as-is. The proxy will be expanded in a later phase, but v1 does not depend on it for enforcement. |
-| **External / relational policy engine** (OPA, Rego, or reimplementation thereof). | v1 policy is expressible as stado's existing capability (CAP) model — declared per-plugin manifests + a global operator policy. An external or relational policy engine is only warranted if policy becomes genuinely relational, which is a later determination. |
-| **HTTPS-git credential confinement** (`~/.git-credentials`, `gh` CLI token, `GITHUB_TOKEN`). | These are bearer secrets: any process that can use them can read them. There is no signing-oracle equivalent to ssh-agent for HTTPS. v1 makes ssh remotes confinable and is honest about HTTPS being out of scope. See DESIGN.md §"Sessions and sub-agents" → "Git sub-agent" → "HTTPS-git is a known limitation". |
-| **Content-safety classifier in the trust-critical path.** | The decision rule for taint is policy over *origins* — a fact. Content judgment is the same model whose output is being disciplined, deciding whether to discipline itself. If a future phase ever adds an advisory detector, it must be fail-safe and able only to NARROW, never widen; the system must remain fully sound with the detector deleted. |
-| **Airgap-mode integration** (`-tags airgap`). | Today's airgap build tag splits self-update / plugin CRL fetch / rekor verification. Integrating the v1 broker/sandbox model with the airgap split is deferred to a future phase. Current `-tags airgap` semantics remain valid. |
-| **Per-tool-call approval prompts** as the containment boundary. | v1 keeps tool execution yolo-by-default for the chat session (an approval prompt every turn is unworkable UX). The new approval surface is **capability-grant approval at session-creation time** for socket-bearing sub-agents — a different mechanism that fires at most once per sub-agent grant, gated on taint state. The fence — not the prompt — is what contains. |
+Remaining gates:
 
-## Cross-cutting decisions (still in force)
+- complete provenance assignment at every ingestion point and feed taint into
+  broker policy without content classification;
+- move all canonical trace/event writes behind broker ownership;
+- complete narrow ssh-agent/git-child construction, fetch-oriented dispatch,
+  scoped egress, deterministic teardown, and removal of broad main-session
+  socket forwarding;
+- remove unsupported OS runners, release jobs, docs, and portability-only
+  abstractions that weaken Linux clarity;
+- exercise mount, namespace, Landlock, seccomp, credential-mask, and network
+  invariants in real Linux integration tests;
+- finish the adversarial default harness and make its declared status honest.
 
-| Decision | Resolution |
-|----------|------------|
-| LLM abstraction | Tight internal `pkg/agent` interface (~200 LOC) with 4 direct implementations. No third-party abstraction library. |
-| Session storage | Sidecar bare repo at `${XDG_DATA_HOME}/stado/sessions/<repo-id>.git` with alternates to the user's `.git/objects`. Worktrees at `${XDG_STATE_HOME}/stado/worktrees/<session-id>/`. |
-| Commit granularity | Dual-ref: `tree` records file-changing mutations plus no-file-change turn/compaction commits; `trace` records every tool call as empty-tree commits. Turn boundaries are tagged. |
-| Signing | Releases: cosign keyless (primary) + minisign (airgap fallback) on every release. Plugins: Ed25519 signed manifest with capability binding, rollback protection, optional Rekor attestation. |
-| Tooling | All tools are wasm plugins (post EP-0037/EP-0038). Bundled set embedded in the binary; operator-installed plugins via the signed manifest path. No native-tool registry. |
-| Inference | One OAI-compat HTTP client. Three documented presets (ollama, llamacpp, vllm) + custom. llama.cpp `llama-server` as primary reference. |
-| Sandbox default (v1) | Sandboxed by default across all entry points (TUI, `stado run`, headless, ACP, MCP server, `stado tool run`). `--no-sandbox` is the opt-out (inverted polarity from the retired `--sandbox-fs`). Launch cwd + `/tmp` are the default RW grant; broker extends on operator action. Mount-and-namespace invariant table in DESIGN.md is the source-of-truth for what each profile mounts. |
-| Session capability model (v1) | Sessions are the security atom; one agent per session. Each session has an immutable **ceiling** (max capabilities, set at session-creation by the broker) and a drop-only **effective set** (≤ ceiling, narrows during the session). Widening requires forking a new session. Capability never escalates along the spawn tree. |
-| Approval — tool-call | Tool execution is yolo-by-default across TUI, `stado run`, and headless. Plugins can request approval at runtime via the `ui:approval` capability; operator filters via `[tools]` allow/deny lists. This row is unchanged from pre-v1. |
-| Approval — capability-grant (v1) | A *separate* approval surface fires at **session-creation time** when the requested session needs a high-leverage capability the chat session shouldn't carry — currently the socket-bearing git sub-agent. Approval is **once per sub-agent session** because the session is single-purpose and broker-terminated. Whether the prompt fires is gated on the **taint state** of the requesting context: clean → no prompt (preserves no-nag default); tainted → prompts. The approval is an audit anchor and a speed bump, *not* the containment boundary; the projected ceiling is. |
-| Plugin ABI versioning | SemVer on host imports; `min_stado_version` in manifest bumps when ABI breaks. Eager ABI verify at `session/new` surfaces stale plugins with the missing imports. |
+### Plugin application platform closure
 
-## Offline / Airgap honesty
+Owning EPs: [EP-0002](docs/eps/0002-all-tools-as-plugins.md),
+[EP-0028](docs/eps/0028-plugin-run-tool-host.md),
+[EP-0037](docs/eps/0037-tool-dispatch-and-operator-surface.md),
+[EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md),
+[EP-0039](docs/eps/0039-plugin-distribution-and-trust.md),
+[EP-0042](docs/eps/0042-binaries-out-of-source-tree.md),
+[EP-0045](docs/eps/0045-model-invocable-skills.md),
+[EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md),
+[EP-0064](docs/eps/0064-wasm-lifecycle-applications.md),
+[EP-0066](docs/eps/0066-canonical-plugin-authority-and-application-placement.md),
+and
+[EP-0067](docs/eps/0067-session-controller-and-application-selection.md).
 
-Be honest in docs about what "works offline" means at the model
-capability level. A Claude Sonnet-class coding experience is not
-replicated by Qwen2.5-Coder-32B or Llama-3.3-70B on a laptop —
-they're genuinely useful but distinctly weaker at long agentic
-tool-use loops. The airgap wedge is real for users who legally
-can't send code to a cloud provider; it's a lie for users who just
-want to save money and expect frontier-model quality from a 7B
-model on their MacBook. Setting expectations in the README saves
-angry issues.
+Remaining gates:
 
-`-tags airgap` build splits self-update, plugin CRL Fetch, and
-webfetch.Run into `!airgap` / `airgap` pairs. Airgap binary
-physically cannot reach the network from its own control plane;
-provider HTTP (user's chosen inference target) untouched.
+- eliminate every model-visible native tool and wrapper-shaped implementation;
+- finish exact remote identity/resolved-commit propagation into runtime and
+  artifacts;
+- make lifecycle-only applications loadable without a synthetic model tool;
+- make every host import documented, capability-scoped, bounded, and covered by
+  ABI tests;
+- finish plugin-run/tool-host and model-invocable skill surfaces where their EPs
+  remain Partial;
+- publish official application source and reproducible unsigned build output
+  from `foobarto/stado-plugins`, then sign release manifests only with the
+  operator-held offline key;
+- test install, trust, update, rollback, removal, archived-schema rendering, and
+  deterministic bundled builds end to end.
 
-## See also
+### Quality and long-running work
 
-- [`CHANGELOG.md`](CHANGELOG.md) — per-release notes covering the
-  shipped phases of this plan.
-- [`DESIGN.md`](DESIGN.md) — as-built architecture (package layout,
-  dependency rules, turn lifecycle, key invariants).
-- [`docs/eps/`](docs/eps/) — Enhancement Proposals: per-feature
-  design records, indexed in [`docs/eps/README.md`](docs/eps/README.md).
-- [`docs/security/threatmodel.md`](docs/security/threatmodel.md) —
-  threat model + attack-surface walkthrough.
-- [`SECURITY.md`](SECURITY.md) — vulnerability reporting policy.
+Owning EPs: [EP-0033](docs/eps/0033-responsive-supervisor-worker-lanes.md),
+[EP-0046](docs/eps/0046-verify-work-phase.md),
+[EP-0052](docs/eps/0052-learn-trajectory-refinement.md) through
+[EP-0060](docs/eps/0060-native-harness-guidance.md), and
+[EP-0062](docs/eps/0062-harness-enforced-supervised-work.md) through
+[EP-0064](docs/eps/0064-wasm-lifecycle-applications.md).
+
+Remaining gates:
+
+- complete Verify Work's fresh-context semantic judge without duplicating the
+  executor or confusing judgment with authority;
+- complete responsive frontline lanes separately from independent watchdog
+  review; shared primitives do not imply shared policy;
+- graduate adaptive retrieval beyond shadow mode only with measured evidence;
+- validate retained-agent recovery, mailboxes, recursive budgets, and lifecycle
+  holds under crash, cancellation, stale generation, and backpressure;
+- ship supervise with token-only reviewer ceilings, durable stop authority, and
+  the accepted asymmetric stale-verdict behavior;
+- keep native bounded facts generic as application wording and policy move to
+  WASM, including migration of EP-60's learn/research/coordination guidance
+  policy into a lifecycle application.
+
+### Shared surfaces and operator experience
+
+Owning EPs: [EP-0008](docs/eps/0008-repo-local-instructions-and-skills.md),
+[EP-0009](docs/eps/0009-session-guardrails-and-hooks.md),
+[EP-0010](docs/eps/0010-interop-surfaces-mcp-acp-headless.md),
+[EP-0014](docs/eps/0014-multi-session-tui.md),
+[EP-0018](docs/eps/0018-configurable-system-prompt-template.md) through
+[EP-0027](docs/eps/0027-repo-root-discovery.md),
+[EP-0032](docs/eps/0032-acp-client-wrap-external-agents.md),
+[EP-0035](docs/eps/0035-project-local-stado-dir.md),
+[EP-0036](docs/eps/0036-loop-monitor-schedule.md),
+[EP-0041](docs/eps/0041-shell-pty-tool-naming.md),
+[EP-0043](docs/eps/0043-shell-pty-ux-rethink.md), and
+[EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md).
+
+Remaining gates:
+
+- verify lifecycle/application participation on every supported surface or
+  report the surface explicitly unavailable;
+- keep repository configuration untrusted and user opt-ins authoritative;
+- ensure UI rendering never starts work or becomes durable authority;
+- preserve provider-native thinking and ordered blocks regardless of display;
+- keep recurring work on durable broker scheduling rather than TUI timers;
+- maintain TUI/PTY behavior through real terminal tests on Linux.
+
+## Architecture and documentation maintenance
+
+The following checks are v1 release requirements, not optional housekeeping:
+
+- EP frontmatter, rendered relationships, reciprocal links, and catalogue status
+  agree;
+- every live Standards EP is integrated into DESIGN or PLAN;
+- every Accepted/Partial Standards EP remains in PLAN until completed;
+- host imports and capability grammar match the ABI/reference docs;
+- critical packages and subtle boundary functions cite owning EPs;
+- direct canonical-WAL and native model-tool allowlists only shrink;
+- current product docs agree on Linux-only support;
+- README, DESIGN, PLAN, threat model, feature references, examples, generated
+  docs, and release metadata are validated together;
+- a status changes to Implemented only with code-backed tests, release evidence,
+  and a history entry.
+
+## Explicit non-goals through v1
+
+- macOS or Windows builds, runtime support, packaging, parity, or roadmaps;
+- preserving pre-v1 API/ABI/config/platform compatibility when it conflicts with
+  the accepted architecture;
+- native product applications hidden behind WASM façades;
+- raw WAL, trust-root, daemon-socket, or host filesystem access as a plugin API;
+- model/content classifiers as security authority;
+- per-tool approval prompts as the containment boundary;
+- supervision as a security proof;
+- currency-based caps across runtime and supervise; v1 budget enforcement is
+  token-only while provider cost remains observational telemetry;
+- a distributed multi-host broker or general policy language;
+- automatic activation of generated knowledge or project-authored authority;
+- treating draft [EP-0040](docs/eps/0040-bundled-local-inference.md) or
+  [EP-0047](docs/eps/0047-structured-loop-result-and-output.md) as committed work.
+
+## Next product proposal
+
+After the corrective sequence, the next intended feature is agent-driven
+tool-use auto-approval. It begins with a security and authority EP, not code.
+The design must distinguish prediction of operator intent from actual authority,
+must stay under the broker/plugin/sandbox ceilings, must be auditable and easy
+to revoke, and must not recreate approval prompts as the containment boundary.
+
+## Definition of v1 complete
+
+V1 is complete only when:
+
+- all Partial/Accepted Standards EPs claimed for v1 are implemented or
+  explicitly moved out by a new decision;
+- Linux default execution and every supported surface pass the real containment
+  and authority tests;
+- no model-visible native application/tool or non-broker canonical writer
+  remains;
+- durable state survives restart and rejects stale identity/generation/scope;
+- release artifacts reproduce and verify from a clean checkout;
+- current docs describe the behavior the tested binary actually has;
+- the final repository-wide implementation-versus-EP audit is clean.

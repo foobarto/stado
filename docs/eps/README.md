@@ -25,10 +25,10 @@ it for bug fixes, dep bumps, and contained refactors.
 | #    | Title | Type | Status |
 |------|-------|------|--------|
 | 0001 | [EP Purpose and Guidelines](./0001-ep-purpose-and-guidelines.md) | Process | Accepted |
-| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Implemented |
+| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Partial |
 | 0003 | [Provider-Native Agent Interface](./0003-provider-native-agent-interface.md) | Standards | Implemented |
 | 0004 | [Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md) | Standards | Implemented |
-| 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Implemented |
+| 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Superseded |
 | 0006 | [Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md) | Standards | Implemented |
 | 0007 | [Conversation State and Compaction](./0007-conversation-state-and-compaction.md) | Standards | Implemented |
 | 0008 | [Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md) | Standards | Implemented |
@@ -50,24 +50,24 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Implemented |
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
-| 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
-| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
-| 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
-| 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Implemented |
-| 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
-| 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Implemented |
-| 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Implemented |
-| 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Superseded |
+| 0027 | [Repo-root discovery — single predicate, single helper](./0027-repo-root-discovery.md) | Standards | Implemented |
+| 0028 | [stado plugin run --with-tool-host + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
+| 0029 | [Config-introspection host imports — `cfg:*` capability vocabulary](./0029-config-introspection-host-imports.md) | Standards | Implemented |
+| 0030 | [Security-research default harness — agent / subagent / skills / plugins](./0030-security-research-default-harness.md) | Standards | Partial |
+| 0031 | [Path-templated fs capabilities — `fs:read:cfg:state_dir/...`](./0031-fs-cap-path-templates.md) | Standards | Implemented |
+| 0032 | [ACP client — wrap external coding-agent CLIs as stado providers](./0032-acp-client-wrap-external-agents.md) | Standards | Implemented |
+| 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Partial |
+| 0034 | [Background agents fleet — spawn, observe, terminate](./0034-background-agents-fleet.md) | Standards | Superseded |
 | 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
 | 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |
 | 0037 | [Tool dispatch, naming, and operator surface](./0037-tool-dispatch-and-operator-surface.md) | Standards | Implemented |
-| 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Implemented |
-| 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
+| 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Partial |
+| 0039 | [Plugin distribution and trust — anchor repo, versioned identity, lock file](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
-| 0041 | [Shell PTY tool naming — read_until (superseded screenshot)](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
-| 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
+| 0041 | [Shell PTY tool naming — read_until and screenshot for tool-selection affordance](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
+| 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins distributed via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
 | 0043 | [Shell PTY-UX rethink — read modes, no lock, labeled sessions](./0043-shell-pty-ux-rethink.md) | Standards | Implemented |
-| 0044 | [Repo-config trust boundary — project-config strip-list + opt-in gates](./0044-repo-config-trust-boundary.md) | Standards | Implemented |
+| 0044 | [Repo-config trust boundary — harden the project-config strip-list + per-project TOFU](./0044-repo-config-trust-boundary.md) | Standards | Implemented |
 | 0045 | [Model-Invocable Skills (Agent Skills parity)](./0045-model-invocable-skills.md) | Standards | Partial |
 | 0046 | [Verify-Work Phase — command-gate and LLM-judge verification](./0046-verify-work-phase.md) | Standards | Partial |
 | 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
@@ -81,9 +81,14 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Implemented |
 | 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Implemented |
 | 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
-| 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Implemented |
+| 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Partial |
 | 0061 | [Linked EP Relationship Metadata](./0061-linked-ep-relationship-metadata.md) | Process | Implemented |
-| 0062 | [Harness-Enforced Supervised Work](./0062-harness-enforced-supervised-work.md) | Standards | Implemented |
+| 0062 | [Harness-Enforced Supervised Work](./0062-harness-enforced-supervised-work.md) | Standards | Accepted |
+| 0063 | [Plugin-Defined Harness Artifacts](./0063-plugin-defined-harness-artifacts.md) | Standards | Accepted |
+| 0064 | [WASM Lifecycle Applications](./0064-wasm-lifecycle-applications.md) | Standards | Accepted |
+| 0065 | [Linux-Only Platform Scope](./0065-linux-only-platform-scope.md) | Standards | Accepted |
+| 0066 | [Canonical Plugin Authority and Application Placement](./0066-canonical-plugin-authority-and-application-placement.md) | Standards | Accepted |
+| 0067 | [Session Controller Capabilities and Non-Authority Application Selection](./0067-session-controller-and-application-selection.md) | Standards | Accepted |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

@@ -9,7 +9,7 @@ func TestUsageSeparatesMechanicalAndEvaluativeEvidence(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	a, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeGlobal, Summary: "x"}, "alice", "agent", "create")
+	a, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "x", ""), "alice", "agent", "create")
 	if err != nil {
 		t.Fatal(err)
 	}

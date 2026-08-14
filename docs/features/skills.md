@@ -42,7 +42,7 @@ Frontmatter keys (one `key: value` per line):
 | `slash` | Bare TUI shortcut name (registers `/<name>`) |
 | `disable-model-invocation: true` | User-only — omitted from model listing |
 | `user-invocable: false` | Model-only — hidden from `/skill` and slash shortcuts |
-| `allowed-tools` | Tools surfaced onto the slate on load (persona skills only until project TOFU; see below) |
+| `allowed-tools` | Tools surfaced onto the slate on load (persona skills only; project skills fail closed) |
 
 ## Why skills exist
 
@@ -120,8 +120,9 @@ to inject the body as a user message — same effect as `/skill:<name>`.
   model must not auto-load (`deploy`, `commit`, …).
 - Deny `skills__load` via `[tools].disabled` to disable model invocation
   while keeping user `/skill:` working.
-- Project skills do not honor `allowed-tools` until the repo clears the
-  EP-44 trust gate (fail-closed).
+- Project skills never honor `allowed-tools`. EP-44's proposed per-project TOFU
+  gate did not ship; the current fail-closed posture has no project authority
+  transition.
 
 ### What `allowed-tools` does (and doesn't)
 

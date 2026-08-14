@@ -60,6 +60,13 @@ func (s *Service) MigrateLegacy(ctx context.Context, req LegacyMigration) (Migra
 		Converter int    `json:"converter_version"`
 	}{digest, len(req.RawLog), LegacyConverterVersion})
 	events = append(events, wal.Event{Store: artifactStore, Type: "migration.genesis", Data: manifest})
+	for _, kind := range []Kind{KindMemory, KindLesson} {
+		desc, ok := s.kinds.Lookup(kind)
+		if !ok {
+			return MigrationResult{}, fmt.Errorf("legacy migration kind %q is not registered", kind)
+		}
+		events = append(events, s.kindRegistrationEvents(desc)...)
+	}
 	seen := map[string]bool{}
 	for _, old := range req.Items {
 		if old.ID == "" || seen[old.ID] {
@@ -67,7 +74,7 @@ func (s *Service) MigrateLegacy(ctx context.Context, req LegacyMigration) (Migra
 			continue
 		}
 		seen[old.ID] = true
-		a, err := convertLegacy(old, req.Principal, req.ValidateSessionAnchor)
+		a, err := s.convertLegacy(old, req.Principal, req.ValidateSessionAnchor)
 		if err != nil {
 			result.Quarantined = append(result.Quarantined, old.ID)
 			continue
@@ -105,16 +112,22 @@ func completedMigration(records []wal.Record, digest string) (MigrationResult, b
 	return MigrationResult{}, false
 }
 
-func convertLegacy(old memory.Item, principal string, validate func(string) bool) (Artifact, error) {
+func (s *Service) convertLegacy(old memory.Item, principal string, validate func(string) bool) (Artifact, error) {
 	kind := KindMemory
 	if memory.IsLesson(old) {
 		kind = KindLesson
 	}
-	a := Artifact{ID: old.ID, Version: 1, Kind: kind, Scope: Scope(old.Scope), Summary: old.Summary, Content: old.Body, Trigger: old.Trigger, Tags: append([]string(nil), old.Tags...), Sensitivity: old.Sensitivity, CreatedAt: old.CreatedAt, UpdatedAt: old.UpdatedAt, ExpiresAt: old.ExpiresAt, Supersedes: append([]string(nil), old.Supersedes...), LegacyID: old.ID}
+	learning := LearningData{Summary: old.Summary, Content: old.Body, Trigger: old.Trigger}
 	if kind == KindLesson {
-		a.Content = old.Lesson
-		a.ExpectedOutcome = old.Rationale
+		learning.Content = old.Lesson
+		learning.ExpectedOutcome = old.Rationale
 	}
+	a := LearningArtifact(kind, Scope(old.Scope), ScopeBinding{}, learning)
+	a.ID, a.Version = old.ID, 1
+	a.Tags = append([]string(nil), old.Tags...)
+	a.Sensitivity = old.Sensitivity
+	a.CreatedAt, a.UpdatedAt, a.ExpiresAt = old.CreatedAt, old.UpdatedAt, old.ExpiresAt
+	a.Supersedes, a.LegacyID = append([]string(nil), old.Supersedes...), old.ID
 	a.Binding.Principal = principal
 	switch a.Scope {
 	case ScopeGlobal:
@@ -141,7 +154,7 @@ func convertLegacy(old memory.Item, principal string, validate func(string) bool
 	if old.Evidence.SessionID != "" {
 		a.EvidenceRefs = append(a.EvidenceRefs, "session:"+old.Evidence.SessionID)
 	}
-	if err := prepare(&a, principal); err != nil {
+	if _, err := s.prepare(&a, principal); err != nil {
 		return Artifact{}, err
 	}
 	switch strings.ToLower(old.Confidence) {

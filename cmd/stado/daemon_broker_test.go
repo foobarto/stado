@@ -190,7 +190,7 @@ func TestBroker_SessionTerminate_Cycle(t *testing.T) {
 
 	var term broker.SessionTerminateResult
 	if err := client.Call(ctx, broker.MethodSessionTerminate, broker.SessionTerminateParams{
-		SessionID: created.SessionID,
+		SessionID: created.SessionID, ControllerToken: created.ControllerToken,
 	}, &term); err != nil {
 		t.Fatalf("session.terminate (first): %v", err)
 	}
@@ -199,7 +199,7 @@ func TestBroker_SessionTerminate_Cycle(t *testing.T) {
 	}
 
 	err := client.Call(ctx, broker.MethodSessionTerminate, broker.SessionTerminateParams{
-		SessionID: created.SessionID,
+		SessionID: created.SessionID, ControllerToken: created.ControllerToken,
 	}, nil)
 	if err == nil {
 		t.Fatal("expected error on second terminate")
@@ -213,7 +213,7 @@ func TestBroker_SessionTerminate_Cycle(t *testing.T) {
 	}
 
 	err = client.Call(ctx, broker.MethodSessionTerminate, broker.SessionTerminateParams{
-		SessionID: "0000000000000000000000000000ffff",
+		SessionID: "0000000000000000000000000000ffff", ControllerToken: "controller_unknown",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected error on unknown session")

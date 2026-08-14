@@ -102,6 +102,32 @@ func TestTrustVerified_HappyPath_PinsWithFingerprintAndVersion(t *testing.T) {
 	}
 }
 
+func TestCheckManifestVerifiesWithoutAdvancingRollbackState(t *testing.T) {
+	ts := tvtofuStore(t)
+	pub, priv, fpr := tvtofuKey(t)
+	baseline, baselineSig := tvtofuSignedManifest(t, pub, priv, "1.2.3")
+	if _, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", baseline, baselineSig); err != nil {
+		t.Fatal(err)
+	}
+
+	newer, newerSig := tvtofuSignedManifest(t, pub, priv, "1.3.0")
+	if err := ts.CheckManifest(newer, newerSig); err != nil {
+		t.Fatalf("read-only check: %v", err)
+	}
+	entries, err := ts.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entries[fpr].LastVersion; got != "1.2.3" {
+		t.Fatalf("CheckManifest advanced last_version to %q", got)
+	}
+
+	older, olderSig := tvtofuSignedManifest(t, pub, priv, "1.2.2")
+	if err := ts.CheckManifest(older, olderSig); err == nil || !strings.Contains(err.Error(), "rollback") {
+		t.Fatalf("CheckManifest rollback err=%v", err)
+	}
+}
+
 // 2. Fingerprint mismatch: presenting a pubkey whose fingerprint != the
 // manifest's author_pubkey_fpr is rejected, even when the supplied signature
 // is itself valid for the *presented* key. No pin is left behind.

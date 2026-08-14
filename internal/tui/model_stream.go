@@ -36,6 +36,7 @@ import (
 	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 func (m *Model) turnSystemPrompt(userPrompt string) string {
@@ -428,6 +429,18 @@ func (m *Model) startStream() tea.Cmd {
 		"model", m.model,
 		"messages", len(m.msgs))
 	defer done("state", int(m.state))
+	if m.applicationFailure != nil {
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "turn blocked by fail-closed lifecycle application: " + m.applicationFailure.Error()})
+		m.renderBlocks()
+		return nil
+	}
+	if err := runtime.CheckScheduling(m.rootCtx, m.broker); err != nil {
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "turn blocked by broker scheduling: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
 	if m.supervision != nil {
 		// Refresh the durable authority snapshot before both the scheduling
 		// guard and the per-turn control-tool registration. A tool definition
@@ -473,6 +486,19 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnThinking = ""
 	m.turnThinkSig = ""
 	m.turnToolCalls = nil
+	m.turnUsage = agent.Usage{}
+	m.turnTreeBefore = plumbing.ZeroHash
+	if len(m.lifecycleApplications) > 0 && m.session != nil {
+		head, err := m.session.TreeHead()
+		if err != nil {
+			m.state = stateError
+			m.errorMsg = err.Error()
+			m.appendBlock(block{kind: "system", body: "application turn anchor failed: " + err.Error()})
+			m.renderBlocks()
+			return nil
+		}
+		m.turnTreeBefore = head
+	}
 	// Codex validated finding (post-#46): clear turnCancelled at
 	// the start of every new operator-initiated turn. The actual
 	// gate lives in onToolsExecuted (refuses to startStream when
@@ -779,6 +805,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvDone:
 		if ev.Usage != nil {
+			m.turnUsage = *ev.Usage
 			m.metrics.RecordTurnUsage(m.rootCtx, m.turnProvider, m.turnModel,
 				ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.CacheReadTokens)
 			m.usage.InputTokens = ev.Usage.InputTokens
@@ -1122,6 +1149,13 @@ func (m *Model) onTurnComplete() tea.Cmd {
 }
 
 func (m *Model) finishTurnWithoutTools() tea.Cmd {
+	if command := m.applicationTurnBoundary(nil, applicationBoundaryFinishTurn); command != nil {
+		return command
+	}
+	return m.finishTurnWithoutToolsAfterApplications()
+}
+
+func (m *Model) finishTurnWithoutToolsAfterApplications() tea.Cmd {
 	m.closeTurnWithoutTools()
 	if cmd := m.runPendingLearn(); cmd != nil {
 		return cmd
@@ -1143,6 +1177,7 @@ func (m *Model) closeTurnWithoutTools() {
 			m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
 		}
 	}
+	m.applicationIteration = 0
 	m.state = stateIdle
 	m.finalizeStreamingBlocks()
 	m.renderBlocks()
@@ -1303,55 +1338,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	// worktree. Same model as `stado run` default. The worktree is
 	// where turn-boundary tree commits live (m.session.WorktreePath); it
 	// is NOT the agent's working directory.
-	spawn := m.buildSubagentSpawner()
-	var fleetBridge *runtime.FleetBridgeAdapter
-	if runner, ok := m.buildSubagentRunner(); ok && m.fleet != nil {
-		fleetBridge = &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: runner, RootCtx: m.rootCtx}
-		if m.cfg != nil && m.session != nil {
-			if _, err := runtime.ConfigureRetainedBridge(m.rootCtx, m.cfg, m.session, fleetBridge); err != nil {
-				fleetBridge = nil
-			}
-		}
-	}
-	host := hostAdapter{
-		workdir:         m.cwd,
-		readLog:         m.executor.ReadLog,
-		runner:          m.executor.Runner,
-		executorSandbox: m.executorSandbox,
-		approval: tuiApprovalBridge{
-			model: m,
-		},
-		choice: tuiChoiceBridge{
-			model: m,
-		},
-		print: tuiPrintBridge{
-			model: m,
-		},
-		render: tuiRenderBridge{
-			model: m,
-		},
-		spawn:       spawn,
-		fleetBridge: fleetBridge,
-		research:    m.buildResearchRunner(),
-		activate: func(name string) {
-			if m.activatedTools == nil {
-				m.activatedTools = map[string]bool{}
-			}
-			m.activatedTools[name] = true
-		},
-		deactivate: func(name string) {
-			if m.activatedTools != nil {
-				delete(m.activatedTools, name)
-			}
-		},
-		progress: func(plugin, text string) {
-			// Surface as a sidebar log entry tagged PROGRESS. The
-			// PROGRESS prefix forces visibility regardless of
-			// --sidebar-debug (plugin author chose to emit this).
-			m.pushLogLine("PROGRESS [" + plugin + "] " + text)
-		},
-		pty: m.ptyManager,
-	}
+	host := m.newPluginHostAdapter()
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
 	m.toolMu.Lock()
@@ -1418,6 +1405,22 @@ func (m *Model) buildSubagentRunner() (runtime.SubagentRunner, bool) {
 	if m.cfg == nil || m.session == nil || m.provider == nil {
 		return runtime.SubagentRunner{}, false
 	}
+	onEvent := func(ev runtime.SubagentEvent) {
+		if m.program != nil {
+			m.program.Send(subagentEventMsg{ev: ev})
+		}
+		// EP-0034 phase B will fan SubagentEvents into
+		// runtime.Fleet.UpdateProgress so the /fleet modal
+		// shows live LastTool/LastText. Phase A (this
+		// release) populates SessionID + terminal Status
+		// from Fleet.runGoroutine on goroutine return —
+		// adequate for "see what's running, see what
+		// finished," misses "see what running agent X is
+		// currently doing." See docs/eps/0034 D5.
+	}
+	if publisher, ok := m.broker.(runtime.ApplicationEventPublisher); ok {
+		onEvent = runtime.AgentDownEventCallback(m.session.ID, publisher, onEvent)
+	}
 	runner := runtime.SubagentRunner{
 		Config:                   m.cfg,
 		Parent:                   m.session,
@@ -1432,19 +1435,14 @@ func (m *Model) buildSubagentRunner() (runtime.SubagentRunner, bool) {
 		Metrics:                  m.metrics,
 		Broker:                   m.broker,
 		ResolveSource:            runtime.ResolveTreeSource(m.session, m.cfg.WorktreeDir()),
-		OnEvent: func(ev runtime.SubagentEvent) {
-			if m.program != nil {
-				m.program.Send(subagentEventMsg{ev: ev})
+		ResolveProviderModel: func(_ context.Context, providerName, modelName string) (agent.Provider, string, error) {
+			provider, err := buildProviderByName(m.cfg, providerName)
+			if err != nil {
+				return nil, "", err
 			}
-			// EP-0034 phase B will fan SubagentEvents into
-			// runtime.Fleet.UpdateProgress so the /fleet modal
-			// shows live LastTool/LastText. Phase A (this
-			// release) populates SessionID + terminal Status
-			// from Fleet.runGoroutine on goroutine return —
-			// adequate for "see what's running, see what
-			// finished," misses "see what running agent X is
-			// currently doing." See docs/eps/0034 D5.
+			return provider, modelName, nil
 		},
+		OnEvent: onEvent,
 	}
 	return runner, true
 }
@@ -1725,27 +1723,9 @@ func (m *Model) renderContextStatus() string {
 		sb.WriteString(fmt.Sprintf("session: %s\n", m.session.ID))
 	}
 
-	// Cost / budget. Cost is always shown; budget caps only when set.
+	// Cost is observational. Budget enforcement below is token-only.
 	sb.WriteString(fmt.Sprintf("cost: $%.4f\n", m.usage.CostUSD))
-	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
-		w := "(unset)"
-		if m.budgetWarnUSD > 0 {
-			w = fmt.Sprintf("$%.2f", m.budgetWarnUSD)
-		}
-		h := "(unset)"
-		if m.budgetHardUSD > 0 {
-			h = fmt.Sprintf("$%.2f", m.budgetHardUSD)
-		}
-		sb.WriteString(fmt.Sprintf("budget: warn=%s · hard=%s", w, h))
-		if m.budgetAcked {
-			sb.WriteString(" · ack")
-		}
-		sb.WriteString("\n")
-	}
-	// Token caps. Shown only when configured — USD-only users don't
-	// need the extra line, but token-budget users (local runners with
-	// CostUSD always 0) must see their usage and caps here too, not
-	// just in /budget. Mirrors budgetExceeded's precedence set.
+	// Token caps are shown only when configured.
 	if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
 		m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
 		m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
@@ -2176,8 +2156,7 @@ func (m *Model) firePostLLMHook() {
 // on every Usage update.
 //
 // Token caps matter here because local-runner setups (Ollama / LM
-// Studio / vLLM) report CostUSD == 0; a USD-only gate left those users
-// with no proactive advisory before the hard cap blocked their turn.
+// The warning uses the same token counters on local and remote providers.
 // budgetWarnDescription mirrors budgetBreachDescription's precedence so
 // the warn block names whichever cap actually fired.
 func (m *Model) maybeEmitBudgetWarning() {
@@ -2198,18 +2177,13 @@ func (m *Model) maybeEmitBudgetWarning() {
 
 // budgetWarnDescription names the first warn cap that has been crossed
 // and a hint pointing at the matching hard cap, in the same precedence
-// order as budgetWarning/budgetBreachDescription (USD first, then
-// combined tokens, then per-direction). Returns ("", "") when nothing
+// order as budgetWarning/budgetBreachDescription (combined tokens, then
+// per-direction). Returns ("", "") when nothing
 // is over its warn cap. The crossed string is phrased as a full clause
-// ("cost $X crossed warn cap $Y" / "tokens N crossed warn cap M") so
+// ("tokens N crossed warn cap M") so
 // maybeEmitBudgetWarning can render it verbatim.
 func (m *Model) budgetWarnDescription() (crossed, hint string) {
 	switch {
-	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
-		crossed = fmt.Sprintf("cost $%.2f crossed warn cap $%.2f", m.usage.CostUSD, m.budgetWarnUSD)
-		if m.budgetHardUSD > 0 {
-			hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
-		}
 	case m.budgetWarnTokens > 0 && m.totalTokens() >= m.budgetWarnTokens:
 		crossed = fmt.Sprintf("tokens %s crossed warn cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetWarnTokens))
 		if m.budgetHardTokens > 0 {

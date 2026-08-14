@@ -9,6 +9,14 @@ implemented-in: v0.33.0
 extends: ["EP-0006"]
 see-also: ["EP-0006", "EP-0012", "EP-0035", "EP-0037", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      Documentation correction: D12 is the later, authoritative amendment to
+      D7's original manifest-name directory and global `.active` symlink.
+      Current installs use canonical source identity; active selection is
+      project-local with a per-user fallback. D7 remains decision history, not
+      an alternative current layout.
   - date: 2026-05-05
     status: Draft
     note: Initial draft. Companion to EP-0037 (dispatch + naming) and EP-0038 (ABI v2 + bundled wasm). Extends EP-0006's signed-WASM trust model with VCS-based identity, anchor-of-trust pattern, multi-version coexistence, and lock file.
@@ -1417,6 +1425,11 @@ sole operator and can adapt to format changes between versions.
   prevents accidental long-running builds.
 
 ### D7. Multi-version coexistence; one active per name per session
+
+> **Historical shape, amended by D12.** Side-by-side versions remain the
+> decision, but D12 replaces the `<name>-<version>/` directory and global
+> `.active` symlink below with canonical identity-keyed directories plus
+> project-local/per-user selection.
 
 - **Decided:** install side-by-side at `<name>-<version>/`;
   `.active` symlink tracks active. Project pins via

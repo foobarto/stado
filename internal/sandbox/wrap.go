@@ -11,8 +11,8 @@ package sandbox
 //   - The child receives all original os.Args.
 //   - The child exits with the wrapper process's exit code.
 //
-// Supported wrappers (checked in order): bwrap (Linux), firejail
-// (Linux fallback), sandbox-exec (macOS). Falls back to NoneRunner
+// Supported wrappers (checked in order): bwrap, then firejail.
+// Falls back to NoneRunner
 // with a loud warning; hard-refuses if [sandbox] refuse_no_runner = true.
 
 import (
@@ -37,7 +37,7 @@ type WrapConfig struct {
 	HTTPProxy      string
 	AllowEnv       []string
 	RefuseNoRunner bool
-	Runner         string // "auto" | "bwrap" | "firejail" | "sandbox-exec"
+	Runner         string // "auto" | "bwrap" | "firejail"
 }
 
 // ErrAlreadyWrapped is returned when the process is already inside a sandbox.
@@ -68,7 +68,7 @@ func MaybeRewrap(cfg WrapConfig) error {
 		if !alreadyWrapped && !looksWrapped() {
 			return fmt.Errorf(
 				"sandbox mode 'external' configured but stado does not appear to be " +
-					"running inside a wrapper. Start stado under bwrap / firejail / sandbox-exec, " +
+					"running inside a wrapper. Start stado under bwrap / firejail, " +
 					"or set [sandbox] mode = \"wrap\" to have stado wrap itself")
 		}
 		return nil
@@ -152,8 +152,6 @@ func buildWrapperArgs(runner string, cfg WrapConfig, selfPath string) ([]string,
 		return buildBwrapArgs(cfg, selfPath)
 	case "firejail":
 		return buildFirejailArgs(cfg, selfPath)
-	case "sandbox-exec":
-		return buildSandboxExecArgs(cfg, selfPath)
 	}
 	return nil, fmt.Errorf("unknown runner %q", runner)
 }
@@ -248,39 +246,6 @@ func firejailArgsWith(fjPath string, cfg WrapConfig, selfPath string) ([]string,
 	}
 	args = append(args, "--", selfPath)
 	return args, nil
-}
-
-func buildSandboxExecArgs(cfg WrapConfig, selfPath string) ([]string, error) {
-	se, err := exec.LookPath("sandbox-exec")
-	if err != nil {
-		return nil, err
-	}
-	return []string{se, "-p", sandboxExecProfile(cfg), selfPath}, nil
-}
-
-// sandboxExecProfile builds the sandbox-exec SBPL profile. Split out so the
-// #035 BindRW handling is unit-testable without sandbox-exec installed.
-//
-// Allows read-everywhere, write only /tmp, the stado data dirs, and
-// operator-declared BindRW paths. #035: prior to this the profile ignored
-// cfg.BindRW entirely, so a writable path the operator declared was silently
-// denied (over-restrictive, not a bypass — but still wrong relative to the
-// configured contract). BindRO needs no rule: reads are allowed by
-// (allow default).
-func sandboxExecProfile(cfg WrapConfig) string {
-	var b strings.Builder
-	b.WriteString(`(version 1)(allow default)(deny file-write*)(allow file-write* (subpath "/tmp"))`)
-	writeSubpaths := append([]string(nil), xdgStatoDirs()...)
-	for _, p := range cfg.BindRW {
-		writeSubpaths = append(writeSubpaths, expandHome(p))
-	}
-	for _, p := range writeSubpaths {
-		if p == "" {
-			continue
-		}
-		b.WriteString(`(allow file-write* (subpath "` + p + `"))`)
-	}
-	return b.String()
 }
 
 // pickRunner returns the first available wrapper name matching cfg.Runner,
@@ -416,15 +381,8 @@ func expandHome(p string) string {
 	return p
 }
 
-// wrapperCandidates returns wrapper binary names in preference order
-// for the current platform. Availability is checked via LookPath by callers.
+// wrapperCandidates returns Linux wrapper names in preference order.
+// Availability is checked via LookPath by callers.
 func wrapperCandidates() []string {
-	switch GOOS {
-	case "linux":
-		return []string{"bwrap", "firejail"}
-	case "darwin":
-		return []string{"sandbox-exec"}
-	default:
-		return nil
-	}
+	return []string{"bwrap", "firejail"}
 }

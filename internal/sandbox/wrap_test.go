@@ -70,9 +70,6 @@ func TestFirejailArgs_HonorsBindRO(t *testing.T) {
 }
 
 func TestPickRunner_FirejailDroppedWhenPolicyUnenforceable(t *testing.T) {
-	if GOOS != "linux" {
-		t.Skip("firejail candidate path is linux-only")
-	}
 	bwrapAvail := func() bool { _, err := exec.LookPath("bwrap"); return err == nil }()
 	fjAvail := func() bool { _, err := exec.LookPath("firejail"); return err == nil }()
 
@@ -144,9 +141,6 @@ func TestPickRunner_FirejailDroppedWhenPolicyUnenforceable(t *testing.T) {
 // bwrap-less host gets an explicit hard error, not silent loss of
 // confinement.
 func TestMaybeRewrap_FirejailBindRW_HardFailsRegardlessOfRefuseNoRunner(t *testing.T) {
-	if GOOS != "linux" {
-		t.Skip("firejail candidate path is linux-only")
-	}
 	// Ensure no rewrap marker is set — otherwise MaybeRewrap returns
 	// nil immediately as "already wrapped".
 	t.Setenv(RewrappedEnvVar, "")
@@ -167,16 +161,5 @@ func TestMaybeRewrap_FirejailBindRW_HardFailsRegardlessOfRefuseNoRunner(t *testi
 	msg := err.Error()
 	if !strings.Contains(msg, "firejail") || !strings.Contains(msg, "bind_rw") {
 		t.Errorf("error should mention firejail + bind_rw, got: %q", msg)
-	}
-}
-
-func TestSandboxExecProfile_HonorsBindRW(t *testing.T) {
-	profile := sandboxExecProfile(WrapConfig{BindRW: []string{"/work/out"}})
-	if !strings.Contains(profile, `(allow file-write* (subpath "/work/out"))`) {
-		t.Fatalf("sandbox-exec profile missing BindRW write rule: %q", profile)
-	}
-	// Baseline write-deny + /tmp allowance must remain.
-	if !strings.Contains(profile, `(deny file-write*)`) || !strings.Contains(profile, `(subpath "/tmp")`) {
-		t.Fatalf("sandbox-exec profile lost baseline rules: %q", profile)
 	}
 }

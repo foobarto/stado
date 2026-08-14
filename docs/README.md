@@ -19,7 +19,7 @@ Shorter forms live in:
 
 | Article | Focus |
 |---------|-------|
-| [The Loop Needs a Witness](articles/supervise-in-practice.md) | Why supervised work separates the worker, watchdog, verifier, and host-owned authority |
+| [The Loop Needs a Witness](articles/supervise-in-practice.md) | Why supervised work separates the worker, watchdog, verifier, application policy, and broker-enforced authority |
 | [What Survives the Window](articles/adaptive-context.md) | Why useful history needs governed persistence, retrieval, and learning rather than a larger prompt |
 
 ## Command guides
@@ -55,13 +55,13 @@ Shorter forms live in:
 |---------|-------|---------------|
 | All tools as WASM | [features/no-internal-tools.md](features/no-internal-tools.md) | Why every model-facing tool is a plugin |
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
-| `[budget]` cost + token gate | [features/budget.md](features/budget.md) | Warn + hard caps on cumulative USD and token usage |
+| `[budget]` token gate | [features/budget.md](features/budget.md) | Warn + hard caps on cumulative token usage |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
 | `[hooks]` shell hook | [features/hooks.md](features/hooks.md) | Fire-and-forget shell hook on completed TUI, CLI, and headless turns |
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
-| Supervised work | [features/supervise.md](features/supervise.md) | Harness-enforced plans, watchdog correction, task deferral, and independent completion verification |
+| Supervised work (EP-64 migration in flight) | [features/supervise.md](features/supervise.md) | Accepted quality-gate behavior being moved into the official signed `supervise` plugin |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |

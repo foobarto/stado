@@ -12,11 +12,13 @@ func TestIndexRebuildScopeSensitivityAndStaleness(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	normal, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeRepo, Binding: ScopeBinding{CanonicalRepoID: "repo-a"}, Summary: "Malformed JSON arguments", Content: "retry with valid json"}, "alice", "agent", "normal")
+	normal, err := svc.Create(ctx, testMemory(ScopeRepo, ScopeBinding{CanonicalRepoID: "repo-a"}, "Malformed JSON arguments", "retry with valid json"), "alice", "agent", "normal")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeRepo, Binding: ScopeBinding{CanonicalRepoID: "repo-a"}, Summary: "Private JSON password", Sensitivity: "private"}, "alice", "agent", "private")
+	private := testMemory(ScopeRepo, ScopeBinding{CanonicalRepoID: "repo-a"}, "Private JSON password", "")
+	private.Sensitivity = "private"
+	_, err = svc.Create(ctx, private, "alice", "agent", "private")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestIndexRebuildScopeSensitivityAndStaleness(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Fatalf("cross repo got=%v err=%v", got, err)
 	}
-	if _, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeGlobal, Summary: "new JSON"}, "alice", "agent", "new"); err != nil {
+	if _, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "new JSON", ""), "alice", "agent", "new"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := idx.Search(ctx, svc, "JSON", q); !errors.Is(err, ErrIndexStale) {
@@ -50,7 +52,7 @@ func TestIndexCanBeDeletedAndRebuilt(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	if _, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeGlobal, Summary: "rebuild needle"}, "alice", "agent", "create"); err != nil {
+	if _, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "rebuild needle", ""), "alice", "agent", "create"); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()

@@ -2,13 +2,17 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -37,6 +41,7 @@ type SubagentRunner struct {
 
 	Thinking             string
 	ThinkingBudgetTokens int
+	ReasoningEffort      string
 	System               string
 	SystemTemplate       string
 
@@ -63,10 +68,29 @@ type SubagentRunner struct {
 	// ResolveSource returns an authorized immutable source session/checkpoint.
 	// Nil permits only the active parent.
 	ResolveSource func(context.Context, subagent.Source) (*stadogit.Session, error)
-	// ResolveModel resolves an explicitly requested configured model. Nil denies
-	// model changes. The returned name is the exact model passed to the provider.
-	ResolveModel func(context.Context, string) (agent.Provider, string, error)
+	// ResolveProviderModel resolves an explicitly requested configured provider
+	// and model. Nil denies changes. Provider credentials and endpoints stay in
+	// the native config/secret layer and never enter the child request. A
+	// successful call transfers ownership of a fresh provider instance to this
+	// runner; it is closed exactly once after the child terminates or validation
+	// rejects the resolved profile.
+	ResolveProviderModel func(context.Context, string, string) (agent.Provider, string, error)
+
+	// The pinned source fields are host-owned and deliberately absent from
+	// subagent.Request. sourcePinned distinguishes an exact empty snapshot from
+	// an unpinned request; a zero git hash cannot carry that distinction alone.
+	pinnedSource          *stadogit.Session
+	pinnedSourceHead      plumbing.Hash
+	pinnedConversation    []agent.Message
+	pinnedConversationSet bool
+	sourcePinned          bool
 }
+
+var (
+	_ SnapshotSpawner      = SubagentRunner{}
+	_ RequestSourceSpawner = SubagentRunner{}
+	_ ForkPointSpawner     = SubagentRunner{}
+)
 
 // WithInbox returns a copy of the runner with InboxFn set. Implements
 // the inbox-aware-spawner contract Fleet.runGoroutine uses to wire
@@ -74,6 +98,234 @@ type SubagentRunner struct {
 func (r SubagentRunner) WithInbox(fn func() []string) Spawner {
 	r.InboxFn = fn
 	return r
+}
+
+// PinSpawnSource implements SnapshotSpawner. Capturing the tree-ref commit
+// here, before Fleet launches its goroutine, makes the child worktree match the
+// exact state at request time even if the parent continues immediately.
+func (r SubagentRunner) PinSpawnSource(_ context.Context) (Spawner, error) {
+	if r.Parent == nil || r.Parent.Sidecar == nil {
+		return nil, errors.New("spawn_agent: parent session required to pin source")
+	}
+	head, err := r.Parent.TreeHead()
+	if err != nil {
+		return nil, fmt.Errorf("spawn_agent: pin parent tree head: %w", err)
+	}
+	r.pinnedSource = r.Parent
+	r.pinnedSourceHead = head
+	r.sourcePinned = true
+	return r, nil
+}
+
+// PinSpawnRequestSource resolves and copies an optional application-selected
+// source synchronously. An exact application turn_ref uses the form
+// git:refs/sessions/<session>/tree@<commit>#turn-N-iteration-M. Its fragment is
+// an audit coordinate; the immutable commit is the source of tree authority.
+// Exact turn refs intentionally start with a fresh child conversation so a
+// reviewer receives only its bounded review prompt, not mutable worker chat.
+func (r SubagentRunner) PinSpawnRequestSource(ctx context.Context, requested *subagent.Source) (Spawner, error) {
+	if requested == nil {
+		return r.PinSpawnSource(ctx)
+	}
+	requestedCopy := *requested
+	selector := strings.TrimSpace(requestedCopy.At)
+	if strings.HasPrefix(selector, "git:") {
+		sessionID, parseErr := applicationTurnRefSessionID(selector)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		if requestedCopy.SessionID != "" && requestedCopy.SessionID != sessionID {
+			return nil, errors.New("spawn_agent: source.session_id disagrees with exact turn_ref")
+		}
+		requestedCopy.SessionID = sessionID
+	}
+	if r.ResolveSource == nil {
+		return nil, errors.New("spawn_agent: historical source is not authorized on this surface")
+	}
+	source, err := r.ResolveSource(ctx, requestedCopy)
+	if err != nil {
+		return nil, fmt.Errorf("spawn_agent: resolve requested source: %w", err)
+	}
+	if source == nil || source.Sidecar == nil || source.ID != requestedCopy.SessionID {
+		return nil, errors.New("spawn_agent: requested source identity mismatch")
+	}
+
+	var head plumbing.Hash
+	var seed []agent.Message
+	switch {
+	case strings.HasPrefix(selector, "git:"):
+		head, err = parseApplicationTurnRef(source, selector)
+		if err != nil {
+			return nil, err
+		}
+		// Fresh independent reviewers must not inherit later mutable transcript
+		// bytes merely because their exact evidence source is a worker session.
+		seed = []agent.Message{}
+	case strings.HasPrefix(selector, "turns/") || selector == "last_committed_turn":
+		if strings.HasPrefix(selector, "turns/") {
+			turn, parseErr := strconv.Atoi(strings.TrimPrefix(selector, "turns/"))
+			if parseErr != nil || turn < 0 {
+				return nil, errors.New("spawn_agent: invalid historical turn selector")
+			}
+			head, err = source.Sidecar.ResolveRef(stadogit.TurnTagRef(source.ID, turn))
+		} else {
+			head, err = source.TreeHead()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("spawn_agent: resolve requested source tree: %w", err)
+		}
+		seed, err = historicalSeed(source, selector)
+		if err != nil {
+			return nil, fmt.Errorf("spawn_agent: pin requested conversation: %w", err)
+		}
+	default:
+		return nil, errors.New("spawn_agent: source.at must be an exact application turn_ref, turns/N, or last_committed_turn")
+	}
+	r.pinnedSource = source
+	r.pinnedSourceHead = head
+	r.pinnedConversation = append([]agent.Message(nil), seed...)
+	r.pinnedConversationSet = true
+	r.sourcePinned = true
+	return r, nil
+}
+
+func applicationTurnRefSessionID(value string) (string, error) {
+	body := strings.TrimPrefix(strings.TrimSpace(value), "git:")
+	anchor, _, ok := strings.Cut(body, "#")
+	if !ok {
+		return "", errors.New("spawn_agent: exact source requires a turn fragment")
+	}
+	ref, _, ok := strings.Cut(anchor, "@")
+	if !ok {
+		return "", errors.New("spawn_agent: exact source requires an immutable tree commit")
+	}
+	const prefix, suffix = "refs/sessions/", "/tree"
+	if !strings.HasPrefix(ref, prefix) || !strings.HasSuffix(ref, suffix) {
+		return "", errors.New("spawn_agent: exact source must name a session tree ref")
+	}
+	sessionID := strings.TrimSuffix(strings.TrimPrefix(ref, prefix), suffix)
+	if sessionID == "" || strings.ContainsAny(sessionID, "/\\") {
+		return "", errors.New("spawn_agent: invalid session identity in exact source")
+	}
+	return sessionID, nil
+}
+
+func parseApplicationTurnRef(source *stadogit.Session, value string) (plumbing.Hash, error) {
+	if source == nil || source.Sidecar == nil {
+		return plumbing.ZeroHash, errors.New("spawn_agent: exact source session is unavailable")
+	}
+	body := strings.TrimPrefix(strings.TrimSpace(value), "git:")
+	anchor, fragment, ok := strings.Cut(body, "#")
+	if !ok || fragment == "" || strings.Contains(fragment, "#") {
+		return plumbing.ZeroHash, errors.New("spawn_agent: exact source requires one turn fragment")
+	}
+	ref, version, ok := strings.Cut(anchor, "@")
+	if !ok || ref != stadogit.TreeRef(source.ID).String() {
+		return plumbing.ZeroHash, errors.New("spawn_agent: exact source ref does not match the authorized session tree")
+	}
+	var turn, iteration int
+	if _, err := fmt.Sscanf(fragment, "turn-%d-iteration-%d", &turn, &iteration); err != nil ||
+		turn < 1 || iteration < 1 || fragment != fmt.Sprintf("turn-%d-iteration-%d", turn, iteration) {
+		return plumbing.ZeroHash, errors.New("spawn_agent: invalid exact source turn fragment")
+	}
+	// The event producer and application ABI use one canonical spelling. Git
+	// object IDs are case-insensitive when decoded, but accepting an alternate
+	// spelling here would let producer and consumer disagree about the exact
+	// authenticated selector they journal and deduplicate.
+	if version != "empty" && version != strings.ToLower(version) {
+		return plumbing.ZeroHash, errors.New("spawn_agent: exact source commit must use lowercase hex")
+	}
+	return validatePinnedCommit(source, "tree", version)
+}
+
+// PinSpawnForkPoint implements ForkPointSpawner. The caller has already
+// authenticated and resolved the admission source; this method consumes that
+// immutable coordinate synchronously and returns a runner that never consults
+// the guest's mutable selector during delayed launch or restart.
+func (r SubagentRunner) PinSpawnForkPoint(ctx context.Context, point SpawnForkPoint) (Spawner, error) {
+	point.SourceSessionID = strings.TrimSpace(point.SourceSessionID)
+	if point.SourceSessionID == "" || point.SourceGeneration == 0 || point.CommittedTurn < 0 {
+		return nil, errors.New("spawn_agent: incomplete retained fork point")
+	}
+	if r.Parent == nil || r.Parent.Sidecar == nil {
+		return nil, errors.New("spawn_agent: parent session required to pin retained source")
+	}
+
+	selector := fmt.Sprintf("turns/%d", point.CommittedTurn)
+	source := r.Parent
+	if source.ID != point.SourceSessionID {
+		if r.ResolveSource == nil {
+			return nil, errors.New("spawn_agent: retained historical source is not authorized on this surface")
+		}
+		var err error
+		source, err = r.ResolveSource(ctx, subagent.Source{SessionID: point.SourceSessionID, At: selector})
+		if err != nil {
+			return nil, fmt.Errorf("spawn_agent: resolve retained source: %w", err)
+		}
+	}
+	if source == nil || source.Sidecar == nil || source.ID != point.SourceSessionID {
+		return nil, errors.New("spawn_agent: retained source identity mismatch")
+	}
+
+	tree, err := validatePinnedCommit(source, "tree", point.TreeCommit)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := validatePinnedCommit(source, "trace", point.TraceCommit); err != nil {
+		return nil, err
+	}
+	wantDigest, err := hex.DecodeString(point.ConversationDigest)
+	if err != nil || len(wantDigest) != sha256.Size {
+		return nil, errors.New("spawn_agent: invalid retained conversation digest")
+	}
+	seed, err := conversationAtDigest(source, point.CommittedTurn, point.ConversationDigest)
+	if err != nil {
+		return nil, err
+	}
+
+	r.pinnedSource = source
+	r.pinnedSourceHead = tree
+	r.pinnedConversation = append([]agent.Message(nil), seed...)
+	r.pinnedConversationSet = true
+	r.sourcePinned = true
+	return r, nil
+}
+
+func conversationAtDigest(source *stadogit.Session, turn int, digest string) ([]agent.Message, error) {
+	// Current retained admission emits either an explicit turns/N projection or
+	// the default last_committed_turn projection. The persisted digest is the
+	// authority: accept only bytes that reproduce it, and retain those bytes so
+	// later source movement cannot alter launch or restart context.
+	for _, selector := range []string{fmt.Sprintf("turns/%d", turn), "last_committed_turn"} {
+		seed, err := historicalSeed(source, selector)
+		if err != nil {
+			return nil, fmt.Errorf("spawn_agent: pin retained conversation: %w", err)
+		}
+		seedBytes, err := json.Marshal(seed)
+		if err != nil {
+			return nil, fmt.Errorf("spawn_agent: encode retained conversation: %w", err)
+		}
+		got := sha256.Sum256(seedBytes)
+		if strings.EqualFold(hex.EncodeToString(got[:]), digest) {
+			return seed, nil
+		}
+	}
+	return nil, errors.New("spawn_agent: retained conversation changed after admission")
+}
+
+func validatePinnedCommit(source *stadogit.Session, label, value string) (plumbing.Hash, error) {
+	value = strings.TrimSpace(value)
+	if value == "empty" {
+		return plumbing.ZeroHash, nil
+	}
+	if !plumbing.IsHash(value) {
+		return plumbing.ZeroHash, fmt.Errorf("spawn_agent: invalid retained %s commit", label)
+	}
+	hash := plumbing.NewHash(value)
+	if _, err := source.Sidecar.Repo().CommitObject(hash); err != nil {
+		return plumbing.ZeroHash, fmt.Errorf("spawn_agent: retained %s commit is unavailable: %w", label, err)
+	}
+	return hash, nil
 }
 
 // SubagentEvent is emitted at child lifecycle boundaries so outer
@@ -85,11 +337,19 @@ type SubagentEvent struct {
 	Worktree        string
 	Role            string
 	Mode            string
+	Execution       string
+	Ownership       string
+	WriteScope      []string
+	MaxTurns        int
+	TokenBudget     int
 	Status          string
 	TimeoutSeconds  int
 	ForkTree        string
+	TreeRef         string
+	TraceRef        string
 	ChangedFiles    []string
 	ScopeViolations []string
+	Terminal        subagent.TerminalMetadata
 	Error           string
 }
 
@@ -131,8 +391,15 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		return subagent.Result{}, fmt.Errorf("spawn_agent: provider required")
 	}
 	source := r.Parent
-	var sourceTurnCommit plumbing.Hash
-	if req.Source != nil {
+	sourceTurnCommit := plumbing.ZeroHash
+	if r.sourcePinned {
+		if r.pinnedSource == nil || r.pinnedSource.Sidecar == nil {
+			return subagent.Result{}, errors.New("spawn_agent: pinned source is unavailable")
+		}
+		source = r.pinnedSource
+		sourceTurnCommit = r.pinnedSourceHead
+	} else if req.Source != nil {
+		sourceTurnCommit = plumbing.ZeroHash
 		if r.ResolveSource == nil {
 			return subagent.Result{}, errors.New("spawn_agent: historical source is not authorized on this surface")
 		}
@@ -155,15 +422,84 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		}
 	}
 	childProvider, childModel := r.Provider, r.Model
-	if req.Model != "" && req.Model != r.Model {
-		if r.ResolveModel == nil {
-			return subagent.Result{}, fmt.Errorf("spawn_agent: requested model %q is unavailable", req.Model)
+	providerOwned := false
+	requestedProvider := req.Provider
+	if requestedProvider == "" {
+		requestedProvider = r.Provider.Name()
+	}
+	requestedModel := req.Model
+	if requestedModel == "" {
+		requestedModel = r.Model
+	}
+	if requestedProvider != r.Provider.Name() || requestedModel != r.Model {
+		if r.ResolveProviderModel == nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested provider/model %q/%q is unavailable", requestedProvider, requestedModel)
 		}
-		childProvider, childModel, err = r.ResolveModel(ctx, req.Model)
-		if err != nil || childProvider == nil {
-			return subagent.Result{}, fmt.Errorf("spawn_agent: requested model %q: %w", req.Model, err)
+		childProvider, childModel, err = r.ResolveProviderModel(ctx, requestedProvider, requestedModel)
+		if err != nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested provider/model %q/%q: %w", requestedProvider, requestedModel, err)
+		}
+		if childProvider == nil {
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested provider/model %q/%q was not resolved exactly", requestedProvider, requestedModel)
+		}
+		providerOwned = true
+		if childModel != requestedModel {
+			if closer, ok := childProvider.(io.Closer); ok {
+				_ = closer.Close()
+			}
+			return subagent.Result{}, fmt.Errorf("spawn_agent: requested provider/model %q/%q was not resolved exactly", requestedProvider, requestedModel)
 		}
 	}
+	childThinking := r.Thinking
+	if req.Thinking != "" {
+		childThinking = req.Thinking
+	}
+	childThinkingBudget := r.ThinkingBudgetTokens
+	if req.ThinkingBudgetTokens > 0 {
+		childThinkingBudget = req.ThinkingBudgetTokens
+	}
+	caps := agent.CapabilitiesForModel(childProvider, childModel)
+	if childThinking == "on" && !caps.SupportsThinking {
+		cleanupProvider := childProvider
+		if providerOwned {
+			if closer, ok := cleanupProvider.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}
+		return subagent.Result{}, fmt.Errorf("spawn_agent: requested thinking is unsupported by %s/%s", requestedProvider, childModel)
+	}
+	childReasoningEffort := r.ReasoningEffort
+	if req.ReasoningEffort != "" {
+		childReasoningEffort = req.ReasoningEffort
+	}
+	if childReasoningEffort != "" && !caps.SupportsReasoningEffort {
+		if providerOwned {
+			if closer, ok := childProvider.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}
+		return subagent.Result{}, fmt.Errorf("spawn_agent: requested reasoning effort is unsupported by %s/%s", requestedProvider, childModel)
+	}
+	terminal := subagent.TerminalMetadata{UsageComplete: true}
+	var cleanupOnce sync.Once
+	cleanupProvider := func() {
+		cleanupOnce.Do(func() {
+			if !providerOwned {
+				return
+			}
+			closer, ok := childProvider.(io.Closer)
+			if !ok {
+				return
+			}
+			if closeErr := closer.Close(); closeErr != nil {
+				sum := sha256.Sum256([]byte(closeErr.Error()))
+				terminal.Cleanup = &subagent.CleanupDiagnostic{
+					Kind: "provider_close", Fingerprint: "sha256:" + hex.EncodeToString(sum[:]),
+				}
+			}
+		})
+	}
+	defer cleanupProvider()
 	childBroker := r.Broker
 	var child *stadogit.Session
 	if r.Broker != nil {
@@ -180,7 +516,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			if filepath.Dir(filepath.Clean(reserved)) != worktreeRoot {
 				return subagent.Result{}, fmt.Errorf("spawn_agent: broker child worktree %q is outside %q", reserved, worktreeRoot)
 			}
-			if sourceTurnCommit.IsZero() {
+			if r.sourcePinned {
+				child, err = ForkSessionAtSnapshotWithID(r.Config, source, sourceTurnCommit, filepath.Base(reserved))
+			} else if sourceTurnCommit.IsZero() {
 				child, err = ForkSessionWithID(r.Config, source, filepath.Base(reserved))
 			} else {
 				child, err = ForkSessionAtTurnWithID(r.Config, source, sourceTurnCommit, filepath.Base(reserved))
@@ -188,7 +526,11 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		}
 	}
 	if child == nil && err == nil {
-		if !sourceTurnCommit.IsZero() && req.ChildSessionID != "" {
+		if r.sourcePinned && req.ChildSessionID != "" {
+			child, err = ForkSessionAtSnapshotWithID(r.Config, source, sourceTurnCommit, req.ChildSessionID)
+		} else if r.sourcePinned {
+			child, err = ForkSessionAtSnapshot(r.Config, source, sourceTurnCommit)
+		} else if !sourceTurnCommit.IsZero() && req.ChildSessionID != "" {
 			child, err = ForkSessionAtTurnWithID(r.Config, source, sourceTurnCommit, req.ChildSessionID)
 		} else if !sourceTurnCommit.IsZero() {
 			child, err = ForkSessionAtTurn(r.Config, source, sourceTurnCommit)
@@ -221,7 +563,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	})
 
 	seed := []agent.Message{}
-	if req.Source != nil {
+	if r.pinnedConversationSet {
+		seed = append(seed, r.pinnedConversation...)
+	} else if req.Source != nil {
 		seed, err = historicalSeed(source, req.Source.At)
 		if err != nil {
 			return subagent.Result{}, fmt.Errorf("spawn_agent: restore historical context: %w", err)
@@ -236,14 +580,14 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	}
 	if err := WriteConversation(child.WorktreePath, seed); err != nil {
 		err = fmt.Errorf("spawn_agent: seed child conversation: %w", err)
-		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
 		return subagent.Result{}, err
 	}
 
 	exec, err := r.buildExecutor(child, agentName)
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
-		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
 		return subagent.Result{}, err
 	}
 	if childBroker != nil {
@@ -257,7 +601,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		childSandbox.DefaultSandboxPolicy(child.WorktreePath))
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
-		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
 		return subagent.Result{}, err
 	}
 
@@ -288,6 +632,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if skErr != nil {
 		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
 	}
+	turnUsageReported := false
 	childOpts := AgentLoopOptions{
 		Provider:                 childProvider,
 		Executor:                 exec,
@@ -300,8 +645,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Model:                    childModel,
 		Messages:                 seed,
 		MaxTurns:                 req.MaxTurns,
-		Thinking:                 r.Thinking,
-		ThinkingBudgetTokens:     r.ThinkingBudgetTokens,
+		Thinking:                 childThinking,
+		ThinkingBudgetTokens:     childThinkingBudget,
+		ReasoningEffort:          childReasoningEffort,
 		System:                   r.System,
 		SystemTemplate:           r.SystemTemplate,
 		Host:                     childHost,
@@ -310,6 +656,17 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Skills:                   childSkills,
 		QuietRegistryDiagnostics: r.QuietRegistryDiagnostics,
 		TokenCap:                 req.TokenBudget,
+		OnEvent: func(event agent.Event) {
+			if event.Usage != nil {
+				turnUsageReported = true
+			}
+		},
+		OnTurnComplete: func(_ int, _ string, _ []agent.ToolUseBlock, usage agent.Usage, _ time.Duration) {
+			if !turnUsageReported || !accumulateSubagentUsage(&terminal.Usage, usage) {
+				terminal.UsageComplete = false
+			}
+			turnUsageReported = false
+		},
 	}
 	if r.Config != nil {
 		childOpts.GuidanceContext = func() string {
@@ -320,12 +677,14 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		}
 	}
 	text, msgs, err := AgentLoop(childCtx, childOpts)
+	cleanupProvider()
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr
 	}
 	if err != nil {
 		if errors.Is(childCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			result := subagentResult(req, child, text, msgs)
+			result.Terminal = terminal
 			result.Status = "timeout"
 			result.Error = fmt.Sprintf("child timed out after %d second(s)", req.TimeoutSeconds)
 			if detailErr := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); detailErr != nil {
@@ -345,19 +704,48 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			return result, nil
 		}
 		err = fmt.Errorf("spawn_agent: child %s: %w", child.ID, err)
-		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
 		return subagent.Result{}, err
 	}
 
 	result := subagentResult(req, child, text, msgs)
+	result.Terminal = terminal
 	if err := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); err != nil {
 		err = fmt.Errorf("spawn_agent: worker result: %w", err)
-		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
 		return subagent.Result{}, err
 	}
 	r.attachWorkerAdoptionCommand(&result)
 	r.emitSubagentResultEvent(req, child, result)
 	return result, nil
+}
+
+func accumulateSubagentUsage(total *subagent.TokenUsage, next agent.Usage) bool {
+	if total == nil || next.InputTokens < 0 || next.OutputTokens < 0 ||
+		next.CacheReadTokens < 0 || next.CacheWriteTokens < 0 {
+		return false
+	}
+	add := func(current, delta int) (int, bool) {
+		maxInt := int(^uint(0) >> 1)
+		if current < 0 || delta < 0 || current > maxInt-delta {
+			return 0, false
+		}
+		return current + delta, true
+	}
+	var ok bool
+	if total.InputTokens, ok = add(total.InputTokens, next.InputTokens); !ok {
+		return false
+	}
+	if total.OutputTokens, ok = add(total.OutputTokens, next.OutputTokens); !ok {
+		return false
+	}
+	if total.CacheReadTokens, ok = add(total.CacheReadTokens, next.CacheReadTokens); !ok {
+		return false
+	}
+	if total.CacheWriteTokens, ok = add(total.CacheWriteTokens, next.CacheWriteTokens); !ok {
+		return false
+	}
+	return true
 }
 
 func historicalSeed(source *stadogit.Session, at string) ([]agent.Message, error) {
@@ -403,11 +791,18 @@ func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
 	req.Role = strings.TrimSpace(req.Role)
 	req.Mode = strings.TrimSpace(req.Mode)
 	req.Ownership = strings.TrimSpace(req.Ownership)
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Model = strings.TrimSpace(req.Model)
+	req.Thinking = strings.TrimSpace(req.Thinking)
+	req.ReasoningEffort = strings.TrimSpace(req.ReasoningEffort)
 	req.ToolProfile = strings.TrimSpace(req.ToolProfile)
 	if req.Prompt == "" {
 		return subagent.Request{}, fmt.Errorf("spawn_agent: prompt is required")
 	}
 	req = normalizeSubagentRequest(req)
+	if err := subagent.ValidateProviderProfile(req); err != nil {
+		return subagent.Request{}, err
+	}
 	writeScope, err := subagent.NormalizeWriteScope(req.WriteScope)
 	if err != nil {
 		return subagent.Request{}, fmt.Errorf("spawn_agent: write_scope: %w", err)
@@ -435,6 +830,10 @@ func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
 }
 
 func (r SubagentRunner) emitSubagentEvent(req subagent.Request, child *stadogit.Session, phase, status, errMsg string) {
+	r.emitSubagentEventWithTerminal(req, child, phase, status, errMsg, subagent.TerminalMetadata{})
+}
+
+func (r SubagentRunner) emitSubagentEventWithTerminal(req subagent.Request, child *stadogit.Session, phase, status, errMsg string, terminal subagent.TerminalMetadata) {
 	if r.OnEvent == nil || child == nil {
 		return
 	}
@@ -449,8 +848,16 @@ func (r SubagentRunner) emitSubagentEvent(req subagent.Request, child *stadogit.
 		Worktree:       child.WorktreePath,
 		Role:           req.Role,
 		Mode:           req.Mode,
+		Execution:      req.Execution,
+		Ownership:      req.Ownership,
+		WriteScope:     append([]string(nil), req.WriteScope...),
+		MaxTurns:       req.MaxTurns,
+		TokenBudget:    req.TokenBudget,
 		Status:         status,
 		TimeoutSeconds: req.TimeoutSeconds,
+		TreeRef:        subagentTreeEvidenceRef(child),
+		TraceRef:       subagentTraceEvidenceRef(child),
+		Terminal:       terminal,
 		Error:          errMsg,
 	})
 }
@@ -470,13 +877,43 @@ func (r SubagentRunner) emitSubagentResultEvent(req subagent.Request, child *sta
 		Worktree:        child.WorktreePath,
 		Role:            req.Role,
 		Mode:            req.Mode,
+		Execution:       req.Execution,
+		Ownership:       req.Ownership,
+		WriteScope:      append([]string(nil), req.WriteScope...),
+		MaxTurns:        req.MaxTurns,
+		TokenBudget:     req.TokenBudget,
 		Status:          result.Status,
 		TimeoutSeconds:  req.TimeoutSeconds,
 		ForkTree:        result.ForkTree,
+		TreeRef:         subagentTreeEvidenceRef(child),
+		TraceRef:        subagentTraceEvidenceRef(child),
 		ChangedFiles:    append([]string(nil), result.ChangedFiles...),
 		ScopeViolations: append([]string(nil), result.ScopeViolations...),
+		Terminal:        result.Terminal,
 		Error:           result.Error,
 	})
+}
+
+func subagentTreeEvidenceRef(child *stadogit.Session) string {
+	if child == nil {
+		return ""
+	}
+	head, err := child.TreeHead()
+	if err != nil || head.IsZero() {
+		return ""
+	}
+	return "git:" + stadogit.TreeRef(child.ID).String() + "@" + head.String()
+}
+
+func subagentTraceEvidenceRef(child *stadogit.Session) string {
+	if child == nil {
+		return ""
+	}
+	head, err := child.TraceHead()
+	if err != nil || head.IsZero() {
+		return ""
+	}
+	return "git:" + stadogit.TraceRef(child.ID).String() + "@" + head.String()
 }
 
 func (r SubagentRunner) attachWorkerAdoptionCommand(result *subagent.Result) {

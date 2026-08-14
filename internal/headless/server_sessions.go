@@ -42,6 +42,13 @@ func (s *Server) sessionNew(raw json.RawMessage) (any, error) {
 	if perr != nil {
 		return nil, perr
 	}
+	var personaPlugins []string
+	if persona != nil {
+		personaPlugins = persona.Plugins
+	}
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, personaPlugins, runtime.ApplicationSurfaceHeadless); err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "headless session.new: " + err.Error()}
+	}
 	cwd, _ := os.Getwd()
 	var sessionBroker runtime.BrokerController
 	if s.BrokerFactory != nil {

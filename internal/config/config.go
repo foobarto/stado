@@ -177,22 +177,11 @@ type Sessions struct {
 	AutoPruneAfter string `koanf:"auto_prune_after"`
 }
 
-// Budget is the [budget] config section — per-session guardrails on
-// cost (USD) and/or token usage. Stado already tracks both on every
-// provider turn; this adds thresholds to surface a warning and
-// (optionally) hard-block new turns. All fields default to 0, meaning
-// "no limit" — the guardrails are opt-in so cost-insensitive
-// local-runner users don't see pills for nothing.
-//
-// Cost (USD) guards apply when the provider reports a per-turn cost
-// (Anthropic, OpenAI, Google, paid OAI-compat presets). Token guards
-// apply universally, including local runners where USD is always 0;
-// useful when running on Ollama / LM Studio / vLLM where the meaningful
-// budget is throughput, not dollars.
+// Budget is the [budget] config section — per-session token guardrails.
+// Provider-reported currency remains observational telemetry; it is not an
+// enforcement input. All fields default to 0, meaning no limit.
 //
 //	[budget]
-//	warn_usd           = 1.00    # status-bar pill + one-time system block when crossed
-//	hard_usd           = 5.00    # block further turns pending user ack
 //	warn_tokens        = 100000  # combined input+output cumulative cap (warn)
 //	hard_tokens        = 500000  # combined input+output cumulative cap (hard)
 //	warn_input_tokens  = 0       # power-user: separate input-only cap (warn)
@@ -200,8 +189,7 @@ type Sessions struct {
 //	warn_output_tokens = 0       # power-user: separate output-only cap (warn)
 //	hard_output_tokens = 0       # ... (hard)
 //
-// Fractional dollars allowed; tokens are integers. Every cap is
-// independent and any one firing aborts the loop / triggers the gate.
+// Every cap is independent and any one firing aborts the loop / triggers the gate.
 // Most users want the combined `*_tokens` (covers context-window
 // growth + generation length together); the per-direction caps are
 // for power users who want to bound output length without capping
@@ -214,14 +202,12 @@ type Sessions struct {
 // config error — the guard would never warn before blocking — and
 // is ignored with a stderr warning at config-load time.
 type Budget struct {
-	WarnUSD          float64 `koanf:"warn_usd"`
-	HardUSD          float64 `koanf:"hard_usd"`
-	WarnTokens       int     `koanf:"warn_tokens"`
-	HardTokens       int     `koanf:"hard_tokens"`
-	WarnInputTokens  int     `koanf:"warn_input_tokens"`
-	HardInputTokens  int     `koanf:"hard_input_tokens"`
-	WarnOutputTokens int     `koanf:"warn_output_tokens"`
-	HardOutputTokens int     `koanf:"hard_output_tokens"`
+	WarnTokens       int `koanf:"warn_tokens"`
+	HardTokens       int `koanf:"hard_tokens"`
+	WarnInputTokens  int `koanf:"warn_input_tokens"`
+	HardInputTokens  int `koanf:"hard_input_tokens"`
+	WarnOutputTokens int `koanf:"warn_output_tokens"`
+	HardOutputTokens int `koanf:"hard_output_tokens"`
 }
 
 type Memory struct {
@@ -624,7 +610,7 @@ type Sandbox struct {
 // SandboxWrap is the [sandbox.wrap] sub-section. EP-0038d.
 type SandboxWrap struct {
 	// Runner selects the wrapper binary: "auto" (default), "bwrap",
-	// "firejail", or "sandbox-exec".
+	// "firejail".
 	Runner string `koanf:"runner"`
 	// BindRO is a list of paths to mount read-only inside the sandbox.
 	// Additive on top of the default contract (stado XDG dirs, /usr, resolv.conf).
@@ -1027,19 +1013,38 @@ func Load() (*Config, error) {
 	if !k.Exists("memory.enabled") {
 		cfg.Memory.Enabled = true
 	}
-	// Budget sanity: if both thresholds are set but the hard cap is at
-	// or below the warn cap, the warning would never fire. Drop the
-	// hard cap back to zero ("no hard limit") and announce so the user
-	// can fix their config — better than silently blocking turns that
-	// the user thought would just warn.
-	if cfg.Budget.HardUSD > 0 && cfg.Budget.WarnUSD > 0 && cfg.Budget.HardUSD <= cfg.Budget.WarnUSD {
-		fmt.Fprintf(os.Stderr,
-			"stado: [budget] hard_usd=%.2f must be > warn_usd=%.2f — ignoring hard_usd\n",
-			cfg.Budget.HardUSD, cfg.Budget.WarnUSD)
-		cfg.Budget.HardUSD = 0
-	}
-
+	normalizeTokenBudget(&cfg.Budget)
 	return &cfg, nil
+}
+
+func normalizeTokenBudget(budget *Budget) {
+	if budget == nil {
+		return
+	}
+	pairs := []struct {
+		name       string
+		warn, hard *int
+	}{
+		{"tokens", &budget.WarnTokens, &budget.HardTokens},
+		{"input_tokens", &budget.WarnInputTokens, &budget.HardInputTokens},
+		{"output_tokens", &budget.WarnOutputTokens, &budget.HardOutputTokens},
+	}
+	for _, pair := range pairs {
+		if *pair.warn < 0 {
+			fmt.Fprintf(os.Stderr, "stado: [budget] warn_%s must be >= 0 — ignoring warn_%s\n", pair.name, pair.name)
+			*pair.warn = 0
+		}
+		if *pair.hard < 0 {
+			fmt.Fprintf(os.Stderr, "stado: [budget] hard_%s must be >= 0 — ignoring hard_%s\n", pair.name, pair.name)
+			*pair.hard = 0
+		}
+		if *pair.hard > 0 && *pair.warn > 0 && *pair.hard <= *pair.warn {
+			fmt.Fprintf(os.Stderr,
+				"stado: [budget] hard_%s=%d must be > warn_%s=%d — ignoring hard_%s\n",
+				pair.name, *pair.hard, pair.name, *pair.warn, pair.name)
+			*pair.hard = 0
+		}
+	}
 }
 
 type staticBytesProvider []byte

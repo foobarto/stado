@@ -44,7 +44,7 @@ func TestService_SetTaintAndRead(t *testing.T) {
 	}
 
 	// Mark tainted.
-	if err := svc.SetTaint(handle.SessionID, TaintTainted); err != nil {
+	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted); err != nil {
 		t.Fatalf("SetTaint(Tainted): %v", err)
 	}
 	if taint, _ := svc.Taint(handle.SessionID); taint != TaintTainted {
@@ -52,7 +52,7 @@ func TestService_SetTaintAndRead(t *testing.T) {
 	}
 
 	// Reset to clean (operator-turn boundary).
-	if err := svc.SetTaint(handle.SessionID, TaintClean); err != nil {
+	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintClean); err != nil {
 		t.Fatalf("SetTaint(Clean): %v", err)
 	}
 	if taint, _ := svc.Taint(handle.SessionID); taint != TaintClean {
@@ -62,7 +62,7 @@ func TestService_SetTaintAndRead(t *testing.T) {
 
 func TestService_SetTaint_UnknownSession(t *testing.T) {
 	svc := NewService(DefaultPolicy(), nil)
-	err := svc.SetTaint("unknown-id", TaintTainted)
+	err := svc.SetTaint("unknown-id", "controller_unknown", TaintTainted)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("err = %v, want ErrSessionNotFound", err)
 	}
@@ -82,10 +82,10 @@ func TestService_SetTaint_TerminatedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if err := svc.TerminateSession(handle.SessionID); err != nil {
+	if err := svc.TerminateSession(handle.SessionID, handle.controllerToken); err != nil {
 		t.Fatalf("TerminateSession: %v", err)
 	}
-	err = svc.SetTaint(handle.SessionID, TaintTainted)
+	err = svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted)
 	if !errors.Is(err, ErrSessionTerminated) {
 		t.Errorf("err = %v, want ErrSessionTerminated", err)
 	}
@@ -144,7 +144,7 @@ func TestEvaluateWithTaint_TaintedSessionDeniesElevatedRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if err := svc.SetTaint(handle.SessionID, TaintTainted); err != nil {
+	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted); err != nil {
 		t.Fatalf("SetTaint: %v", err)
 	}
 	// Tainted context: elevated subagent role denied by overlay.
@@ -172,7 +172,7 @@ func TestEvaluateWithTaint_LogsFinalTaintDenialOnce(t *testing.T) {
 	if err != nil || !decision.Admit {
 		t.Fatalf("CreateSession: decision=%+v err=%v", decision, err)
 	}
-	if err := svc.SetTaint(parent.SessionID, TaintTainted); err != nil {
+	if err := svc.SetTaint(parent.SessionID, parent.controllerToken, TaintTainted); err != nil {
 		t.Fatal(err)
 	}
 	before := len(writer.Records())
@@ -206,7 +206,7 @@ func TestEvaluateWithTaint_TaintedSessionAdmitsNonElevatedRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if err := svc.SetTaint(handle.SessionID, TaintTainted); err != nil {
+	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted); err != nil {
 		t.Fatalf("SetTaint: %v", err)
 	}
 	// Tainted context but ordinary role: still admitted.

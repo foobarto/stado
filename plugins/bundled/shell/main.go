@@ -9,7 +9,7 @@
 //	shell_sh        — run via /bin/sh
 //	shell_zsh       — run via /usr/bin/zsh
 //
-// PTY session tools (over stado_terminal_*):
+// PTY session tools (over stado_pty_*):
 //
 //	shell_spawn     — open a PTY session, returns id
 //	shell_list      — list active sessions
@@ -38,36 +38,36 @@ func main() {}
 //go:wasmimport stado stado_exec
 func stadoExec(reqPtr, reqLen, resPtr, resCap uint32) int32
 
-//go:wasmimport stado stado_terminal_open
-func stadoTerminalOpen(argsPtr, argsLen, resPtr, resCap uint32) int64
+//go:wasmimport stado stado_pty_create
+func stadoPTYCreate(argsPtr, argsLen, resPtr, resCap uint32) int64
 
-//go:wasmimport stado stado_terminal_list
-func stadoTerminalList(bufPtr, bufCap uint32) int32
+//go:wasmimport stado stado_pty_list
+func stadoPTYList(bufPtr, bufCap uint32) int32
 
-//go:wasmimport stado stado_terminal_write
-func stadoTerminalWrite(idLo, idHi, bufPtr, bufLen, errPtr, errCap uint32) int32
+//go:wasmimport stado stado_pty_write
+func stadoPTYWrite(idLo, idHi, bufPtr, bufLen, errPtr, errCap uint32) int32
 
-// stado_terminal_read takes (idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap).
+// stado_pty_read takes (idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap).
 //
-//go:wasmimport stado stado_terminal_read
-func stadoTerminalRead(idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap uint32) int32
+//go:wasmimport stado stado_pty_read
+func stadoPTYRead(idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap uint32) int32
 
-//go:wasmimport stado stado_terminal_signal
-func stadoTerminalSignal(argsPtr, argsLen, resPtr, resCap uint32) int32
+//go:wasmimport stado stado_pty_signal
+func stadoPTYSignal(argsPtr, argsLen, resPtr, resCap uint32) int32
 
-//go:wasmimport stado stado_terminal_resize
-func stadoTerminalResize(argsPtr, argsLen, resPtr, resCap uint32) int32
+//go:wasmimport stado stado_pty_resize
+func stadoPTYResize(argsPtr, argsLen, resPtr, resCap uint32) int32
 
-//go:wasmimport stado stado_terminal_close
-func stadoTerminalClose(argsPtr, argsLen, resPtr, resCap uint32) int32
+//go:wasmimport stado stado_pty_destroy
+func stadoPTYDestroy(argsPtr, argsLen, resPtr, resCap uint32) int32
 
-//go:wasmimport stado stado_terminal_snapshot
-func stadoTerminalSnapshot(argsPtr, argsLen, resPtr, resCap uint32) int32
+//go:wasmimport stado stado_pty_snapshot
+func stadoPTYSnapshot(argsPtr, argsLen, resPtr, resCap uint32) int32
 
-// stado_terminal_expect takes (idLo, idHi, argsPtr, argsLen, resPtr, resCap).
+// stado_pty_expect takes (idLo, idHi, argsPtr, argsLen, resPtr, resCap).
 //
-//go:wasmimport stado stado_terminal_expect
-func stadoTerminalExpect(idLo, idHi, argsPtr, argsLen, resPtr, resCap uint32) int32
+//go:wasmimport stado stado_pty_expect
+func stadoPTYExpect(idLo, idHi, argsPtr, argsLen, resPtr, resCap uint32) int32
 
 // ── ABI ────────────────────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ func stadoToolSpawn(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	const errCap = 4096
 	errBuf := sdk.Alloc(errCap)
 	defer sdk.Free(errBuf, errCap)
-	id := stadoTerminalOpen(uint32(argsPtr), uint32(argsLen), uint32(errBuf), errCap)
+	id := stadoPTYCreate(uint32(argsPtr), uint32(argsLen), uint32(errBuf), errCap)
 	if id <= 0 {
 		// Negative return = -byte_count of error string at errBuf.
 		errLen := -id
@@ -259,7 +259,7 @@ func stadoToolList(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	const cap = 64 * 1024
 	buf := sdk.Alloc(cap)
 	defer sdk.Free(buf, cap)
-	n := stadoTerminalList(uint32(buf), cap)
+	n := stadoPTYList(uint32(buf), cap)
 	if n < 0 {
 		return writeErr(resPtr, resCap, "list failed")
 	}
@@ -318,7 +318,7 @@ func stadoToolWrite(argsPtr, argsLen, resPtr, resCap int32) int32 {
 
 	idLo := uint32(req.ID & 0xFFFFFFFF)
 	idHi := uint32(req.ID >> 32)
-	n := stadoTerminalWrite(idLo, idHi, uint32(dataPtr), uint32(len(data)), uint32(errBuf), errCap)
+	n := stadoPTYWrite(idLo, idHi, uint32(dataPtr), uint32(len(data)), uint32(errBuf), errCap)
 	if n < 0 {
 		return writeErr(resPtr, resCap, "write: "+string(sdk.Bytes(errBuf, -n)))
 	}
@@ -383,7 +383,7 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 
 	idLo := uint32(req.ID & 0xFFFFFFFF)
 	idHi := uint32(req.ID >> 32)
-	n := stadoTerminalRead(idLo, idHi, uint32(req.MaxBytes), uint32(req.TimeoutMs), uint32(bufPtr), uint32(req.MaxBytes))
+	n := stadoPTYRead(idLo, idHi, uint32(req.MaxBytes), uint32(req.TimeoutMs), uint32(bufPtr), uint32(req.MaxBytes))
 	if n == -1 {
 		// EOF sentinel (host contract): session closed + ring empty, and
 		// the host writes NO error string for -1. Surface a clean stream
@@ -427,7 +427,7 @@ func readScreen(id uint64, mode string, withSVG bool, cw, ch float64, fontPx int
 	const cap = 256 * 1024
 	buf := sdk.Alloc(cap)
 	defer sdk.Free(buf, cap)
-	n := stadoTerminalSnapshot(uint32(argPtr), uint32(len(args)), uint32(buf), cap)
+	n := stadoPTYSnapshot(uint32(argPtr), uint32(len(args)), uint32(buf), cap)
 	if n < 0 {
 		return nil, false, string(sdk.Bytes(buf, -n))
 	}
@@ -446,17 +446,17 @@ func readScreen(id uint64, mode string, withSVG bool, cw, ch float64, fontPx int
 
 //go:wasmexport stado_tool_signal
 func stadoToolSignal(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalSignal, "signal")
+	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoPTYSignal, "signal")
 }
 
 //go:wasmexport stado_tool_resize
 func stadoToolResize(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalResize, "resize")
+	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoPTYResize, "resize")
 }
 
 //go:wasmexport stado_tool_destroy
 func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalClose, "destroy")
+	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoPTYDestroy, "destroy")
 }
 
 // shell_read_until — block until a configured pattern matches against the
@@ -510,7 +510,7 @@ func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 
 	idLo := uint32(req.ID & 0xFFFFFFFF)
 	idHi := uint32(req.ID >> 32)
-	n := stadoTerminalExpect(idLo, idHi, uint32(argPtr), uint32(len(hostArgs)), uint32(buf), cap)
+	n := stadoPTYExpect(idLo, idHi, uint32(argPtr), uint32(len(hostArgs)), uint32(buf), cap)
 	if n < 0 {
 		// Negative = -byte_count of the host's error string at buf.
 		errLen := -n
@@ -524,7 +524,7 @@ func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 
 // (EP-0043: shell_screenshot is folded into shell_read mode:"screen"/"auto";
 // the rendered-screen path lives in readScreen above, which calls the same
-// stado_terminal_snapshot host import.)
+// stado_pty_snapshot host import.)
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

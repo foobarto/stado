@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -93,6 +94,32 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 		t.Fatal("agent__spawn tool missing")
 	} else if _, ok := got.(*renamedTool); !ok {
 		t.Fatalf("agent__spawn type = %T, want *renamedTool", got)
+	}
+	for name, capabilities := range map[string][]string{
+		"agent__spawn":         {"agent:spawn", "agent:spawn:configure"},
+		"agent__list":          {"agent:list"},
+		"agent__read_messages": {"agent:read"},
+		"agent__send_message":  {"agent:send"},
+		"agent__cancel":        {"agent:cancel"},
+	} {
+		registered, ok := reg.Get(name)
+		if !ok {
+			t.Errorf("%s tool missing", name)
+			continue
+		}
+		rt, ok := registered.(*renamedTool)
+		if !ok {
+			t.Errorf("%s type = %T, want *renamedTool", name, registered)
+			continue
+		}
+		pt, ok := rt.inner.(*bundledPluginTool)
+		if !ok {
+			t.Errorf("%s inner = %T, want *bundledPluginTool", name, rt.inner)
+			continue
+		}
+		if !reflect.DeepEqual(pt.manifest.Capabilities, capabilities) {
+			t.Errorf("%s capabilities = %v, want %v", name, pt.manifest.Capabilities, capabilities)
+		}
 	}
 }
 
@@ -342,9 +369,8 @@ func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
 // TestBundledShellReadUntil_RoundTripsThroughWasm: shell__read_until
 // dispatched via the bundled wasm path returns the host's match envelope
 // unchanged. Drives the path the agent actually uses: tool registry → wasm
-// wrapper → stado_terminal_expect → manager.Expect → JSON response. (The
-// host import keeps the name stado_terminal_expect; only the agent-facing
-// tool was renamed expect → read_until.)
+// wrapper → stado_pty_expect → manager.Expect → JSON response. (The
+// agent-facing tool is named read_until.)
 func TestBundledShellReadUntil_RoundTripsThroughWasm(t *testing.T) {
 	if _, err := exec.LookPath("printf"); err != nil {
 		t.Skip("requires `printf` binary")

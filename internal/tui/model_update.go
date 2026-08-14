@@ -86,6 +86,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onMonitorDone(m, msg)
 	case backgroundTickResultMsg:
 		return onBackgroundTickResult(m, msg)
+	case applicationCommandResultMsg:
+		return onApplicationCommandResult(m, msg)
+	case applicationWorkerRunLookupMsg:
+		return onApplicationWorkerRunLookup(m, msg)
+	case applicationWorkerRunActivationMsg:
+		return onApplicationWorkerRunActivation(m, msg)
+	case applicationWorkerRunCancellationMsg:
+		return onApplicationWorkerRunCancellation(m, msg)
+	case applicationWorkerRunRecoveryMsg:
+		return onApplicationWorkerRunRecovery(m, msg)
+	case applicationInputCaptureMsg:
+		return onApplicationInputCapture(m, msg)
+	case applicationInputStateMsg:
+		return onApplicationInputState(m, msg)
+	case applicationInputDeliveryMsg:
+		return onApplicationInputDelivery(m, msg)
+	case applicationBoundaryMsg:
+		return onApplicationBoundaryResult(m, msg)
+	case applicationPollTickMsg:
+		return m, m.pollLifecycleApplicationEvents()
+	case applicationPollResultMsg:
+		return onApplicationPollResult(m, msg)
 	case recoveryTimeoutMsg:
 		return onRecoveryTimeout(m, msg)
 	case localHintMsg:

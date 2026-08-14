@@ -75,7 +75,7 @@ func (h *Host) procAllowed(bin string) bool {
 	return h.ExecProc && execGlobMatch(bin, h.ExecProcGlobs)
 }
 
-// ptyAllowed checks the exec:pty / terminal:open capability + its glob set for a
+// ptyAllowed checks the exec:pty capability + its glob set for a
 // PTY-spawned binary — the analogue of procAllowed. Without this the PTY path
 // ran any binary regardless of the (narrower) exec:proc glob, bypassing
 // cap-confinement.
@@ -132,7 +132,7 @@ func execGlobMatch(bin string, globs []string) bool {
 // in a real binary path or basename, so execGlobMatch never matches it.
 const execGlobDeny = "\x00deny"
 
-// appendExecGlob validates an exec:proc / exec:pty / terminal:open glob and
+// appendExecGlob validates an exec:proc / exec:pty glob and
 // appends it. A mixed relative-path form (contains a slash but isn't absolute)
 // is rejected — it can't match execGlobMatch's resolved-path/basename lookup
 // and would be a silent-deny footgun. On rejection it appends execGlobDeny so
@@ -485,7 +485,7 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // NewDefaultSandboxPolicy returns the host-default sandbox policy for
 // entry points that auto-confine stado_exec / stado_proc_spawn calls.
 // The policy is conservatively permissive — runs
-// the child under bwrap / sandbox-exec for PID + uid namespace
+// the child under bwrap or firejail for process containment
 // isolation, allows reading the system paths bash typically needs
 // (/bin, /sbin, /tmp, /run; /usr, /lib, /lib64, /etc, /proc, /dev are
 // bound automatically by the runner), and lets network through.
@@ -823,10 +823,7 @@ func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, pol
 		detachControllingTTY(cmd)
 		return cmd, nil
 	}
-	// "none" means no runner at all (Linux without bwrap, macOS
-	// without sandbox-exec). "windows-passthrough" is the Windows
-	// runner that runs unsandboxed because we don't yet have a
-	// native confinement story there. Both must hard-fail when a
+	// "none" means no Linux runner is available. It must hard-fail when a
 	// policy was requested — silent fall-back-to-unsandboxed would
 	// defeat the plugin author's intent and, worse, give MCP/daemon
 	// callers the false impression that confinement is active when
@@ -834,8 +831,8 @@ func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, pol
 	if runner == nil {
 		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no sandbox runner was configured")
 	}
-	if name := runner.Name(); !runner.Available() || name == "none" || name == "windows-passthrough" {
-		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available on %s (install bubblewrap on Linux or sandbox-exec on macOS; Windows confinement is not yet supported — set sandbox.unsandboxed=true to opt out explicitly)", name)
+	if name := runner.Name(); !runner.Available() || name == "none" {
+		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no Linux sandbox runner available on %s (install bubblewrap or set sandbox.unsandboxed=true to opt out explicitly)", name)
 	}
 	p := toSandboxPolicy(policy, workdir)
 	cmd, err := runner.Command(ctx, p, argv[0], argv[1:], env)

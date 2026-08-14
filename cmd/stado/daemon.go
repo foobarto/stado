@@ -193,6 +193,7 @@ func serveDaemon(ctx context.Context, cfg *config.Config, socketPath string, std
 	if brokerErr != nil {
 		return fmt.Errorf("daemon: build broker service: %w", brokerErr)
 	}
+	defer func() { _ = brokerSvc.Close() }()
 
 	srv := daemon.NewServer(daemon.ServerOpts{
 		SocketPath:       socketPath,
@@ -659,7 +660,7 @@ func (h *daemonToolHost) CheckWritePath(path string) error {
 
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider — plugins
 // calling stado_exec / stado_proc_spawn through the daemon get the
-// host-default protective policy (bwrap / sandbox-exec PID + uid
+// host-default protective policy (bwrap / firejail process
 // namespace isolation) without having to supply their own `sandbox`
 // field. Matches the mcp-server posture; both surfaces hand tool calls
 // to autonomous agents that we want confined by default.

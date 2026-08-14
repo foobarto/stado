@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -170,8 +171,7 @@ func (m *Model) switchToSession(id string) error {
 	if err != nil {
 		return fmt.Errorf("session switch tools: %w", err)
 	}
-	m.activateSession(sess, exec)
-	return nil
+	return m.activateSession(sess, exec)
 }
 
 func (m *Model) createAndSwitchSession() error {
@@ -190,8 +190,7 @@ func (m *Model) createAndSwitchSession() error {
 	if err != nil {
 		return fmt.Errorf("new session tools: %w", err)
 	}
-	m.activateSession(sess, exec)
-	return nil
+	return m.activateSession(sess, exec)
 }
 
 func (m *Model) renameSession(id, label string) error {
@@ -265,8 +264,7 @@ func (m *Model) forkAndSwitchSession(id string) error {
 	if err != nil {
 		return fmt.Errorf("session fork tools: %w", err)
 	}
-	m.activateSession(child, exec)
-	return nil
+	return m.activateSession(child, exec)
 }
 
 // forkAndSwitchSessionAtTurn forks the session id at an explicit turn-boundary
@@ -301,8 +299,7 @@ func (m *Model) forkAndSwitchSessionAtTurn(id string, atCommit plumbing.Hash) er
 	if err != nil {
 		return fmt.Errorf("session fork at turn tools: %w", err)
 	}
-	m.activateSession(child, exec)
-	return nil
+	return m.activateSession(child, exec)
 }
 
 func (m *Model) ensureSessionSwitchAllowed() error {
@@ -320,6 +317,15 @@ func (m *Model) ensureSessionSwitchAllowed() error {
 	}
 	if m.backgroundTickRunning || m.backgroundTickQueued {
 		return fmt.Errorf("session switch: wait for background plugins to finish")
+	}
+	if m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning {
+		return fmt.Errorf("session switch: wait for durable application input persistence to finish")
+	}
+	if m.applicationWorkerRecoveryPending {
+		return fmt.Errorf("session switch: wait for durable application worker recovery to finish")
+	}
+	if m.applicationPollRunning || m.applicationCommandRunning || m.applicationWorkerHandoffRunning {
+		return fmt.Errorf("session switch: wait for lifecycle application callbacks to finish")
 	}
 	m.toolMu.Lock()
 	defer m.toolMu.Unlock()
@@ -348,16 +354,29 @@ func (m *Model) sessionActionCWD() string {
 	return m.cwd
 }
 
-func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) {
+func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) error {
+	prepared, err := m.prepareSessionTransition(m.rootCtx, sess, exec)
+	if err != nil {
+		return err
+	}
 	m.saveActiveSessionUIState()
 	m.detachSupervision()
-	m.executorSandbox.Apply(exec)
-	m.executor = exec
+	warnings := append([]string(nil), prepared.warnings...)
+	if retireErr := m.commitSessionTransition(context.Background(), prepared); retireErr != nil {
+		// The new session is already fully admitted at this point. A failure to
+		// retire the superseded peer is visible but must not roll back into a
+		// controller whose lifecycle bindings have already been closed.
+		warnings = append(warnings, retireErr.Error())
+	}
 	m.resetForSession(sess)
+	for _, warning := range warnings {
+		m.appendBlock(block{kind: "system", body: warning})
+	}
 	if err := m.loadSupervision(); err != nil {
 		m.appendBlock(block{kind: "system", body: err.Error()})
 	}
 	m.renderBlocks()
+	return nil
 }
 
 func (m *Model) saveActiveSessionUIState() {

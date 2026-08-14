@@ -89,6 +89,113 @@ func TestFleetBridgeAdapter_Spawn_AsyncReturnsRunningImmediately(t *testing.T) {
 	}
 }
 
+func TestFleetBridgeAdapter_Spawn_IdempotentReplaySurvivesAdapterRebind(t *testing.T) {
+	sp := &fakeSpawner{res: subagent.Result{Text: "done"}, delay: 50 * time.Millisecond}
+	firstAdapter := newAdapterWithSpawner(t, sp)
+	req := pluginRuntime.AgentSpawnRequest{
+		Prompt: "review exact turn", Async: true, IdempotencyKey: "review:turn-9",
+		Caller: pluginRuntime.AgentSpawnCaller{PluginID: "github.com/foobarto/stado-plugins/supervise", SessionID: "broker-session-1", Generation: 3},
+	}
+	first, err := firstAdapter.AgentSpawn(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondAdapter := &FleetBridgeAdapter{Fleet: firstAdapter.Fleet, Spawner: sp, RootCtx: t.Context()}
+	second, err := secondAdapter.AgentSpawn(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == "" || second.ID != first.ID {
+		t.Fatalf("replay IDs first=%q second=%q", first.ID, second.ID)
+	}
+	waitForStatus(t, firstAdapter.Fleet, first.ID, FleetStatusCompleted)
+	if got := sp.calls.Load(); got != 1 {
+		t.Fatalf("subagent calls = %d, want 1", got)
+	}
+}
+
+func TestFleetBridgeAdapter_Spawn_IdempotencyConflictFailsClosed(t *testing.T) {
+	sp := &fakeSpawner{delay: time.Second}
+	a := newAdapterWithSpawner(t, sp)
+	caller := pluginRuntime.AgentSpawnCaller{PluginID: "plugin", SessionID: "session", Generation: 1}
+	first, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "first", Async: true, IdempotencyKey: "same", Caller: caller})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "different", Async: true, IdempotencyKey: "same", Caller: caller})
+	if err == nil || !strings.Contains(err.Error(), "different spawn request") {
+		t.Fatalf("conflicting replay error = %v", err)
+	}
+	if len(a.Fleet.List()) != 1 || a.Fleet.List()[0].FleetID != first.ID {
+		t.Fatalf("conflict admitted another child: %#v", a.Fleet.List())
+	}
+}
+
+func TestFleetBridgeAdapter_Spawn_IdempotencyIsGenerationScoped(t *testing.T) {
+	sp := &fakeSpawner{delay: time.Second}
+	a := newAdapterWithSpawner(t, sp)
+	request := func(generation uint64) pluginRuntime.AgentSpawnRequest {
+		return pluginRuntime.AgentSpawnRequest{Prompt: "review", Async: true, IdempotencyKey: "same", Caller: pluginRuntime.AgentSpawnCaller{PluginID: "plugin", SessionID: "session", Generation: generation}}
+	}
+	first, err := a.AgentSpawn(t.Context(), request(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := a.AgentSpawn(t.Context(), request(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID || len(a.Fleet.List()) != 2 {
+		t.Fatalf("separate generation did not admit separately: first=%q second=%q entries=%d", first.ID, second.ID, len(a.Fleet.List()))
+	}
+}
+
+func TestFleetBridgeAdapter_Spawn_ConcurrentIdempotentAdmissionCreatesOneChild(t *testing.T) {
+	sp := &fakeSpawner{delay: time.Second}
+	a := newAdapterWithSpawner(t, sp)
+	req := pluginRuntime.AgentSpawnRequest{
+		Prompt: "review", Async: true, IdempotencyKey: "concurrent",
+		Caller: pluginRuntime.AgentSpawnCaller{PluginID: "plugin", SessionID: "session", Generation: 1},
+	}
+	start := make(chan struct{})
+	results := make(chan pluginRuntime.AgentSpawnResult, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			result, err := a.AgentSpawn(t.Context(), req)
+			results <- result
+			errs <- err
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.ID == "" || first.ID != second.ID || len(a.Fleet.List()) != 1 {
+		t.Fatalf("concurrent admission first=%q second=%q entries=%d", first.ID, second.ID, len(a.Fleet.List()))
+	}
+}
+
+func TestFleetBridgeAdapter_Spawn_FailedClaimCanRetry(t *testing.T) {
+	a := newAdapterWithSpawner(t, nil)
+	req := pluginRuntime.AgentSpawnRequest{
+		Prompt: "review", Async: true, IdempotencyKey: "retry",
+		Caller: pluginRuntime.AgentSpawnCaller{PluginID: "plugin", SessionID: "session", Generation: 1},
+	}
+	if _, err := a.AgentSpawn(t.Context(), req); err == nil {
+		t.Fatal("nil spawner admission unexpectedly succeeded")
+	}
+	a.Spawner = &fakeSpawner{delay: time.Second}
+	result, err := a.AgentSpawn(t.Context(), req)
+	if err != nil || result.ID == "" {
+		t.Fatalf("retry result=%#v err=%v", result, err)
+	}
+}
+
 type requestCapturingSpawner struct{ got chan subagent.Request }
 
 func (s requestCapturingSpawner) SpawnSubagent(_ context.Context, req subagent.Request) (subagent.Result, error) {
@@ -96,11 +203,34 @@ func (s requestCapturingSpawner) SpawnSubagent(_ context.Context, req subagent.R
 	return subagent.Result{ChildSession: "captured"}, nil
 }
 
+func (s requestCapturingSpawner) PinSpawnRequestSource(_ context.Context, _ *subagent.Source) (Spawner, error) {
+	return s, nil
+}
+
+type forkPointSpawnerStub struct {
+	rawCalls atomic.Int32
+	pinCalls atomic.Int32
+	point    SpawnForkPoint
+	pinned   Spawner
+}
+
+func (s *forkPointSpawnerStub) SpawnSubagent(context.Context, subagent.Request) (subagent.Result, error) {
+	s.rawCalls.Add(1)
+	return subagent.Result{}, errors.New("unpinned retained spawner used")
+}
+
+func (s *forkPointSpawnerStub) PinSpawnForkPoint(_ context.Context, point SpawnForkPoint) (Spawner, error) {
+	s.pinCalls.Add(1)
+	s.point = point
+	return s.pinned, nil
+}
+
 func TestFleetBridgeAdapter_Spawn_ForwardsAttenuatedRequest(t *testing.T) {
 	got := make(chan subagent.Request, 1)
 	a := newAdapterWithSpawner(t, requestCapturingSpawner{got: got})
 	_, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
-		Prompt: "work", Model: "configured", Async: true,
+		Prompt: "work", Provider: "anthropic", Model: "configured", Async: true,
+		Thinking: "on", ThinkingBudgetTokens: 7000, ReasoningEffort: "high",
 		Role: "worker", Mode: "workspace_write", Ownership: "parser",
 		WriteScope: []string{"internal/parser/**"}, MaxTurns: 7, TimeoutSeconds: 300,
 		Source:  &pluginRuntime.AgentSource{SessionID: "old", At: "turns/2"},
@@ -117,6 +247,9 @@ func TestFleetBridgeAdapter_Spawn_ForwardsAttenuatedRequest(t *testing.T) {
 		}
 		if req.Source == nil || req.Source.SessionID != "old" || req.Source.At != "turns/2" {
 			t.Fatalf("source was dropped: %#v", req.Source)
+		}
+		if req.Provider != "anthropic" || req.Model != "configured" || req.Thinking != "on" || req.ThinkingBudgetTokens != 7000 || req.ReasoningEffort != "high" {
+			t.Fatalf("provider profile was dropped: %#v", req)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("spawner did not receive request")
@@ -137,10 +270,12 @@ func TestFleetBridgeAdapter_RetainedSpawnIsDurableAndReadable(t *testing.T) {
 	mail := mailbox.New(store, policy)
 	coord := orchestration.New(retained.New(store), ledger, mail, nil)
 	coord.Policy = policy
-	a := newAdapterWithSpawner(t, &fakeSpawner{res: subagent.Result{Text: "durable answer"}})
+	pinned := &fakeSpawner{res: subagent.Result{Text: "durable answer"}}
+	spawner := &forkPointSpawnerStub{pinned: pinned}
+	a := newAdapterWithSpawner(t, spawner)
 	a.Retained, a.RetainedAccountID, a.Principal, a.ParentSessionID = coord, "root", "alice", "parent"
 	a.ResolveForkPoint = func(context.Context, pluginRuntime.AgentSpawnRequest) (retained.ForkPoint, error) {
-		return retained.ForkPoint{SourceSessionID: "parent", ConversationDigest: "conversation", TreeCommit: "tree", TraceCommit: "trace", ResolvedAt: time.Now()}, nil
+		return retained.ForkPoint{SourceSessionID: "parent", SourceGeneration: 7, CommittedTurn: 11, ConversationDigest: "conversation", TreeCommit: "tree", TraceCommit: "trace", EventSequence: 19, ResolvedAt: time.Now()}, nil
 	}
 	result, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "research", Execution: "retained", TokenBudget: 20})
 	if err != nil {
@@ -166,11 +301,46 @@ func TestFleetBridgeAdapter_RetainedSpawnIsDurableAndReadable(t *testing.T) {
 	if !found {
 		t.Fatal("retained handle missing from agent list")
 	}
+	if spawner.rawCalls.Load() != 0 || spawner.pinCalls.Load() != 1 || pinned.calls.Load() != 1 {
+		t.Fatalf("spawner calls raw=%d pin=%d pinned=%d", spawner.rawCalls.Load(), spawner.pinCalls.Load(), pinned.calls.Load())
+	}
+	if spawner.point.SourceSessionID != "parent" || spawner.point.SourceGeneration != 7 || spawner.point.CommittedTurn != 11 || spawner.point.TreeCommit != "tree" || spawner.point.EventSequence != 19 {
+		t.Fatalf("pinned fork point = %#v", spawner.point)
+	}
+}
+
+func TestFleetBridgeAdapter_RetainedSpawnRejectsSpawnerWithoutExactPin(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ledger := brokerbudget.New(store)
+	if _, err := ledger.CreateAccount(t.Context(), "root", "", brokerbudget.Limits{Tokens: 100, Turns: 20}, "alice", "broker", "account"); err != nil {
+		t.Fatal(err)
+	}
+	coord := orchestration.New(retained.New(store), ledger, mailbox.New(store, nil), nil)
+	a := newAdapterWithSpawner(t, &fakeSpawner{})
+	a.Retained, a.RetainedAccountID, a.Principal, a.ParentSessionID = coord, "root", "alice", "parent"
+	a.ResolveForkPoint = func(context.Context, pluginRuntime.AgentSpawnRequest) (retained.ForkPoint, error) {
+		return retained.ForkPoint{SourceSessionID: "parent", ConversationDigest: "conversation", TreeCommit: "tree", TraceCommit: "trace", ResolvedAt: time.Now()}, nil
+	}
+	_, err = a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "research", Execution: "retained", Async: true})
+	if err == nil || !strings.Contains(err.Error(), "exact fork-point spawner") {
+		t.Fatalf("error = %v", err)
+	}
+	children, listErr := coord.Registry.List()
+	if listErr != nil || len(children) != 0 {
+		t.Fatalf("retained admission occurred before pinning: children=%#v err=%v", children, listErr)
+	}
 }
 
 func TestFleetBridgeAdapter_Spawn_SyncReturnsFinalTextOnCompletion(t *testing.T) {
 	sp := &fakeSpawner{
-		res:   subagent.Result{ChildSession: "child-7", Text: "found it"},
+		res: subagent.Result{ChildSession: "child-7", Text: "found it", Terminal: subagent.TerminalMetadata{
+			Usage: subagent.TokenUsage{InputTokens: 13, OutputTokens: 5}, UsageComplete: true,
+			Cleanup: &subagent.CleanupDiagnostic{Kind: "provider_close", Fingerprint: "sha256:abc"},
+		}},
 		delay: 50 * time.Millisecond,
 	}
 	a := newAdapterWithSpawner(t, sp)
@@ -190,6 +360,11 @@ func TestFleetBridgeAdapter_Spawn_SyncReturnsFinalTextOnCompletion(t *testing.T)
 	}
 	if result.SessionID != "child-7" {
 		t.Errorf("SessionID = %q, want %q", result.SessionID, "child-7")
+	}
+	if result.Terminal == nil || !result.Terminal.UsageComplete ||
+		result.Terminal.Usage.InputTokens != 13 || result.Terminal.Usage.OutputTokens != 5 ||
+		result.Terminal.Cleanup == nil || result.Terminal.Cleanup.Fingerprint != "sha256:abc" {
+		t.Fatalf("terminal metadata = %#v", result.Terminal)
 	}
 }
 
@@ -340,7 +515,9 @@ func TestFleetBridgeAdapter_ReadMessages_UnknownIDReturnsTypedError(t *testing.T
 
 func TestFleetBridgeAdapter_ReadMessages_CompletedSurfacesSingleMessage(t *testing.T) {
 	sp := &fakeSpawner{
-		res:   subagent.Result{Text: "the answer is 42"},
+		res: subagent.Result{Text: "the answer is 42", Terminal: subagent.TerminalMetadata{
+			Usage: subagent.TokenUsage{InputTokens: 34, OutputTokens: 8}, UsageComplete: true,
+		}},
 		delay: 30 * time.Millisecond,
 	}
 	a := newAdapterWithSpawner(t, sp)
@@ -366,6 +543,10 @@ func TestFleetBridgeAdapter_ReadMessages_CompletedSurfacesSingleMessage(t *testi
 	}
 	if msgs.Messages[0].Role != "assistant" {
 		t.Errorf("Role = %q, want assistant", msgs.Messages[0].Role)
+	}
+	if msgs.Terminal == nil || !msgs.Terminal.UsageComplete ||
+		msgs.Terminal.Usage.InputTokens != 34 || msgs.Terminal.Usage.OutputTokens != 8 {
+		t.Fatalf("terminal metadata = %#v", msgs.Terminal)
 	}
 	if msgs.Messages[0].Content != "the answer is 42" {
 		t.Errorf("Content = %q", msgs.Messages[0].Content)

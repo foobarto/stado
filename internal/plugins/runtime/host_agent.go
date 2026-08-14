@@ -3,7 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -25,9 +29,9 @@ func registerAgentSpawnImport(builder wazero.HostModuleBuilder, host *Host) {
 			reqPtr, reqLen := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
 			resPtr, resCap := api.DecodeU32(stack[2]), api.DecodeU32(stack[3])
 
-			if !host.AgentFleet || host.FleetBridge == nil {
-				host.Logger.Warn("stado_agent_spawn: no agent:fleet cap or FleetBridge not wired")
-				writeJSONError(mod, resPtr, resCap, "agent:fleet capability required")
+			if !host.allowsAgentOperation("spawn") || host.FleetBridge == nil {
+				host.Logger.Warn("stado_agent_spawn: capability or FleetBridge unavailable")
+				writeJSONError(mod, resPtr, resCap, "agent:spawn capability required")
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
@@ -41,6 +45,27 @@ func registerAgentSpawnImport(builder wazero.HostModuleBuilder, host *Host) {
 				writeJSONError(mod, resPtr, resCap, "prompt is required")
 				stack[0] = api.EncodeI32(-1)
 				return
+			}
+			if agentSpawnRequestsConfiguration(req) && !manifestHasExactCapability(host.Manifest.Capabilities, "agent:spawn:configure") {
+				writeJSONError(mod, resPtr, resCap, "agent:spawn:configure capability required for provider or reasoning overrides")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if req.IdempotencyKey != "" {
+				if err := validateAgentSpawnIdempotencyKey(req.IdempotencyKey); err != nil {
+					writeJSONError(mod, resPtr, resCap, err.Error())
+					stack[0] = api.EncodeI32(-1)
+					return
+				}
+				if err := host.Identity.Validate(); err != nil || host.ApplicationAnchor.Validate() != nil {
+					writeJSONError(mod, resPtr, resCap, "idempotency_key requires an authenticated lifecycle application scope")
+					stack[0] = api.EncodeI32(-1)
+					return
+				}
+				req.Caller = AgentSpawnCaller{
+					PluginID: host.Identity.Namespace, SessionID: host.ApplicationAnchor.SessionID,
+					Generation: host.ApplicationAnchor.SessionGeneration,
+				}
 			}
 			result, err := host.FleetBridge.AgentSpawn(ctx, req)
 			if err != nil {
@@ -57,13 +82,30 @@ func registerAgentSpawnImport(builder wazero.HostModuleBuilder, host *Host) {
 		Export("stado_agent_spawn")
 }
 
+func agentSpawnRequestsConfiguration(req AgentSpawnRequest) bool {
+	return req.Provider != "" || req.Model != "" || req.Thinking != "" ||
+		req.ThinkingBudgetTokens != 0 || req.ReasoningEffort != ""
+}
+
+func validateAgentSpawnIdempotencyKey(key string) error {
+	if len(key) > 256 || !utf8.ValidString(key) || strings.TrimSpace(key) == "" {
+		return fmt.Errorf("invalid idempotency_key")
+	}
+	for _, r := range key {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("invalid idempotency_key")
+		}
+	}
+	return nil
+}
+
 // stado_agent_list(result_ptr, result_cap) → int32
 func registerAgentListImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			resPtr, resCap := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
 
-			if !host.AgentFleet || host.FleetBridge == nil {
+			if !host.allowsAgentOperation("list") || host.FleetBridge == nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
@@ -89,7 +131,7 @@ func registerAgentReadMessagesImport(builder wazero.HostModuleBuilder, host *Hos
 			reqPtr, reqLen := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
 			resPtr, resCap := api.DecodeU32(stack[2]), api.DecodeU32(stack[3])
 
-			if !host.AgentFleet || host.FleetBridge == nil {
+			if !host.allowsAgentOperation("read") || host.FleetBridge == nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
@@ -129,7 +171,7 @@ func registerAgentSendMessageImport(builder wazero.HostModuleBuilder, host *Host
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			reqPtr, reqLen := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
 
-			if !host.AgentFleet || host.FleetBridge == nil {
+			if !host.allowsAgentOperation("send") || host.FleetBridge == nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
@@ -167,7 +209,7 @@ func registerAgentCancelImport(builder wazero.HostModuleBuilder, host *Host) {
 			reqPtr, reqLen := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
 			resPtr, resCap := api.DecodeU32(stack[2]), api.DecodeU32(stack[3])
 
-			if !host.AgentFleet || host.FleetBridge == nil {
+			if !host.allowsAgentOperation("cancel") || host.FleetBridge == nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
@@ -194,4 +236,8 @@ func registerAgentCancelImport(builder wazero.HostModuleBuilder, host *Host) {
 			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_cancel")
+}
+
+func (host *Host) allowsAgentOperation(operation string) bool {
+	return host != nil && manifestHasExactCapability(host.Manifest.Capabilities, "agent:"+operation)
 }

@@ -30,7 +30,7 @@ import (
 // OS/arch. Callers typically log + fall back to `exec.LookPath(name)`.
 var ErrNotBundled = errors.New("binext: no bundled binary for this build")
 
-// Extract writes bundled bytes to cacheDir/<name>-<sha12>[.exe] the
+// Extract writes bundled bytes to cacheDir/<name>-<sha12> the
 // first time it's called, verifies the digest, and returns the path.
 // Subsequent calls with the same (name, bundled, digest) re-use the
 // cached file without rewriting.
@@ -38,8 +38,6 @@ var ErrNotBundled = errors.New("binext: no bundled binary for this build")
 // cacheDir is typically $XDG_CACHE_HOME/stado/bin. name is
 // e.g. "rg"; expectedSHA is the hex sha256 of bundled; bundled is the
 // raw bytes (go:embed'd by the caller).
-//
-// On Windows callers should pass `name = "rg.exe"`.
 func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string, error) {
 	if len(bundled) == 0 {
 		return "", ErrNotBundled

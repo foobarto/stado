@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -38,10 +39,11 @@ import (
 // manifest — they're part of the install-time contract, not runtime
 // state. A plugin can't register new tools after install.
 type PluginTool struct {
-	mod    *Module
-	def    plugins.ToolDef
-	schema map[string]any
-	class  tool.Class
+	mod      *Module
+	def      plugins.ToolDef
+	schema   map[string]any
+	class    tool.Class
+	callGate *serializedCallGate
 }
 
 // NewPluginTool builds one adapter per tool declared in a plugin's
@@ -139,6 +141,12 @@ func (p *PluginTool) Class() tool.Class { return p.class }
 // tool-side-error text is still output-budgeted before it becomes a tool
 // result in model context.
 func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host) (tool.Result, error) {
+	if p.callGate != nil {
+		if err := p.callGate.lock(ctx); err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
+		defer p.callGate.unlock()
+	}
 	const resultCap = 1 << 20 // 1 MiB
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -216,6 +224,23 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	out := make([]byte, len(result))
 	copy(out, result)
 	return tool.Result{Content: truncatePluginOutput(string(out))}, nil
+}
+
+// Tools returns adapters backed by this same persistent module. Their calls
+// share the application's serialization lock with lifecycle/event/tick calls,
+// preserving EP-0064's no-reentrancy invariant.
+func (a *LifecycleApplication) Tools() ([]*PluginTool, error) {
+	if a == nil || a.Module == nil {
+		return nil, errors.New("lifecycle application is unavailable")
+	}
+	tools, err := LoadPluginTools(a.Module)
+	if err != nil {
+		return nil, err
+	}
+	for _, pluginTool := range tools {
+		pluginTool.callGate = a.callGate
+	}
+	return tools, nil
 }
 
 func decodeToolSideError(message string) tool.Result {

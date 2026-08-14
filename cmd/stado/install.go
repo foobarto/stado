@@ -291,7 +291,7 @@ func hashFile(path string) (string, error) {
 
 // copyFileMode copies src to dst with the given mode. Writes to a
 // tmp file in the same directory then renames into place — atomic
-// against partial copies, and on Linux/macOS preserves the
+// against partial copies, and on Linux preserves the
 // running-binary-can't-be-overwritten property: if the user is
 // installing over their own running stado, the rename swaps the
 // inode rather than truncating the in-use file.

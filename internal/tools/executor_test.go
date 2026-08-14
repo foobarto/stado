@@ -33,6 +33,10 @@ type stubTool struct {
 	effect func(worktree string) (tool.Result, error)
 }
 
+type dispatchGateFunc func(context.Context) error
+
+func (f dispatchGateFunc) BeforeTool(ctx context.Context) error { return f(ctx) }
+
 func (s stubTool) Name() string           { return s.name }
 func (s stubTool) Description() string    { return "stub" }
 func (s stubTool) Schema() map[string]any { return map[string]any{"type": "object"} }
@@ -64,6 +68,24 @@ func newExecutorFixture(t *testing.T) (*Executor, *stadogit.Session, string) {
 }
 
 // ---- tests ----
+
+func TestExecutorDispatchGateRunsBeforeTool(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ran := false
+	ex.Registry.Register(stubTool{
+		name: "blocked", class: tool.ClassNonMutating,
+		effect: func(string) (tool.Result, error) {
+			ran = true
+			return tool.Result{Content: "unexpected"}, nil
+		},
+	})
+	blocked := errors.New("durable hold")
+	ex.DispatchGate = dispatchGateFunc(func(context.Context) error { return blocked })
+	result, err := ex.Run(context.Background(), "blocked", json.RawMessage(`{}`), stubHost{workdir: wt})
+	if !errors.Is(err, blocked) || result.Error != blocked.Error() || ran {
+		t.Fatalf("result=%+v err=%v ran=%v", result, err, ran)
+	}
+}
 
 func TestExecutor_NonMutating_OnlyTraceCommit(t *testing.T) {
 	ex, sess, wt := newExecutorFixture(t)

@@ -94,8 +94,6 @@ worktree dir   /home/user/.local/state/stado/worktrees
   hard_threshold   0.90
 
 [budget]
-  warn_usd           (unset — no warn pill)
-  hard_usd           (unset — no hard gate)
   warn_tokens        (unset)
   hard_tokens        (unset)
   warn_input_tokens  (unset)

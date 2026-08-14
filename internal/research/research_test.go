@@ -40,7 +40,7 @@ func TestMemoryResearchReturnsOnlyValidatedBoundedCitation(t *testing.T) {
 	issuer, consumer := authority.New(store)
 	svc := artifacts.NewService(store, consumer)
 	ctx := context.Background()
-	item, err := svc.Create(ctx, artifacts.Artifact{Kind: artifacts.KindLesson, Scope: artifacts.ScopeRepo, Binding: artifacts.ScopeBinding{CanonicalRepoID: "repo"}, Summary: "Valid JSON arguments", Content: "Inspect the schema and retry with valid JSON.", Trigger: "tool reports malformed input"}, "alice", "agent", "create")
+	item, err := svc.Create(ctx, artifacts.LearningArtifact(artifacts.KindLesson, artifacts.ScopeRepo, artifacts.ScopeBinding{CanonicalRepoID: "repo"}, artifacts.LearningData{Summary: "Valid JSON arguments", Content: "Inspect the schema and retry with valid JSON.", Trigger: "tool reports malformed input"}), "alice", "agent", "create")
 	if err != nil {
 		t.Fatal(err)
 	}

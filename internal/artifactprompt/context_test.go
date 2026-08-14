@@ -21,11 +21,11 @@ func TestBuildInjectsOnlyActiveAuthorizedArtifacts(t *testing.T) {
 	issuer, consumer := authority.New(store)
 	svc := artifacts.NewService(store, consumer)
 	principal := trajectory.LocalPrincipal()
-	active, err := svc.Create(context.Background(), artifacts.Artifact{Kind: artifacts.KindLesson, Scope: artifacts.ScopeSession, Binding: artifacts.ScopeBinding{AnchorSessionID: "parent"}, Summary: "Retry JSON", Content: "repair arguments", Trigger: "schema error"}, principal, "agent", "active")
+	active, err := svc.Create(context.Background(), artifacts.LearningArtifact(artifacts.KindLesson, artifacts.ScopeSession, artifacts.ScopeBinding{AnchorSessionID: "parent"}, artifacts.LearningData{Summary: "Retry JSON", Content: "repair arguments", Trigger: "schema error"}), principal, "agent", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Create(context.Background(), artifacts.Artifact{Kind: artifacts.KindMemory, Scope: artifacts.ScopeGlobal, Summary: "candidate secret phrase"}, principal, "agent", "candidate"); err != nil {
+	if _, err := svc.Create(context.Background(), artifacts.LearningArtifact(artifacts.KindMemory, artifacts.ScopeGlobal, artifacts.ScopeBinding{}, artifacts.LearningData{Summary: "candidate secret phrase"}), principal, "agent", "candidate"); err != nil {
 		t.Fatal(err)
 	}
 	action, _ := artifacts.ActivationAction(active, principal)

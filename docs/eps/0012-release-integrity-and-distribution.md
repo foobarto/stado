@@ -198,4 +198,4 @@ inside the runtime.
 - [EP-6: Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md)
 - [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
 - [README.md](../../README.md#install)
-- [PLAN.md](../../PLAN.md#phase-10--release--reproducibility--)
+- [DESIGN.md — Audit, telemetry, and release integrity](../../DESIGN.md#audit-telemetry-and-release-integrity)

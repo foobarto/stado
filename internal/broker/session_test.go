@@ -1,6 +1,9 @@
 package broker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -37,6 +40,26 @@ func TestService_CreateSession_AdmitsAndMintsHandle(t *testing.T) {
 	}
 	if handle.CreatedAt.IsZero() {
 		t.Errorf("CreatedAt zero")
+	}
+	if !strings.HasPrefix(handle.controllerToken, "controller_") {
+		t.Fatalf("controller token has unexpected shape")
+	}
+	random, err := hex.DecodeString(strings.TrimPrefix(handle.controllerToken, "controller_"))
+	if err != nil || len(random) != 32 {
+		t.Fatalf("controller token does not contain 256 random bits: bytes=%d err=%v", len(random), err)
+	}
+	stored, _, err := svc.LookupSession(handle.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.controllerToken != "" {
+		t.Fatal("broker retained the plaintext controller token in SessionHandle")
+	}
+	svc.sessionsMu.RLock()
+	digest := svc.sessions[handle.SessionID].controller
+	svc.sessionsMu.RUnlock()
+	if digest != sha256.Sum256([]byte(handle.controllerToken)) {
+		t.Fatal("broker did not retain the controller token digest")
 	}
 }
 
@@ -113,14 +136,59 @@ func TestService_TerminateSession_Cycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if err := svc.TerminateSession(handle.SessionID); err != nil {
+	if err := svc.TerminateSession(handle.SessionID, handle.controllerToken); err != nil {
 		t.Fatalf("TerminateSession (first): %v", err)
 	}
-	if err := svc.TerminateSession(handle.SessionID); !errors.Is(err, ErrSessionTerminated) {
+	if err := svc.TerminateSession(handle.SessionID, handle.controllerToken); !errors.Is(err, ErrSessionTerminated) {
 		t.Errorf("TerminateSession (second): err = %v, want ErrSessionTerminated", err)
 	}
-	if err := svc.TerminateSession("unknown"); !errors.Is(err, ErrSessionNotFound) {
+	if err := svc.TerminateSession("unknown", "controller_unknown"); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("TerminateSession(unknown): err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestSessionBoundControlRPCRejectsWrongController(t *testing.T) {
+	svc := NewService(DefaultPolicy(), nil)
+	handle, decision, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat, Profile: ProfileDefault,
+	})
+	if err != nil || !decision.Admit {
+		t.Fatalf("CreateSession handle=%+v decision=%+v err=%v", handle, decision, err)
+	}
+	dispatch := func(method string, params any) error {
+		t.Helper()
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = svc.Dispatch(t.Context(), method, raw)
+		return err
+	}
+	if err := dispatch(MethodSessionTaint, SessionTaintParams{
+		SessionID: handle.SessionID, ControllerToken: "controller_wrong", Taint: "tainted",
+	}); err == nil || !strings.Contains(err.Error(), "controller") {
+		t.Fatalf("wrong controller changed taint: %v", err)
+	}
+	if taint, err := svc.Taint(handle.SessionID); err != nil || taint != TaintClean {
+		t.Fatalf("failed taint request mutated state: taint=%v err=%v", taint, err)
+	}
+	if err := dispatch(MethodSessionTerminate, SessionTerminateParams{
+		SessionID: handle.SessionID, ControllerToken: "controller_wrong",
+	}); err == nil || !strings.Contains(err.Error(), "controller") {
+		t.Fatalf("wrong controller terminated session: %v", err)
+	}
+	if _, terminated, err := svc.LookupSession(handle.SessionID); err != nil || terminated {
+		t.Fatalf("failed terminate request mutated state: terminated=%v err=%v", terminated, err)
+	}
+	if err := dispatch(MethodSessionTaint, SessionTaintParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken, Taint: "tainted",
+	}); err != nil {
+		t.Fatalf("authenticated taint: %v", err)
+	}
+	if err := dispatch(MethodSessionTerminate, SessionTerminateParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken,
+	}); err != nil {
+		t.Fatalf("authenticated terminate: %v", err)
 	}
 }
 
@@ -143,7 +211,7 @@ func TestService_LookupSession(t *testing.T) {
 	if got.SessionID != handle.SessionID {
 		t.Errorf("LookupSession mismatch: got %q, want %q", got.SessionID, handle.SessionID)
 	}
-	if err := svc.TerminateSession(handle.SessionID); err != nil {
+	if err := svc.TerminateSession(handle.SessionID, handle.controllerToken); err != nil {
 		t.Fatalf("TerminateSession: %v", err)
 	}
 	_, terminated, err = svc.LookupSession(handle.SessionID)

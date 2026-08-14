@@ -40,7 +40,7 @@ var ErrGitMetadataWrite = errors.New("refusing fs write into .git metadata path"
 //     calls `fs.write foo/config` (would create `.git/config`).
 //  3. Final path is split on `/` and segments are compared with
 //     `strings.EqualFold` against `.git` so `.GIT/config` and
-//     `.Git/HEAD` are rejected on macOS / Windows case-insensitive
+//     `.Git/HEAD` are rejected on case-insensitive mounted
 //     filesystems where they address the same directory as `.git`.
 //
 // Hosts implementing CheckWritePath should call this helper +
@@ -83,7 +83,7 @@ func DefaultGitWritePathGuard(workdir, path string) error {
 }
 
 // hasDotGitSegment reports whether any path segment is `.git`, case-insensitive
-// — operators on macOS HFS+/APFS or Windows NTFS would otherwise bypass via
+// — a case-insensitive Linux-mounted filesystem would otherwise bypass via
 // `.GIT/config`.
 func hasDotGitSegment(p string) bool {
 	for _, seg := range strings.Split(filepath.ToSlash(p), "/") {

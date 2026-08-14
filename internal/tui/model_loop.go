@@ -13,9 +13,13 @@ import (
 
 // loopState tracks an active /loop session. EP-0036.
 type loopState struct {
-	prompt   string
-	interval time.Duration // 0 = immediate-repeat (fire as soon as idle)
-	iter     int           // completed iteration count
+	prompt      string
+	interval    time.Duration // 0 = immediate-repeat (fire as soon as idle)
+	iter        int           // completed iteration count
+	application *runtime.LoadedLifecycleApplication
+	workerRun   runtime.ApplicationWorkerRun
+	cancelling  bool
+	generation  uint64
 }
 
 // loopActive reports whether a /loop session is currently running — drives
@@ -52,7 +56,12 @@ func compactDuration(d time.Duration) string {
 }
 
 // loopTickMsg fires when a timed loop interval elapses.
-type loopTickMsg struct{}
+type loopTickMsg struct{ generation uint64 }
+
+func (m *Model) nextLoopGeneration() uint64 {
+	m.loopGeneration++
+	return m.loopGeneration
+}
 
 // loopDoneSignal is the literal string the agent includes in its
 // response to self-terminate a loop.
@@ -73,12 +82,23 @@ func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 			m.appendBlock(block{kind: "system", body: "no active loop"})
 			return nil
 		}
+		if m.loop.application != nil {
+			return m.cancelApplicationLoop("operator stopped recurrence with /loop stop", false)
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: "loop stopped"})
 		return nil
 	}
 	if rest == "" {
 		m.appendBlock(block{kind: "system", body: "usage: /loop <prompt>  or  /loop <duration> <prompt>  or  /loop stop"})
+		return nil
+	}
+	if m.applicationWorkerRecoveryPending || m.applicationFailureSources[applicationFailureWorkerRecovery] != nil || m.applicationFailureSources[applicationFailureWorkerHandoff] != nil {
+		m.appendBlock(block{kind: "system", body: "loop: durable application worker ownership is unresolved; wait for recovery or use /loop stop on an existing local recurrence"})
+		return nil
+	}
+	if m.loop != nil && m.loop.application != nil {
+		m.appendBlock(block{kind: "system", body: "loop: application worker owns recurrence; use /loop stop before starting an operator loop"})
 		return nil
 	}
 	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
@@ -104,7 +124,7 @@ func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 		return nil
 	}
 
-	m.loop = &loopState{prompt: prompt, interval: interval}
+	m.loop = &loopState{prompt: prompt, interval: interval, generation: m.nextLoopGeneration()}
 	if interval > 0 {
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("loop started — every %s: %q  (/loop stop to cancel)", interval, prompt)})
 	} else {
@@ -121,6 +141,9 @@ func (m *Model) loopIterate() tea.Cmd {
 		return nil
 	}
 	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
+		if m.loop.application != nil {
+			return m.cancelApplicationLoop("supervised work owns worker turns", false)
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: "loop stopped - supervised work owns worker turns"})
 		m.renderBlocks()
@@ -133,13 +156,16 @@ func (m *Model) loopIterate() tea.Cmd {
 	// A /loop runs unattended, so each iteration must respect the same budget
 	// hard-cap and context hard-threshold gates a manual Enter does
 	// (submitInput) — otherwise a timed/immediate loop spins past
-	// [budget].hard_usd or the context bound with no human present to
+	// a hard token budget or the context bound with no human present to
 	// `/budget ack` or `/compact`. The manual recovery flows need interaction a
 	// loop can't supply, and silently skipping would busy-spin an immediate
 	// loop, so the safe move is to STOP the loop and say why (same shape as
 	// stopLoopOnError).
 	if m.budgetExceeded() {
 		breach, knob := m.budgetBreachDescription()
+		if m.loop.application != nil {
+			return m.cancelApplicationLoop(fmt.Sprintf("%s; budget.%s requires operator recovery", breach, knob), false)
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
 			"loop stopped — %s. Raise [budget].%s or run /budget ack, then /loop to restart.",
@@ -148,6 +174,9 @@ func (m *Model) loopIterate() tea.Cmd {
 		return nil
 	}
 	if m.aboveHardThreshold() {
+		if m.loop.application != nil {
+			return m.cancelApplicationLoop(fmt.Sprintf("context at %.0f%% reached hard threshold %.0f%%", 100*m.contextFraction(), 100*m.ctxHardThreshold), false)
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
 			"loop stopped — context at %.0f%% (hard threshold %.0f%%). /compact or fork, then /loop to restart.",
@@ -160,6 +189,9 @@ func (m *Model) loopIterate() tea.Cmd {
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("─── loop iteration %d ───", m.loop.iter)})
 	}
 	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		if m.loop.application != nil {
+			return m.cancelApplicationLoop("broker taint reset failed: "+err.Error(), false)
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: "loop stopped - broker taint reset failed: " + err.Error()})
 		m.renderBlocks()
@@ -178,13 +210,17 @@ func (m *Model) loopIterate() tea.Cmd {
 // wrong: an immediate-repeat loop would spin error→re-fire→error with no
 // delay, and a timed loop would silently never reschedule its tick while the
 // status bar still claimed it was active.
-func (m *Model) stopLoopOnError() {
+func (m *Model) stopLoopOnError() tea.Cmd {
 	if m.loop == nil {
-		return
+		return nil
+	}
+	if m.loop.application != nil {
+		return m.cancelApplicationLoop("last worker iteration errored", false)
 	}
 	m.loop = nil
 	m.appendBlock(block{kind: "system", body: "loop stopped — the last iteration errored (use /loop to restart once the issue is resolved)"})
 	m.renderBlocks()
+	return nil
 }
 
 // stopBackgroundActivity cancels any running /loop and /monitor without
@@ -193,18 +229,27 @@ func (m *Model) stopLoopOnError() {
 // points at a wiped context and the monitor goroutine keeps streaming into a
 // cleared screen (orphaned). Silent by design: /clear blanks the block list
 // right after, so any "stopped" notice would be wiped anyway.
-func (m *Model) stopBackgroundActivity() {
-	m.loop = nil
+func (m *Model) stopBackgroundActivity() tea.Cmd {
+	var command tea.Cmd
+	if m.loop != nil && m.loop.application != nil {
+		command = m.cancelApplicationLoop("conversation cleared by operator", true)
+	} else {
+		m.loop = nil
+	}
 	if m.monitor != nil {
 		m.monitor.cancel()
 		m.monitor = nil
 	}
+	return command
 }
 
 // loopCheckDone scans the agent's latest response for the stop signal.
 // Call after each turn. Returns true if the loop was terminated.
 func (m *Model) loopCheckDone(responseText string) bool {
 	if m.loop == nil {
+		return false
+	}
+	if m.loop.application != nil {
 		return false
 	}
 	if strings.Contains(responseText, loopDoneSignal) {
@@ -221,8 +266,9 @@ func (m *Model) loopTick() tea.Cmd {
 	if m.loop == nil || m.loop.interval == 0 {
 		return nil
 	}
+	generation := m.loop.generation
 	return tea.Tick(m.loop.interval, func(time.Time) tea.Msg {
-		return loopTickMsg{}
+		return loopTickMsg{generation: generation}
 	})
 }
 

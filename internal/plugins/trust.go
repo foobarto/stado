@@ -163,18 +163,38 @@ func (s *TrustStore) Untrust(fingerprint string) error {
 //
 // On success, advances LastVersion to the manifest's version.
 func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
+	entry, store, err := s.checkManifest(m, sigB64)
+	if err != nil {
+		return err
+	}
+	// Advance LastVersion on successful verification.
+	entry.LastVersion = m.Version
+	store[entry.Fingerprint] = entry
+	return s.Save(store)
+}
+
+// CheckManifest performs the same pinned-key, signature, revocation, and
+// rollback checks as VerifyManifest without mutating the trust store. Runtime
+// admission uses this read-only form: repeatedly binding a previously
+// installed plugin is verification, not an installation or upgrade event.
+func (s *TrustStore) CheckManifest(m *Manifest, sigB64 string) error {
+	_, _, err := s.checkManifest(m, sigB64)
+	return err
+}
+
+func (s *TrustStore) checkManifest(m *Manifest, sigB64 string) (TrustEntry, map[string]TrustEntry, error) {
 	if m == nil {
-		return fmt.Errorf("verify: nil manifest")
+		return TrustEntry{}, nil, fmt.Errorf("verify: nil manifest")
 	}
 	// Hard-deny revoked fingerprints — even if previously trusted, refuse
 	// to verify a manifest signed by a key whose private seed leaked in
 	// git history (see SECURITY.md).
 	if rev, _ := IsRevoked(m.AuthorPubkeyFpr); rev {
-		return RevokedError(m.AuthorPubkeyFpr)
+		return TrustEntry{}, nil, RevokedError(m.AuthorPubkeyFpr)
 	}
 	store, err := s.Load()
 	if err != nil {
-		return err
+		return TrustEntry{}, nil, err
 	}
 	entry, ok := store[m.AuthorPubkeyFpr]
 	if !ok {
@@ -185,27 +205,24 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 		// to TOFU (trust on first use) without the user's explicit
 		// consent. The only safe in-band path is the explicit --signer
 		// flag on install/verify, which the user must provide themselves.
-		return fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band and run `stado plugin trust <pubkey>`, or retry with `stado plugin verify . --signer <pubkey>` to pin on first use (TOFU)", m.AuthorPubkeyFpr)
+		return TrustEntry{}, nil, fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band and run `stado plugin trust <pubkey>`, or retry with `stado plugin verify . --signer <pubkey>` to pin on first use (TOFU)", m.AuthorPubkeyFpr)
 	}
 	if entry.Fingerprint != m.AuthorPubkeyFpr {
-		return fmt.Errorf("verify: trust-store fingerprint mismatch: entry %s for manifest %s",
+		return TrustEntry{}, nil, fmt.Errorf("verify: trust-store fingerprint mismatch: entry %s for manifest %s",
 			entry.Fingerprint, m.AuthorPubkeyFpr)
 	}
 	pub, err := hex.DecodeString(entry.Pubkey)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
-		return fmt.Errorf("verify: trust-store pubkey malformed")
+		return TrustEntry{}, nil, fmt.Errorf("verify: trust-store pubkey malformed")
 	}
 	if got := Fingerprint(ed25519.PublicKey(pub)); got != entry.Fingerprint {
-		return fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
+		return TrustEntry{}, nil, fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
 			got, entry.Fingerprint)
 	}
 	if err := verifyManifestWithPub(m, sigB64, ed25519.PublicKey(pub), entry.LastVersion); err != nil {
-		return err
+		return TrustEntry{}, nil, err
 	}
-	// Advance LastVersion on successful verification.
-	entry.LastVersion = m.Version
-	store[entry.Fingerprint] = entry
-	return s.Save(store)
+	return entry, store, nil
 }
 
 func verifyManifestWithPub(m *Manifest, sigB64 string, pub ed25519.PublicKey, lastVersion string) error {

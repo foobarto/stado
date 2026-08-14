@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	stdruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,9 +86,6 @@ func TestSessionKill_RefusesUnverifiedLivePID(t *testing.T) {
 }
 
 func TestSessionKill_WaitsForOwnedProcessBeforeRemovingWorktree(t *testing.T) {
-	if stdruntime.GOOS != "linux" && stdruntime.GOOS != "windows" {
-		t.Skip("stable process termination is not implemented on this platform")
-	}
 	cfg, sc, restore := statsEnv(t)
 	defer restore()
 

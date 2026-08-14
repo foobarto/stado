@@ -135,7 +135,7 @@ post_turn = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga"
 - [features/lifecycle-hooks.md](./lifecycle-hooks.md) — scriptable Lua
   deny/mutate hooks (pre/post-tool, pre/post-llm, post-turn) for policies
   that need to block or rewrite, not just notify.
-- [features/budget.md](./budget.md) — cost guardrails, same
+- [features/budget.md](./budget.md) — token guardrails, same
   shell-hook pattern but gated on thresholds instead of every turn.
 - [commands/tui.md](../commands/tui.md) — TUI entry point.
 - [commands/run.md](../commands/run.md) — non-interactive CLI surface.

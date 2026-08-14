@@ -21,6 +21,7 @@ import (
 
 const (
 	artifactStore = "artifact"
+	maxDataBytes  = 1 << 20
 	maxTags       = 32
 	maxGroups     = 16
 	maxLabelBytes = 96
@@ -43,11 +44,16 @@ type Service struct {
 	mu     sync.Mutex
 	wal    Appender
 	grants *authority.Consumer
+	kinds  *KindRegistry
 	now    func() time.Time
 }
 
 func NewService(w Appender, grants *authority.Consumer) *Service {
-	return &Service{wal: w, grants: grants, now: time.Now}
+	return NewServiceWithKinds(w, grants, DefaultKindRegistry())
+}
+
+func NewServiceWithKinds(w Appender, grants *authority.Consumer, kinds *KindRegistry) *Service {
+	return &Service{wal: w, grants: grants, kinds: kinds, now: time.Now}
 }
 
 type createEvent struct {
@@ -65,6 +71,9 @@ type authorityEvent struct {
 	GrantID         string    `json:"operator_grant_id,omitempty"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
+type kindEvent struct {
+	Descriptor KindDescriptor `json:"descriptor"`
+}
 
 func (s *Service) Create(ctx context.Context, item Artifact, principal, actor, idem string) (Artifact, error) {
 	_ = ctx
@@ -76,7 +85,8 @@ func (s *Service) Create(ctx context.Context, item Artifact, principal, actor, i
 	item.Version = 1
 	item.Authority = AuthorityCandidate
 	item.CreatedAt, item.UpdatedAt = s.now().UTC(), s.now().UTC()
-	if err := prepare(&item, principal); err != nil {
+	desc, err := s.prepare(&item, principal)
+	if err != nil {
 		return Artifact{}, err
 	}
 	if _, ok, err := s.showLocked(item.ID); err != nil {
@@ -85,7 +95,9 @@ func (s *Service) Create(ctx context.Context, item Artifact, principal, actor, i
 		return Artifact{}, fmt.Errorf("artifact %q already exists", item.ID)
 	}
 	data, _ := json.Marshal(createEvent{Artifact: item})
-	_, err := s.wal.Append(transaction(principal, actor, idem, "artifact.create", data))
+	events := s.kindRegistrationEvents(desc)
+	events = append(events, wal.Event{Store: artifactStore, Type: "artifact.create", Data: data})
+	_, err = s.wal.Append(transactionEvents(principal, actor, idem, events))
 	return item, err
 }
 
@@ -115,11 +127,15 @@ func (s *Service) Edit(ctx context.Context, id string, expected uint64, replacem
 	replacement.UpdatedAt = s.now().UTC()
 	replacement.Binding = current.Binding
 	replacement.Scope = current.Scope
-	if err := prepare(&replacement, principal); err != nil {
+	replacement.Kind = current.Kind
+	desc, err := s.prepare(&replacement, principal)
+	if err != nil {
 		return Artifact{}, err
 	}
 	data, _ := json.Marshal(replaceEvent{ID: id, ExpectedVersion: expected, Artifact: replacement})
-	_, err = s.wal.Append(transaction(principal, actor, idem, "artifact.edit", data))
+	events := s.kindRegistrationEvents(desc)
+	events = append(events, wal.Event{Store: artifactStore, Type: "artifact.edit", Data: data})
+	_, err = s.wal.Append(transactionEvents(principal, actor, idem, events))
 	return replacement, err
 }
 
@@ -195,6 +211,23 @@ func (s *Service) Show(id string) (Artifact, bool, error) {
 	return s.showLocked(id)
 }
 
+// Visible returns one exact artifact version only when it is visible from the
+// broker-supplied query context. Callers that authorize an edit, observation,
+// or relation must not approximate this check by searching a bounded result
+// page: an older visible artifact can legitimately sort after that page.
+func (s *Service) Visible(id string, version uint64, qctx QueryContext) (Artifact, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok, err := s.showLocked(id)
+	if err != nil || !ok || a.Version != version || !scopeMatches(a, qctx) {
+		return Artifact{}, false, err
+	}
+	if !a.ExpiresAt.IsZero() && !a.ExpiresAt.After(s.now()) {
+		return Artifact{}, false, nil
+	}
+	return a, true, nil
+}
+
 func (s *Service) showLocked(id string) (Artifact, bool, error) {
 	items, err := fold(s.wal.Records())
 	if err != nil {
@@ -219,6 +252,10 @@ func (s *Service) Query(q Query) ([]Artifact, error) {
 	for _, k := range q.Kinds {
 		allowedKinds[k] = true
 	}
+	allowedRefs := make(map[string]uint64, len(q.Refs))
+	for _, ref := range q.Refs {
+		allowedRefs[ref.ID] = ref.Version
+	}
 	tags, err := normalizeLabels(q.Tags, maxTags)
 	if err != nil {
 		return nil, err
@@ -229,6 +266,9 @@ func (s *Service) Query(q Query) ([]Artifact, error) {
 	}
 	var out []Artifact
 	for _, a := range items {
+		if len(allowedRefs) > 0 && allowedRefs[a.ID] != a.Version {
+			continue
+		}
 		if q.ActiveOnly && a.Authority != AuthorityActive {
 			continue
 		}
@@ -242,6 +282,12 @@ func (s *Service) Query(q Query) ([]Artifact, error) {
 			continue
 		}
 		out = append(out, a)
+	}
+	// Exact-reference queries are bounded by the number of requested immutable
+	// refs, never by the default recency page. This prevents a valid selected
+	// object from disappearing merely because newer unrelated artifacts exist.
+	if len(q.Refs) > 0 && max < len(q.Refs) {
+		max = len(q.Refs)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -413,54 +459,116 @@ func fold(records []wal.Record) (map[string]Artifact, error) {
 	return items, nil
 }
 
-func prepare(a *Artifact, principal string) error {
-	if a.Kind != KindMemory && a.Kind != KindLesson {
-		return errors.New("artifact kind must be memory or lesson")
+func (s *Service) prepare(a *Artifact, principal string) (KindDescriptor, error) {
+	if len(a.Data) == 0 || len(a.Data) > maxDataBytes {
+		return KindDescriptor{}, fmt.Errorf("artifact data size must be 1..%d bytes", maxDataBytes)
 	}
-	if strings.TrimSpace(a.Summary) == "" {
-		return errors.New("artifact summary required")
+	desc, err := s.kinds.Validate(a.Kind, a.Data)
+	if err != nil {
+		return KindDescriptor{}, err
 	}
-	if a.Kind == KindLesson && strings.TrimSpace(a.Trigger) == "" {
-		return errors.New("lesson trigger required")
-	}
+	a.APIVersion = APIVersionV1
+	a.KindSchema = desc.Schema
 	if a.Binding.Principal == "" {
 		a.Binding.Principal = principal
 	}
 	if a.Binding.Principal != principal {
-		return errors.New("artifact principal is host-bound")
+		return KindDescriptor{}, errors.New("artifact principal is host-bound")
 	}
 	switch a.Scope {
 	case ScopeGlobal:
 		if a.Binding.CanonicalRepoID != "" || a.Binding.AnchorSessionID != "" {
-			return errors.New("global scope has no repo/session binding")
+			return KindDescriptor{}, errors.New("global scope has no repo/session binding")
 		}
 	case ScopeRepo:
 		if a.Binding.CanonicalRepoID == "" || a.Binding.AnchorSessionID != "" {
-			return errors.New("repo scope requires only canonical repo id")
+			return KindDescriptor{}, errors.New("repo scope requires only canonical repo id")
 		}
 	case ScopeSession:
 		if a.Binding.AnchorSessionID == "" {
-			return errors.New("session scope requires anchor session id")
+			return KindDescriptor{}, errors.New("session scope requires anchor session id")
 		}
 	default:
-		return errors.New("invalid artifact scope")
+		return KindDescriptor{}, errors.New("invalid artifact scope")
 	}
-	var err error
 	a.Tags, err = normalizeLabels(a.Tags, maxTags)
 	if err != nil {
-		return err
+		return KindDescriptor{}, err
 	}
 	a.Groups, err = normalizeGroups(a.Groups)
 	if err != nil {
-		return err
+		return KindDescriptor{}, err
+	}
+	a.EvidenceRefs, err = normalizeRefs(a.EvidenceRefs, 64, "evidence reference")
+	if err != nil {
+		return KindDescriptor{}, err
+	}
+	a.Supersedes, err = normalizeRefs(a.Supersedes, 64, "superseded artifact id")
+	if err != nil {
+		return KindDescriptor{}, err
 	}
 	if a.Sensitivity == "" {
 		a.Sensitivity = "normal"
 	}
 	if a.Sensitivity != "normal" && a.Sensitivity != "private" && a.Sensitivity != "secret" {
-		return errors.New("invalid sensitivity")
+		return KindDescriptor{}, errors.New("invalid sensitivity")
+	}
+	if err := validateProvenance(a.Provenance); err != nil {
+		return KindDescriptor{}, err
+	}
+	return desc, nil
+}
+
+func validateProvenance(p Provenance) error {
+	if len(p.Origins) > 32 || len(p.Refs) > 32 {
+		return errors.New("artifact provenance exceeds 32 origins or refs")
+	}
+	for _, value := range append(append([]string(nil), p.Origins...), p.Refs...) {
+		if strings.TrimSpace(value) != value || value == "" || len(value) > 512 {
+			return errors.New("invalid artifact provenance value")
+		}
+	}
+	if strings.TrimSpace(p.CreatedBy) != p.CreatedBy || len(p.CreatedBy) > 256 {
+		return errors.New("invalid artifact provenance creator")
 	}
 	return nil
+}
+
+func normalizeRefs(in []string, max int, label string) ([]string, error) {
+	if len(in) > max {
+		return nil, fmt.Errorf("too many %ss: %d > %d", label, len(in), max)
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if strings.TrimSpace(value) != value || value == "" || len(value) > 512 {
+			return nil, fmt.Errorf("invalid %s", label)
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) kindRegistrationEvents(desc KindDescriptor) []wal.Event {
+	for _, rec := range s.wal.Records() {
+		for _, event := range rec.Transaction.Events {
+			if event.Store != artifactStore || event.Type != "kind.registered" {
+				continue
+			}
+			var prior kindEvent
+			if json.Unmarshal(event.Data, &prior) == nil &&
+				prior.Descriptor.Kind == desc.Kind &&
+				prior.Descriptor.Schema.SchemaDigest == desc.Schema.SchemaDigest &&
+				prior.Descriptor.Schema.PluginIdentity == desc.Schema.PluginIdentity {
+				return nil
+			}
+		}
+	}
+	raw, _ := json.Marshal(kindEvent{Descriptor: desc})
+	return []wal.Event{{Store: artifactStore, Type: "kind.registered", Data: raw}}
 }
 
 func normalizeLabels(in []string, max int) ([]string, error) {
@@ -548,7 +656,11 @@ func validTransition(from, to Authority) bool {
 	return false
 }
 func transaction(principal, actor, idem, typ string, data []byte) wal.Transaction {
-	return wal.Transaction{ID: mintID(), IdempotencyKey: idem, Principal: principal, Actor: actor, Events: []wal.Event{{Store: artifactStore, Type: typ, Data: data}}}
+	return transactionEvents(principal, actor, idem, []wal.Event{{Store: artifactStore, Type: typ, Data: data}})
+
+}
+func transactionEvents(principal, actor, idem string, events []wal.Event) wal.Transaction {
+	return wal.Transaction{ID: mintID(), IdempotencyKey: idem, Principal: principal, Actor: actor, Events: events}
 }
 func mintID() string {
 	var b [12]byte

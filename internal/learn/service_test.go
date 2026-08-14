@@ -52,7 +52,8 @@ func TestRunCreatesEvidenceBoundCandidateOnly(t *testing.T) {
 	if item.Authority != artifacts.AuthorityCandidate {
 		t.Fatalf("reviewer activated artifact: %+v", item)
 	}
-	if len(item.Provenance) < 1 || item.Provenance[0] != "untrusted:reviewer" {
+	if len(item.Provenance.Origins) < 1 || item.Provenance.Origins[0] != "untrusted:reviewer" ||
+		item.Provenance.CreatedBy != "learn-reviewer" {
 		t.Fatalf("provenance=%v", item.Provenance)
 	}
 }

@@ -466,9 +466,11 @@ stado spawns host subprocesses from many places — the TUI shell, plugin
 runners, LSP servers, the daemon, post-turn hooks, scheduled tasks, MCP
 wrappers, ACP providers. Those subprocesses inherit the host's
 filesystem and network access unless stado is itself wrapped under a
-process-containment sandbox. Supported wrappers: **bwrap** and
-**firejail** on Linux, **sandbox-exec** on macOS
-(`internal/sandbox/wrap.go` → `pickRunner`).
+process-containment sandbox. Supported Linux wrappers are **bwrap** and
+**firejail** (`internal/sandbox/wrap.go` → `pickRunner`). Linux is the only
+supported platform now and through v1; remaining Darwin or Windows code carries
+no current support or security promise
+([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
 
 The wrap is opt-in via `[sandbox] mode = "wrap"` in `config.toml`.
 Default is `off`. Only `stado run` re-execs itself under the wrapper

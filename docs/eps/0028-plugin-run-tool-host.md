@@ -5,9 +5,22 @@ author: Bartosz Ptaszynski
 status: Partial
 type: Standards
 created: 2026-05-04
-superseded-by: ["EP-0038"]
+extended-by: ["EP-0065"]
 see-also: ["EP-0005", "EP-0006", "EP-0027", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      EP-0065 replaces this EP's historical macOS/Windows runner and degraded
+      fallback language with Linux-only current and v1 support. The surviving
+      HOME/XDG path-anchor decisions remain unchanged.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Relationship correction: EP-0038 replaced the tool-host flag and refusal
+      posture only; it did not supersede this EP's still-current HOME/XDG
+      path-anchor decisions. Removed the misleading wholesale superseded-by
+      metadata and retained EP-0038 as the scoped amendment history.
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
@@ -38,7 +51,7 @@ history:
       unchanged. CHANGELOG (Unreleased) carries the full migration notes.
 ---
 
-> **Relationships:** **Superseded by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0027](./0027-repo-root-discovery.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
+> **Relationships:** **Extended by:** [EP-0065](./0065-linux-only-platform-scope.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0027](./0027-repo-root-discovery.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll
 

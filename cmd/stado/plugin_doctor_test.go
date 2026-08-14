@@ -157,8 +157,12 @@ func TestClassifyCapability(t *testing.T) {
 		{"fs:write:.", requireWorkdir, "workdir-rooted"},
 		{"fs:read:/abs/path", requireNothing, "absolute path"},
 		{"fs:write:/abs/path", requireNothing, "absolute path"},
-		{"net:http_get", requireToolHost, "bundled-tool import"},
-		{"net:example.com", requireToolHost, "bundled-tool import"},
+		{"net:http_request", requireNothing, "stado_http_request primitive"},
+		{"net:http_request:example.com", requireNothing, "host allowlist"},
+		{"net:http_get", requireUnsupported, "unsupported plugin capability"},
+		{"net:example.com", requireUnsupported, "unsupported plugin capability"},
+		{"terminal:open", requireUnsupported, "removed capability"},
+		{"terminal:open:/bin/bash", requireUnsupported, "use exec:pty"},
 		{"exec:bash", requireFullAgentLoop, "sandbox.Runner"},
 		{"exec:shallow_bash", requireFullAgentLoop, "sandbox.Runner"},
 		{"exec:search", requireToolHost, "bundled-tool import"},
@@ -200,7 +204,7 @@ func TestBuildPluginDoctorReport_ClearOutput(t *testing.T) {
 		Tools: []plugins.ToolDef{
 			{Name: "fetch", Description: "Fetch and cache a URL"},
 		},
-		Capabilities: []string{"net:http_get", "fs:write:/var/cache/x"},
+		Capabilities: []string{"net:http_request:example.com", "fs:write:/var/cache/x"},
 	}
 	report, err := buildPluginDoctorReport(mf, t.TempDir())
 	if err != nil {
@@ -213,8 +217,8 @@ func TestBuildPluginDoctorReport_ClearOutput(t *testing.T) {
 		"WASM:      sha256:aaaaaaaaaaaa",
 		"fetch",
 		"Fetch and cache a URL",
-		"net:http_get",
-		"bundled-tool import (stado_http_get)",
+		"net:http_request:example.com",
+		"stado_http_request primitive",
 		"fs:write:/var/cache/x",
 		"absolute path",
 		"stado tool run fetch '<json-args>'",
@@ -222,6 +226,31 @@ func TestBuildPluginDoctorReport_ClearOutput(t *testing.T) {
 		if !strings.Contains(report, want) {
 			t.Errorf("doctor report missing %q:\n%s", want, report)
 		}
+	}
+}
+
+func TestBuildPluginDoctorReport_RemovedCapabilitiesHaveNoCompatibleSurface(t *testing.T) {
+	mf := &plugins.Manifest{
+		Name:         "obsolete-caps",
+		Version:      "0.1.0",
+		Tools:        []plugins.ToolDef{{Name: "run"}},
+		Capabilities: []string{"terminal:open", "net:http_get", "net:example.com"},
+	}
+	report, err := buildPluginDoctorReport(mf, t.TempDir())
+	if err != nil {
+		t.Fatalf("buildPluginDoctorReport: %v", err)
+	}
+	for _, want := range []string{
+		"removed capability; use exec:pty",
+		"unsupported plugin capability",
+		"Fix the removed or unsupported manifest capability",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("doctor report missing %q:\n%s", want, report)
+		}
+	}
+	if got := strings.Count(report, "✗ stado"); got != 4 {
+		t.Errorf("removed capabilities should reject all four surfaces; got %d refusals:\n%s", got, report)
 	}
 }
 

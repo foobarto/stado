@@ -46,7 +46,7 @@ func (m MemoryCorpus) Search(ctx context.Context, q string, max int) ([]CatalogI
 		n int
 	}
 	for _, a := range items {
-		hay := strings.ToLower(a.Summary + " " + a.Content + " " + a.Trigger + " " + strings.Join(a.Tags, " ") + " " + strings.Join(a.Groups, " "))
+		hay := strings.ToLower(a.SearchableText() + " " + strings.Join(a.Tags, " ") + " " + strings.Join(a.Groups, " "))
 		n := 0
 		for _, term := range terms {
 			if strings.Contains(hay, term) {
@@ -115,7 +115,7 @@ func (m MemoryCorpus) ObserveCitations(_ context.Context, citations []Citation) 
 func catalog(items []artifacts.Artifact) []CatalogItem {
 	out := make([]CatalogItem, 0, len(items))
 	for _, a := range items {
-		out = append(out, CatalogItem{Ref: makeRef(a), Summary: a.Summary, Tags: a.Tags, Groups: a.Groups})
+		out = append(out, CatalogItem{Ref: makeRef(a), Summary: a.Title(), Tags: a.Tags, Groups: a.Groups})
 	}
 	return out
 }

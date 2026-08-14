@@ -163,6 +163,11 @@ func (s *Server) peerDone() <-chan struct{} {
 }
 
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
+	// EP-0064: ACP does not yet own the complete persistent application
+	// composition. Fail before opening the protocol/session surface.
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, nil, runtime.ApplicationSurfaceACP); err != nil {
+		return fmt.Errorf("acp: %w", err)
+	}
 	s.conn = NewConn(r, w)
 	defer s.closeSessionBrokers()
 	return s.conn.Serve(ctx, s.dispatch)
@@ -303,6 +308,13 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 	persona, perr := s.resolveSessionPersona(p.Persona)
 	if perr != nil {
 		return nil, perr
+	}
+	var personaPlugins []string
+	if persona != nil {
+		personaPlugins = persona.Plugins
+	}
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, personaPlugins, runtime.ApplicationSurfaceACP); err != nil {
+		return nil, &RPCError{Code: CodeInvalidParams, Message: "acp session/new: " + err.Error()}
 	}
 
 	// Resume target precedence: per-call param > operator-set CLI

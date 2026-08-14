@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/foobarto/stado/internal/config"
@@ -130,8 +131,8 @@ func buildBundledPluginRegistry() *tools.Registry {
 		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."}))
 
 	// EP-0038c: shell.* PTY session tools — wasm-backed via shell.wasm.
-	// Capabilities: terminal:open (PTY) + exec:proc (one-shot variants).
-	shellSessionCaps := []string{"terminal:open", "exec:proc"}
+	// Capabilities: exec:pty (PTY) + exec:proc (one-shot variants).
+	shellSessionCaps := []string{"exec:pty", "exec:proc"}
 	r.Register(newBundledWasmTool("shell", "stado_tool_spawn", "shell__spawn",
 		"Open a persistent shell session. Use this — not one-shot bash — for interactive programs (REPLs, ssh, db clients), full-screen TUIs (vim, htop), anything that prompts, and long-running processes you monitor. Returns {id}; drive it with shell.read / shell.write / shell.destroy (no attach step). Persists across tool calls. Provide a `description` of what the session is for — it shows in shell.list so sessions are easy to identify and clean up later. Args: argv? (default ['/bin/bash']), description?, env?, cwd?, cols?, rows?, buffer_bytes?",
 		tool.ClassExec,
@@ -295,25 +296,28 @@ func buildBundledPluginRegistry() *tools.Registry {
 		tool.ClassNonMutating, lspSymbolsSchema, lspCaps))
 
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
-	agentCaps := []string{"agent:fleet"}
 	r.Register(newBundledWasmTool("agent", "stado_tool_spawn", "agent__spawn",
 		"Spawn an attenuated sub-agent, optionally from an immutable historical session point. Returns {id, session_id, status, final_text?}. execution=retained creates an addressable child; async controls whether this call waits. Model and persona inherit by default.",
 		tool.ClassExec,
 		schema.Object([]string{"prompt"}, schema.Props{
-			"prompt":          schema.String(),
-			"model":           schema.String(),
-			"persona":         schema.String("Persona for the child (operating manual). Empty = inherit parent's persona."),
-			"async":           schema.Boolean(),
-			"ephemeral":       schema.Boolean(),
-			"parent_session":  schema.String(),
-			"sandbox_profile": schema.String(),
-			"allowed_tools":   schema.Array(schema.String()),
-			"role":            schema.String(),
-			"mode":            schema.String(),
-			"ownership":       schema.String(),
-			"write_scope":     schema.Array(schema.String()),
-			"max_turns":       schema.Integer(),
-			"timeout_seconds": schema.Integer(),
+			"prompt":                 schema.String(),
+			"provider":               schema.String(),
+			"model":                  schema.String(),
+			"thinking":               schema.String(),
+			"thinking_budget_tokens": schema.Integer(),
+			"reasoning_effort":       schema.String(),
+			"persona":                schema.String("Persona for the child (operating manual). Empty = inherit parent's persona."),
+			"async":                  schema.Boolean(),
+			"ephemeral":              schema.Boolean(),
+			"parent_session":         schema.String(),
+			"sandbox_profile":        schema.String(),
+			"allowed_tools":          schema.Array(schema.String()),
+			"role":                   schema.String(),
+			"mode":                   schema.String(),
+			"ownership":              schema.String(),
+			"write_scope":            schema.Array(schema.String()),
+			"max_turns":              schema.Integer(),
+			"timeout_seconds":        schema.Integer(),
 			"source": schema.Object([]string{"session_id"}, schema.Props{
 				"session_id": schema.String(),
 				"at":         schema.String(),
@@ -325,12 +329,12 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"supervision":  schema.String(),
 			"max_restarts": schema.Integer(),
 		}),
-		agentCaps))
+		[]string{"agent:spawn", "agent:spawn:configure"}))
 	r.Register(newBundledWasmTool("agent", "stado_tool_list", "agent__list",
 		"List agents in caller's spawn tree. Returns [{id, session_id, status, model, started_at, last_turn_at, cost_so_far_usd}].",
 		tool.ClassNonMutating,
 		schema.Empty(),
-		agentCaps))
+		[]string{"agent:list"}))
 	r.Register(newBundledWasmTool("agent", "stado_tool_read_messages", "agent__read_messages",
 		"Read assistant-role messages from an agent's output channel. Optional since/timeout for incremental polling. Returns {messages, offset, status}.",
 		tool.ClassNonMutating,
@@ -339,7 +343,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"since":      schema.Integer(),
 			"timeout_ms": schema.Integer(),
 		}),
-		agentCaps))
+		[]string{"agent:read"}))
 	r.Register(newBundledWasmTool("agent", "stado_tool_send_message", "agent__send_message",
 		"Send a user-role message into an agent's inbox. Delivered at the agent's next yield point.",
 		tool.ClassExec,
@@ -347,7 +351,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"id":      schema.String(),
 			"message": schema.String(),
 		}),
-		agentCaps))
+		[]string{"agent:send"}))
 	// EP-0038c: web.* and dns.* — wasm-backed wrappers over existing host imports.
 	r.Register(newBundledWasmTool("web", "stado_tool_fetch", "web__fetch",
 		"Fetch a URL and return the body converted to markdown. Supports HTTPS to public hosts via net:http_request capability.",
@@ -388,12 +392,13 @@ func buildBundledPluginRegistry() *tools.Registry {
 		"Cancel a running agent. The child exits at its next yield point.",
 		tool.ClassExec,
 		schema.Object([]string{"id"}, schema.Props{"id": schema.String()}),
-		agentCaps))
+		[]string{"agent:cancel"}))
 	return r
 }
 
 type bundledPluginTool struct {
 	manifest plugins.Manifest
+	source   string
 	def      plugins.ToolDef
 	schema   map[string]any
 	class    tool.Class
@@ -434,6 +439,7 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
+		source: native.Name(),
 		def:    def,
 		schema: schema,
 		class:  class,
@@ -471,6 +477,7 @@ func newBundledWasmTool(wasmName, toolExport, registeredName, desc string, class
 			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
+		source: wasmName,
 		def:    def,
 		schema: parsed,
 		class:  class,
@@ -538,8 +545,13 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
+	identity, err := plugins.RuntimeIdentityForBundledSource(p.source, p.manifest)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled %s identity: %w", p.manifest.Name, err)
+	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
 		Manifest:       p.manifest,
+		Identity:       identity,
 		WasmBytes:      p.wasm,
 		ToolName:       p.def.Name,
 		Args:           args,
@@ -600,7 +612,7 @@ func bundledToolCapabilities(name string) []string {
 	case "bash":
 		return []string{"exec:shallow_bash"}
 	case "webfetch":
-		return []string{"net:http_get"}
+		return []string{"net:http_request"}
 	case "ripgrep":
 		return []string{"fs:read:.", "exec:search"}
 	case "ast_grep":

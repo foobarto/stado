@@ -96,7 +96,12 @@ func providedHostImports(ctx context.Context) (map[string]bool, error) {
 	}
 	defer func() { _ = rt.Close(ctx) }()
 
-	host := pluginRuntime.NewHost(plugins.Manifest{Name: "abi-verifier"}, "", nil)
+	manifest := plugins.Manifest{Name: "abi-verifier", Version: "dev"}
+	identity, err := plugins.RuntimeIdentityForBundledSource("abi-verifier", manifest)
+	if err != nil {
+		return nil, fmt.Errorf("verify host identity: %w", err)
+	}
+	host := pluginRuntime.NewHostWithIdentity(manifest, identity, "", nil)
 	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 		return nil, fmt.Errorf("verify install host imports: %w", err)
 	}

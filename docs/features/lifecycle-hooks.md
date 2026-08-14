@@ -12,12 +12,14 @@ block `rm -rf`, redact secrets out of tool results before the model sees
 them, pin a cheaper model for a class of turns, append a compliance banner
 to every reply, etc.
 
-Core memory/research/mailbox workflow nudges are implemented by stado's native
-[harness guidance](../articles/adaptive-context.md#native-harness-guidance), which can
-read typed broker projections safely and consistently across surfaces. Use Lua
-to experiment with operator-specific policy or further narrowing; do not append
-a generic learn/research reminder on every `pre_llm`, because it duplicates the
-native situational policy and consumes context without additional host facts.
+Memory/research/mailbox workflow nudges belong in a signed lifecycle
+application, as described in [guidance belongs with the
+workflow](../articles/adaptive-context.md#guidance-belongs-with-the-workflow).
+Native stado supplies typed broker facts; the application owns thresholds,
+wording, and recommendation policy. Use Lua to experiment with
+operator-specific policy or further narrowing; do not append a generic reminder
+on every `pre_llm`, because it consumes context without responding to current
+host facts.
 
 ## Why Lua (and why not JavaScript)
 

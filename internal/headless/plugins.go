@@ -114,7 +114,6 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 		sess.busy = false
 		sess.mu.Unlock()
 	}()
-
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
 	dir, err := plugins.InstalledDir(pluginsRoot, p.ID)
 	if err != nil {
@@ -127,6 +126,19 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin load: " + err.Error()}
 	}
+	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
+	if err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin identity: " + err.Error()}
+	}
+	// Classification may reject before trust verification: this branch grants
+	// no authority and instantiates no code. A lifecycle package must never be
+	// treated as an ephemeral tool merely because its signature is bad.
+	if mf.Lifecycle != nil {
+		return nil, &acp.RPCError{
+			Code:    acp.CodeInvalidParams,
+			Message: fmt.Sprintf("lifecycle application %s cannot run through ephemeral plugin.run; use the interactive TUI so commands, tools, hooks, and events share its persistent instance", identity.Canonical),
+		}
+	}
 	wasmPath := filepath.Join(dir, "plugin.wasm")
 	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
 	if err != nil {
@@ -136,7 +148,6 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	if err := ts.VerifyManifest(mf, sig); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin signature: " + err.Error()}
 	}
-
 	var tdef *plugins.ToolDef
 	for i := range mf.Tools {
 		if mf.Tools[i].Name == p.Tool {
@@ -163,9 +174,9 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	}
 	defer func() { _ = rt.Close(runCtx) }()
 
-	host := pluginRuntime.NewHost(*mf, dir, nil)
+	host := pluginRuntime.NewHostWithIdentity(*mf, identity, dir, nil)
 	host.StateDir = s.Cfg.StateDir()
-	if bridge := s.buildBridge(sess, mf.Name); bridge != nil {
+	if bridge := s.buildBridge(sess, identity.Canonical); bridge != nil {
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			host.SessionBridge = bridge
 		}
@@ -382,7 +393,11 @@ func headlessBackgroundPluginIDs(cfg *config.Config) []string {
 
 func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) *pluginRuntime.BackgroundPlugin {
 	if bundled, ok := runtime.LookupBackgroundPlugin(id); ok {
-		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
+		identity, err := plugins.RuntimeIdentityForBundledSource(bundled.ID, bundled.Manifest)
+		if err != nil {
+			return nil
+		}
+		host := pluginRuntime.NewHostWithIdentity(bundled.Manifest, identity, "", nil)
 		host.StateDir = s.Cfg.StateDir()
 		bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, bundled.WASM, host)
 		if err != nil {
@@ -399,6 +414,12 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 	if err != nil {
 		return nil
 	}
+	// A lifecycle manifest is owned by the persistent EP-0064 composition.
+	// Loading it again through the legacy BackgroundPlugin path would create a
+	// second module with divergent state and a different serialization gate.
+	if mf.Lifecycle != nil {
+		return nil
+	}
 	wasmPath := filepath.Join(dir, "plugin.wasm")
 	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
 	if err != nil {
@@ -408,7 +429,11 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 	if err := ts.VerifyManifest(mf, sig); err != nil {
 		return nil
 	}
-	host := pluginRuntime.NewHost(*mf, dir, nil)
+	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
+	if err != nil {
+		return nil
+	}
+	host := pluginRuntime.NewHostWithIdentity(*mf, identity, dir, nil)
 	host.StateDir = s.Cfg.StateDir()
 	// Background plugins start with no session bridge; tickBackgroundPlugins
 	// rebuilds one pointing at whichever session just completed a prompt.
@@ -438,7 +463,7 @@ func (s *Server) tickBackgroundPlugins(ctx context.Context, sess *hSession) {
 	survivors := s.bgPlugins[:0:len(s.bgPlugins)]
 	for _, bp := range s.bgPlugins {
 		if bp.Host != nil {
-			if bridge := s.buildBridge(sess, bp.Name()); bridge != nil {
+			if bridge := s.buildBridge(sess, bp.Host.Identity.Canonical); bridge != nil {
 				bp.Host.SessionBridge = bridge
 				bridge.Emit(payload)
 			}

@@ -3,12 +3,9 @@ version: 2
 before:
   hooks:
     - go mod tidy
-    # Fetch + embed ripgrep and ast-grep binaries for every supported
-    # (GOOS, GOARCH). Generates bundled_<os>_<arch>.go files tagged
-    # `//go:build stado_embed_binaries && <goos> && <goarch>` that
-    # `//go:embed` the blobs written under bundled/. The release build
-    # below sets -tags stado_embed_binaries so each cross-compile picks
-    # up exactly one of these files.
+    # Fetch + embed ripgrep and ast-grep for the supported Linux
+    # architectures. The release build sets stado_embed_binaries so each
+    # build picks up its exact Linux asset.
     - go run ./hack/fetch-binaries.go
     # Build the bundled wasm plugins from source (EP-0042 Part B). They are
     # //go:embed'd into the binary at internal/plugins/bundled/wasm/ but not
@@ -39,14 +36,9 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     goos:
       - linux
-      - darwin
-      - windows
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -96,10 +88,6 @@ archives:
       - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
     files:
       - LICENSE-APACHE
       - LICENSE-MIT
@@ -123,8 +111,7 @@ nfpms:
     formats:
       - deb
       - rpm
-    # Only package native-executable targets — Windows/Darwin ship as
-    # archives via the archives block above.
+    # Only Linux targets exist in the release graph.
     ids:
       - stado
     bindir: /usr/bin
@@ -140,30 +127,6 @@ nfpms:
     deb:
       fields:
         Bugs: https://github.com/foobarto/stado/issues
-
-# Homebrew tap — foobarto/homebrew-tap is live; goreleaser opens a
-# PR against it on each tagged release.
-#
-# Cross-repo PRs need a PAT with `repo` scope on the tap — Actions'
-# default GITHUB_TOKEN only covers the current repo. Provision a PAT
-# in the release environment as HOMEBREW_TAP_TOKEN; repository.token
-# below picks it up via env interpolation. When the token is unset we
-# force skip_upload=true, so GoReleaser only writes the cask to
-# dist/ and the release still succeeds without attempting a tap PR.
-homebrew_casks:
-  - name: stado
-    ids:
-      - stado
-    binaries:
-      - stado
-    repository:
-      owner: foobarto
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: https://github.com/foobarto/stado
-    description: Sandboxed, git-native coding-agent runtime
-    skip_upload: '{{ if .Env.HOMEBREW_TAP_TOKEN }}auto{{ else }}true{{ end }}'
 
 checksum:
   name_template: "checksums.txt"

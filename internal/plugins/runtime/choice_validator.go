@@ -23,7 +23,7 @@ const (
 // validateChoiceValidatorShape checks the validator declaration
 // itself (kind in the supported set, spec parses for the kinds that
 // require one). Runs at decode time so a malformed validator gets
-// rejected before the choice modal ever opens. F10.
+// rejected before the choice modal ever opens (EP-0064 UI bridge).
 func validateChoiceValidatorShape(kind, spec string) error {
 	switch kind {
 	case ChoiceValidatorKindLength:
@@ -51,7 +51,7 @@ func validateChoiceValidatorShape(kind, spec string) error {
 // ValidateChoiceInput runs the configured validator against the
 // operator's typed value. Returns nil when the input is acceptable
 // or when validator is nil. The error message is operator-facing —
-// surfaced inline in the choice drawer when validation fails. F10.
+// surfaced inline in the choice drawer when validation fails.
 func ValidateChoiceInput(input string, v *ChoiceValidator) error {
 	if v == nil {
 		return nil

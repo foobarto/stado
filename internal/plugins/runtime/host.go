@@ -22,6 +22,10 @@ import (
 // an instance of this type on the runtime before the wasm module runs.
 type Host struct {
 	Manifest plugins.Manifest
+	// Identity is derived by the native loader from the installed, bundled, or
+	// explicit local plugin source. Guest JSON and Manifest.Name never supply
+	// this value. Artifact kinds and authenticated broker calls depend on it.
+	Identity plugins.RuntimeIdentity
 	Logger   *slog.Logger
 
 	// Parsed from Manifest.Capabilities. These are the authoritative
@@ -29,8 +33,7 @@ type Host struct {
 	// "deny all" — matches the strict default of plugin execution.
 	FSRead  []string
 	FSWrite []string
-	NetHost []string // optional hostname allow-list for net:http_get
-	Workdir string   // CWD the plugin sees for relative paths
+	Workdir string // CWD the plugin sees for relative paths
 
 	// Session/LLM capability gates — Phase 7.1b (PR K2). DESIGN
 	// §"Plugin extension points for context management".
@@ -46,9 +49,10 @@ type Host struct {
 	SessionRead     bool
 	SessionFork     bool
 	LLMInvokeBudget int
-	MemoryPropose   bool
-	MemoryRead      bool
-	MemoryWrite     bool
+	ArtifactPropose []string
+	ArtifactRead    []string
+	ArtifactEdit    []string
+	ArtifactObserve []string
 
 	// SessionBridge wires the host-side session operations (read
 	// history, fork, LLM invoke, subscribe-to-events). Nil when the
@@ -58,16 +62,28 @@ type Host struct {
 	// backings.
 	SessionBridge SessionBridge
 
-	// MemoryBridge wires capability-gated memory operations for
-	// plugin-backed long-lived facts. Nil means memory is unavailable
-	// in this run context; host imports return -1 rather than falling
-	// back to ambient storage.
-	MemoryBridge MemoryBridge
+	// ArtifactBridge wires capability-gated, authenticated artifact calls to
+	// the broker. Nil means artifacts are unavailable in this run context;
+	// imports fail closed and never fall back to cfg:state_dir, a direct WAL,
+	// or the legacy memory JSONL store (EP-0063).
+	ArtifactBridge ArtifactBridge
+	ArtifactCaller ArtifactCallerContext
 
-	// FleetBridge wires the agent fleet operations backing the bundled
-	// agent plugin's stado_agent_* host imports (EP-0038 §D Tier 1+).
-	// Only the bundled agent plugin may declare agent:fleet cap; user
-	// plugins are blocked at install time.
+	// ApplicationBridge is the broker-owned EP-0064 control plane for this
+	// exact plugin/session/generation admission. The bridge retains the opaque
+	// binding outside WASM memory; imports expose only typed, capability-gated
+	// journal, projection, scheduling, control, and timer operations.
+	ApplicationBridge ApplicationBridge
+	// ApplicationAnchor is the broker-authenticated lifecycle scope used by
+	// generic host primitives that need retry identity in addition to a
+	// capability check. It is never populated from guest JSON. Ordinary
+	// one-shot plugin tools leave it empty.
+	ApplicationAnchor ApplicationAnchor
+
+	// FleetBridge wires retained-agent primitives backing stado_agent_*.
+	// EP-0064 splits the historical agent:fleet aggregate into operation-
+	// scoped agent:{spawn,list,read,send,cancel} capabilities so installed
+	// lifecycle applications can receive only the authority they need.
 	// Nil on surfaces without a live runtime fleet (e.g. tool run).
 	FleetBridge FleetBridge
 
@@ -85,16 +101,14 @@ type Host struct {
 	// emit into the operator's view. Same nil-means-unavailable
 	// contract as ApprovalBridge; gated by ui:print cap. Drop-on-floor
 	// when nil so plugins on non-interactive surfaces don't block
-	// (fire-and-forget by spec). F9a (2026-05-08).
+	// (fire-and-forget by EP-0064 and the host-import reference).
 	PrintBridge PrintBridge
 
 	// RenderBridge powers stado_ui_render — structured panel emit
 	// across TUI / ACP / MCP / headless. Same nil-means-unavailable
 	// contract as PrintBridge: a nil bridge here yields silent
 	// success so plugins on disconnected channels stay non-blocking
-	// (fire-and-forget per F9 spec). Per-channel renderers land in
-	// later F9b phases; the host scaffolding (this field, the cap
-	// gate, the wire-decode + size validation) ships in F9b.1.
+	// (fire-and-forget by EP-0064 and the host-import reference).
 	RenderBridge RenderBridge
 
 	// ToolHost is the runtime host surface native tool wrappers call
@@ -118,7 +132,6 @@ type Host struct {
 	// Public built-in tool capability bits. These map thin host
 	// wrappers to the underlying native implementation while keeping
 	// manifests narrow and auditable.
-	NetHTTPGet            bool
 	NetHTTPRequest        bool     // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
 	NetReqHost            []string // optional hostname allow-list for net:http_request:<host>
 	NetHTTPRequestPrivate bool     // when true, stado_http_request's dial guard allows RFC1918 / loopback / link-local destinations. Off by default — opt-in via net:http_request_private cap.
@@ -135,7 +148,7 @@ type Host struct {
 	// reader was dead. See the "exec" case in capability parsing below.
 	ExecPTY bool
 	// ExecPTYGlobs, when non-empty, restricts stado_pty_create to binaries
-	// matching one of the terminal:open:<glob> / exec:pty:<glob> patterns —
+	// matching one of the exec:pty:<glob> patterns —
 	// the PTY analogue of ExecProcGlobs. An empty list means broad exec:pty.
 	// Without this the PTY path ran any binary (or /bin/sh via opts.Cmd)
 	// regardless of the exec:proc glob, bypassing the cap-confinement layer.
@@ -145,9 +158,6 @@ type Host struct {
 	// exec:proc:<glob> patterns. An empty list means broad exec:proc.
 	ExecProc      bool
 	ExecProcGlobs []string
-	// AgentFleet gates stado_agent_* (EP-0038 §D Tier 1+).
-	// Only bundled agent plugin may declare this cap.
-	AgentFleet bool
 	// BundledBin gates stado_bundled_bin (EP-0038 §B Tier 1).
 	BundledBin bool
 	// DNSResolve / DNSReverse gate stado_dns_resolve / stado_dns_resolve_axfr (Tier 2).
@@ -181,12 +191,12 @@ type Host struct {
 	UIChoice bool
 	// UIPrint gates stado_ui_print — plain-text fire-and-forget
 	// emit into the operator's view. Declared via ui:print in the
-	// manifest. F9a (2026-05-08).
+	// manifest (EP-0064).
 	UIPrint bool
 	// UIRender gates stado_ui_render — structured panel emit
 	// (title + typed sections: text / kv / list / code / table /
-	// diff). Declared via ui:render in the manifest. Spec:
-	// .agent/specs/open/f9b-ui-render.md. F9b.1 (2026-05-09).
+	// diff). Declared via ui:render in the manifest (EP-0064 and
+	// docs/plugins/host-imports.md).
 	UIRender bool
 
 	// PTYManager is the runtime-shared registry of PTY-backed
@@ -253,8 +263,8 @@ type Host struct {
 
 	// NetICMP gates stado_net_icmp_echo. Declared via net:icmp in
 	// the manifest. Note: requires either an unprivileged ICMP
-	// socket (Linux net.ipv4.ping_group_range, macOS default since
-	// 10.10) or CAP_NET_RAW. The host import surfaces a clear
+	// socket allowed by Linux net.ipv4.ping_group_range or CAP_NET_RAW.
+	// The host import surfaces a clear
 	// "operation not permitted" error when neither path works.
 	NetICMP bool
 
@@ -304,7 +314,7 @@ type SecretsAccess struct {
 	ReadGlobs     []string                // patterns from secrets:read:<glob>; empty+declared = broad
 	WriteGlobs    []string                // patterns from secrets:write:<glob>; empty+declared = broad
 	AuditEmitter  func(SecretsAuditEvent) // optional; nil = no-op
-	PluginName    string                  // manifest.Name; included in audit events
+	PluginName    string                  // canonical source namespace for storage isolation
 }
 
 // SecretsAuditEvent is the structured record emitted for every
@@ -425,12 +435,68 @@ type LLMInvokeOpts struct {
 	Temperature float64
 }
 
-// MemoryBridge is the capability-checked persistent-memory surface
-// exposed to plugins that declare `memory:*` capabilities.
-type MemoryBridge interface {
-	Propose(ctx context.Context, payload []byte) error
-	Query(ctx context.Context, payload []byte) ([]byte, error)
-	Update(ctx context.Context, payload []byte) error
+// ArtifactCallerContext contains host-authenticated scope attached to artifact
+// broker calls. Identity is injected separately from Host.Identity immediately
+// before dispatch, so it cannot be replaced by guest JSON or a stale binding.
+type ArtifactCallerContext struct {
+	Principal          string   `json:"principal"`
+	CanonicalRepoID    string   `json:"canonical_repo_id,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"`
+	SessionGeneration  uint64   `json:"session_generation,omitempty"`
+	AncestorSessionIDs []string `json:"ancestor_session_ids,omitempty"`
+}
+
+type ArtifactCaller struct {
+	Identity plugins.RuntimeIdentity `json:"identity"`
+	ArtifactCallerContext
+}
+
+// ArtifactBridge is implemented by the broker client attached to a tool host.
+// All methods return a bounded JSON response suitable for the WASM output
+// buffer. The bridge must reject missing/stale caller context and remains the
+// only route to authoritative artifact storage.
+type ArtifactBridge interface {
+	Propose(ctx context.Context, caller ArtifactCaller, requestID string, payload []byte) ([]byte, error)
+	Query(ctx context.Context, caller ArtifactCaller, requestID string, payload []byte) ([]byte, error)
+	Edit(ctx context.Context, caller ArtifactCaller, requestID string, payload []byte) ([]byte, error)
+	Observe(ctx context.Context, caller ArtifactCaller, requestID string, payload []byte) ([]byte, error)
+}
+
+// ArtifactBridgeBinding is returned opaquely through tool.Host so pluginrun can
+// attach an authenticated broker client without teaching pkg/tool about plugin
+// runtime types.
+type ArtifactBridgeBinding struct {
+	Bridge ArtifactBridge
+	Caller ArtifactCallerContext
+}
+
+// ApplicationBinding is minted by broker admission for one exact plugin,
+// session, and generation. The opaque broker token remains inside Bridge;
+// lifecycle code receives only the authenticated anchor and typed bridges.
+type ApplicationBinding struct {
+	Anchor      ApplicationAnchor
+	Artifact    ArtifactBridgeBinding
+	Application ApplicationBridge
+	Controller  ApplicationControllerBridge
+	Events      ApplicationEventTransport
+}
+
+// ApplicationBridge transports one already capability-gated, bounded typed
+// request under the native-held broker admission binding. Operation names are
+// fixed by the host import table; guests cannot provide arbitrary broker RPC
+// method names.
+type ApplicationBridge interface {
+	CallApplication(context.Context, string, string, []byte) ([]byte, error)
+}
+
+// ApplicationControllerBridge carries native session-controller operations
+// associated with one admitted lifecycle application. It is deliberately a
+// distinct interface from ApplicationBridge: no WASM host import can reach
+// it, and its broker implementation authenticates the session controller in
+// addition to resolving the opaque application binding. Merely hiding an
+// operation name from the guest ABI is not an authority boundary.
+type ApplicationControllerBridge interface {
+	CallApplicationController(context.Context, string, []byte) ([]byte, error)
 }
 
 // ApprovalBridge is the interactive UI hook plugins can call when they
@@ -476,22 +542,21 @@ type ChoiceRequest struct {
 // ChoiceOption is a single picker entry. ID is what the plugin gets
 // back in ChoiceResponse.Selected; Label is what the operator sees.
 //
-// F10 fields (Prefix, Input) extend the option to carry an editable
+// Prefix and Input extend the option to carry an editable
 // field — the row renders as `prefix [editable text] label` and the
 // operator's typed value comes back in ChoiceResponse.InputValue.
-// Both are zero-value-safe; pre-F10 callers (Prefix="", Input=nil)
+// Both are zero-value-safe; callers omitting them (Prefix="", Input=nil)
 // behave exactly as before.
 type ChoiceOption struct {
 	ID     string
 	Label  string
-	Prefix string       // F10: read-only decoration shown alongside the input field
-	Input  *ChoiceInput // F10: nil = pure choice row (pre-F10 behaviour)
+	Prefix string       // Read-only decoration shown alongside the input field.
+	Input  *ChoiceInput // Nil means a pure choice row without editable input.
 }
 
 // ChoiceInput is the optional editable field on a ChoiceOption.
 // Default seeds the field; Validator (when non-nil) is checked
 // runtime-side before the response is returned to the plugin.
-// F10.
 type ChoiceInput struct {
 	Default   string
 	Validator *ChoiceValidator
@@ -501,7 +566,7 @@ type ChoiceInput struct {
 // operator's typed input before the choice resolves. Kind selects
 // the validator family; Spec carries kind-specific parameters
 // (e.g. "0,80" for length, the pattern for regex). Unknown kinds
-// are rejected at decode time. F10.
+// are rejected at decode time.
 type ChoiceValidator struct {
 	Kind string
 	Spec string
@@ -511,7 +576,7 @@ type ChoiceValidator struct {
 // Cancelled=true means no decision was made (Esc / session cancel);
 // Selected is empty in that case. InputValue carries the text typed
 // into the chosen option's input field, or "" when the chosen
-// option had no input (pre-F10 behaviour). F10.
+// option had no input.
 type ChoiceResponse struct {
 	Selected   []string
 	InputValue string
@@ -521,8 +586,8 @@ type ChoiceResponse struct {
 // PrintBridge is the operator-facing surface for stado_ui_print.
 // Implementations route the text + opts to whatever channel the
 // host runs on (TUI scrollback, ACP session/update, MCP tool
-// result, etc.). Spec: F9. F9a (2026-05-08) wires the TUI route;
-// non-TUI bridges land in the F9 follow-on slice.
+// result, etc.). EP-0064 and docs/plugins/host-imports.md own the
+// durable contract; each supported surface must wire it explicitly.
 //
 // Returning a non-nil error surfaces the import call as a negative
 // payload to the plugin (size violation, channel rejection); a nil
@@ -540,7 +605,6 @@ type PrintBridge interface {
 // (default true). StreamID is an opaque label so a renderer can
 // coalesce successive calls with the same id into one block (TUI
 // inline scrollback may render same-stream prints as a continuation).
-// F9a.
 type PrintOpts struct {
 	Severity string
 	EOL      bool
@@ -555,8 +619,8 @@ type PrintOpts struct {
 // negative payload to the plugin (channel rejection); nil = silent
 // success. Implementations should NOT block on operator visibility —
 // render is non-blocking by spec, so a backed-up channel should drop
-// or buffer rather than block the plugin. Spec: F9b
-// (.agent/specs/open/f9b-ui-render.md). F9b.1 (2026-05-09).
+// or buffer rather than block the plugin. EP-0064 and
+// docs/plugins/host-imports.md own this contract.
 type RenderBridge interface {
 	Render(ctx context.Context, panel Panel) error
 }
@@ -567,7 +631,6 @@ type RenderBridge interface {
 // renderers may colour, prefix, or ignore. ID is an opaque label
 // useful when a later choice references this panel ("re. the diff
 // shown above"). Footer is a short trailing line (status, hint).
-// F9b.1.
 //
 // Target selects the display surface (#21 part 2): "" / "viewport"
 // (default, conversation scrollback), "sidebar" / "footer" (a plugin-
@@ -589,7 +652,7 @@ type Panel struct {
 // Section is one body of a Panel. Exactly one of the body-shape
 // fields is meaningful per Kind; the wire decoder validates that
 // the right field is populated for the declared kind so renderers
-// can switch on Kind safely. F9b.1.
+// can switch on Kind safely.
 type Section struct {
 	Kind    string // text | kv | list | code | table | diff
 	Heading string
@@ -604,7 +667,7 @@ type Section struct {
 	Diff  DiffBody
 }
 
-// KVPair is one row of a kv-kind Section body. F9b.1.
+// KVPair is one row of a kv-kind Section body.
 type KVPair struct {
 	Label string
 	Value string
@@ -612,7 +675,7 @@ type KVPair struct {
 
 // ListBody is the body of a list-kind Section. Marker controls
 // renderer styling: "bullet" (default), "numbered", or "check"
-// (operator-facing checklist). F9b.1.
+// (operator-facing checklist).
 type ListBody struct {
 	Marker string
 	Items  []string
@@ -620,7 +683,7 @@ type ListBody struct {
 
 // CodeBody is the body of a code-kind Section. Language is an
 // optional renderer hint (TUI may apply syntax-tinted colouring,
-// ACP / MCP carry it through verbatim). F9b.1.
+// ACP / MCP carry it through verbatim).
 type CodeBody struct {
 	Language string
 	Content  string
@@ -630,7 +693,7 @@ type CodeBody struct {
 // the header row; Rows is a list of cell-value rows. The decoder
 // caps Rows × Cols at maxPluginRuntimeUIRenderTableRows ×
 // maxPluginRuntimeUIRenderTableCols. Renderers truncate narrower
-// terminals at their own discretion. F9b.1.
+// terminals at their own discretion.
 type TableBody struct {
 	Columns []string
 	Rows    [][]string
@@ -640,15 +703,15 @@ type TableBody struct {
 // or display a before/after view; Plain Before/After strings keep
 // the wire shape simple and let each renderer choose its own
 // algorithm (TUI uses Myers via go-difflib; ACP carries strings
-// verbatim and lets the client diff). F9b.1.
+// verbatim and lets the client diff).
 type DiffBody struct {
 	Before string
 	After  string
 }
 
-// FleetBridge is the capability-checked surface the bundled agent plugin
-// calls through for stado_agent_* operations. EP-0038 §D Tier 1+.
-// Nil on surfaces without a live runtime fleet.
+// FleetBridge is the capability-checked generic agent-operation surface used
+// by plugins through stado_agent_* imports. Nil on surfaces without a live
+// runtime fleet.
 type FleetBridge interface {
 	// AgentSpawn starts a new child agent. Returns (agentID, sessionID).
 	AgentSpawn(ctx context.Context, req AgentSpawnRequest) (AgentSpawnResult, error)
@@ -665,30 +728,51 @@ type FleetBridge interface {
 
 // AgentSpawnRequest is the input to FleetBridge.AgentSpawn.
 type AgentSpawnRequest struct {
-	Prompt         string       `json:"prompt"`
-	Model          string       `json:"model,omitempty"`
-	Async          bool         `json:"async,omitempty"`
-	Ephemeral      bool         `json:"ephemeral,omitempty"`
-	ParentSession  string       `json:"parent_session,omitempty"` // empty = use caller's session
-	AllowedTools   []string     `json:"allowed_tools,omitempty"`
-	SandboxProfile string       `json:"sandbox_profile,omitempty"`
-	Role           string       `json:"role,omitempty"`
-	Mode           string       `json:"mode,omitempty"`
-	Ownership      string       `json:"ownership,omitempty"`
-	WriteScope     []string     `json:"write_scope,omitempty"`
-	MaxTurns       int          `json:"max_turns,omitempty"`
-	TimeoutSeconds int          `json:"timeout_seconds,omitempty"`
-	Source         *AgentSource `json:"source,omitempty"`
-	ToolProfile    string       `json:"tool_profile,omitempty"`
-	NarrowTools    []string     `json:"narrow_tools,omitempty"`
-	TokenBudget    int          `json:"token_budget,omitempty"`
-	Execution      string       `json:"execution,omitempty"`
-	Supervision    string       `json:"supervision,omitempty"`
-	MaxRestarts    int          `json:"max_restarts,omitempty"`
+	Prompt               string       `json:"prompt"`
+	Provider             string       `json:"provider,omitempty"`
+	Model                string       `json:"model,omitempty"`
+	Thinking             string       `json:"thinking,omitempty"`
+	ThinkingBudgetTokens int          `json:"thinking_budget_tokens,omitempty"`
+	ReasoningEffort      string       `json:"reasoning_effort,omitempty"`
+	Async                bool         `json:"async,omitempty"`
+	Ephemeral            bool         `json:"ephemeral,omitempty"`
+	ParentSession        string       `json:"parent_session,omitempty"` // empty = use caller's session
+	AllowedTools         []string     `json:"allowed_tools,omitempty"`
+	SandboxProfile       string       `json:"sandbox_profile,omitempty"`
+	Role                 string       `json:"role,omitempty"`
+	Mode                 string       `json:"mode,omitempty"`
+	Ownership            string       `json:"ownership,omitempty"`
+	WriteScope           []string     `json:"write_scope,omitempty"`
+	MaxTurns             int          `json:"max_turns,omitempty"`
+	TimeoutSeconds       int          `json:"timeout_seconds,omitempty"`
+	Source               *AgentSource `json:"source,omitempty"`
+	ToolProfile          string       `json:"tool_profile,omitempty"`
+	NarrowTools          []string     `json:"narrow_tools,omitempty"`
+	TokenBudget          int          `json:"token_budget,omitempty"`
+	Execution            string       `json:"execution,omitempty"`
+	Supervision          string       `json:"supervision,omitempty"`
+	MaxRestarts          int          `json:"max_restarts,omitempty"`
+	// IdempotencyKey names one logical spawn attempt. Lifecycle application
+	// hosts scope it to the authenticated plugin/session/generation and reject
+	// reuse with a different normalized request. It grants no authority.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// Caller is injected by the native host after decoding. Guest JSON cannot
+	// select or widen this scope.
+	Caller AgentSpawnCaller `json:"-"`
 	// Persona names the operating manual the child runs under.
 	// Empty = inherit the parent's active persona. Empty +
 	// no parent = bundled "default". EP-0038i.
 	Persona string `json:"persona,omitempty"`
+}
+
+// AgentSpawnCaller is the authenticated lifecycle application scope attached
+// to an idempotent spawn. Keeping it out of the JSON contract prevents a guest
+// from choosing another plugin, session, or generation as its deduplication
+// namespace.
+type AgentSpawnCaller struct {
+	PluginID   string
+	SessionID  string
+	Generation uint64
 }
 
 // AgentSource selects an authorized immutable point in a historical session.
@@ -703,7 +787,30 @@ type AgentSpawnResult struct {
 	SessionID string `json:"session_id"`
 	Status    string `json:"status"`
 	// FinalText is populated when Async=false and the agent completed.
-	FinalText string `json:"final_text,omitempty"`
+	FinalText string                 `json:"final_text,omitempty"`
+	Terminal  *AgentTerminalMetadata `json:"terminal,omitempty"`
+}
+
+// AgentTokenUsage is host-collected terminal accounting. Currency estimates
+// are deliberately absent from this application-facing contract.
+type AgentTokenUsage struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
+// AgentCleanupDiagnostic is separate from the semantic result. Fingerprint is
+// safe to compare or journal; raw provider cleanup errors are not exposed.
+type AgentCleanupDiagnostic struct {
+	Kind        string `json:"kind"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type AgentTerminalMetadata struct {
+	Usage         AgentTokenUsage         `json:"usage"`
+	UsageComplete bool                    `json:"usage_complete"`
+	Cleanup       *AgentCleanupDiagnostic `json:"cleanup,omitempty"`
 }
 
 // AgentListEntry is one entry from FleetBridge.AgentList.
@@ -719,9 +826,10 @@ type AgentListEntry struct {
 
 // AgentMessages is the result of FleetBridge.AgentReadMessages.
 type AgentMessages struct {
-	Messages []AgentMessage `json:"messages"`
-	Offset   int            `json:"offset"`
-	Status   string         `json:"status"`
+	Messages []AgentMessage         `json:"messages"`
+	Offset   int                    `json:"offset"`
+	Status   string                 `json:"status"`
+	Terminal *AgentTerminalMetadata `json:"terminal,omitempty"`
 }
 
 // AgentMessage is one item in AgentMessages.
@@ -733,13 +841,21 @@ type AgentMessage struct {
 	Summary string `json:"summary,omitempty"`
 }
 
-// NewHost parses a manifest's capabilities into a Host.
+// NewHost is the compatibility constructor for tests and identity-free ABI
+// inspection. Executable plugin loaders must derive a source-bound identity
+// and call NewHostWithIdentity; this helper has no verified source path.
 func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
+	identity, _ := plugins.RuntimeIdentityForLocal(m)
+	return NewHostWithIdentity(m, identity, workdir, logger)
+}
+
+func NewHostWithIdentity(m plugins.Manifest, identity plugins.RuntimeIdentity, workdir string, logger *slog.Logger) *Host {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	h := &Host{
 		Manifest: m,
+		Identity: identity,
 		Logger:   logger.With("plugin", m.Name),
 		Workdir:  workdir,
 	}
@@ -805,10 +921,6 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.FSWrite = append(h.FSWrite, scopes...)
 			}
 		case "net":
-			if len(parts) == 2 && parts[1] == "http_get" {
-				h.NetHTTPGet = true
-				continue
-			}
 			// "net:http_request" — broad: any (public) host.
 			// "net:http_request:<host>" — narrow: gates by exact
 			// hostname. Any number of host entries can be appended.
@@ -846,18 +958,10 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.NetHTTPClient = true
 				continue
 			}
-			// "net:<host>" — the cap string after "net:" is the
-			// exact host to allow. Special values "allow" / "deny" are
-			// handled at the MCP layer but aren't exposed to plugins
-			// here (too much power). "net:dial:..." / "net:listen:..."
-			// are parsed by parseNetSocketCap below — don't junk-
-			// populate NetHost with their multi-segment payloads.
+			// "net:dial:..." / "net:listen:..." are parsed by
+			// parseNetSocketCap below.
 			if parts[1] == "dial" || parts[1] == "listen" {
 				break // out of the switch; parser block below handles it
-			}
-			rest := strings.Join(parts[1:], ":")
-			if rest != "" && rest != "allow" && rest != "deny" {
-				h.NetHost = append(h.NetHost, rest)
 			}
 		case "session":
 			// DESIGN §"Plugin extension points for context management":
@@ -884,23 +988,20 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 			}
 			h.LLMInvokeBudget = budget
-		case "memory":
+		case "artifact":
+			if len(parts) != 3 || strings.TrimSpace(parts[2]) == "" {
+				continue
+			}
+			scope := strings.TrimSpace(parts[2])
 			switch parts[1] {
 			case "propose":
-				h.MemoryPropose = true
+				h.ArtifactPropose = append(h.ArtifactPropose, scope)
 			case "read":
-				h.MemoryRead = true
-			case "write":
-				h.MemoryWrite = true
-			}
-		case "terminal":
-			// EP-0038: terminal:open is the new name for exec:pty.
-			// terminal:open:<glob> scopes the PTY to specific binaries.
-			if parts[1] == "open" {
-				h.ExecPTY = true
-				if len(parts) == 3 && parts[2] != "" {
-					h.ExecPTYGlobs = h.appendExecGlob(h.ExecPTYGlobs, parts[2], "terminal:open")
-				}
+				h.ArtifactRead = append(h.ArtifactRead, scope)
+			case "edit":
+				h.ArtifactEdit = append(h.ArtifactEdit, scope)
+			case "observe":
+				h.ArtifactObserve = append(h.ArtifactObserve, scope)
 			}
 		case "exec":
 			switch parts[1] {
@@ -943,10 +1044,6 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			}
 		case "compress":
 			h.Compress = true
-		case "agent":
-			if parts[1] == "fleet" {
-				h.AgentFleet = true
-			}
 		case "lsp":
 			if parts[1] == "query" {
 				h.LSPQuery = true
@@ -1046,7 +1143,52 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			h.parseNetSocketCap(full)
 		}
 	}
+	// Namespace authority-bearing stores at construction time so direct
+	// lifecycle/operator dispatchers cannot forget the binding. The stores
+	// themselves are attached later by the runtime or surface.
+	if h.Secrets != nil {
+		h.Secrets.PluginName = identity.Namespace
+	}
+	if h.State != nil {
+		h.State.PluginName = identity.Namespace
+	}
 	return h
+}
+
+// AuditIdentity returns the exact canonical runtime identity used to attribute
+// authority-bearing host activity. Manifest.Name is display metadata only.
+func (h *Host) AuditIdentity() string {
+	if h == nil || h.Identity.Validate() != nil {
+		return ""
+	}
+	return h.Identity.Canonical
+}
+
+// AttachAuthorityStores provisions the two host-owned stores whose namespaces
+// carry plugin authority. Executable loaders call this exactly once after
+// deriving RuntimeIdentity and before installing imports. Keeping the wiring
+// here prevents direct tool, lifecycle, headless, and background loaders from
+// accidentally falling back to the display-only Manifest.Name.
+//
+// Instance state is process-lifetime and belongs to the owning Runtime.
+// Secrets are durable under stateDir. A missing stateDir deliberately leaves
+// the secrets store unavailable rather than inventing another persistence
+// location.
+func (h *Host) AttachAuthorityStores(stateDir string, instanceStore *InstanceStore, audit func(SecretsAuditEvent)) {
+	if h == nil {
+		return
+	}
+	if h.Secrets != nil {
+		h.Secrets.PluginName = h.Identity.Namespace
+		h.Secrets.AuditEmitter = audit
+		if stateDir != "" {
+			h.Secrets.Store = secrets.NewStore(stateDir)
+		}
+	}
+	if h.State != nil {
+		h.State.PluginName = h.Identity.Namespace
+		h.State.Store = instanceStore
+	}
 }
 
 // parseNetSocketCap absorbs net:dial:* and net:listen:* capabilities,
@@ -1113,8 +1255,9 @@ func (h *Host) parseNetSocketCap(full []string) {
 // variant.
 func (h *Host) AllowPrivateNetwork() bool { return h.NetHTTPRequestPrivate }
 
-func (h *Host) NeedsMemoryBridge() bool {
-	return h.MemoryPropose || h.MemoryRead || h.MemoryWrite
+func (h *Host) NeedsArtifactBridge() bool {
+	return len(h.ArtifactPropose) != 0 || len(h.ArtifactRead) != 0 ||
+		len(h.ArtifactEdit) != 0 || len(h.ArtifactObserve) != 0
 }
 
 // allowRead / allowWrite perform the capability check. Current

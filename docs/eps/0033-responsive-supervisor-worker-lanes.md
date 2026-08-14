@@ -2,11 +2,13 @@
 ep: 0033
 title: Responsive frontline — supervisor + worker lanes
 author: Bartosz Ptaszynski
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-05-04
-implemented-in: v0.33.0
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: Corrected stale frontmatter to match the document and runtime. Phase A shipped; the persistent live-tail lane and remaining goals are still open.
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Captures the feature ask as user-described, the design space worked out in conversation, and the implementation shape that reuses /btw as the supervisor primitive.
@@ -30,9 +32,8 @@ see-also: ["EP-0007", "EP-0014", "EP-0032"]
 > supervisor primitive shipped; the persistent supervisor lane,
 > `internal/session/lanes`, live transcript tail, `SupportsStreaming`
 > capability + validation, lane-aware `/provider|/model worker|supervisor`,
-> classifier stats, and `/redirect` are NOT yet built. The frontmatter
-> `status: Implemented` reflects Phase A only — treat the un-shipped pieces
-> below as the open design. (The original "Draft. No code yet." banner was
+> classifier stats, and `/redirect` are NOT yet built. Treat the un-shipped
+> pieces below as the open design. (The original "Draft. No code yet." banner was
 > stale once `/btw` landed.)
 
 ## Problem

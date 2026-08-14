@@ -23,9 +23,10 @@ import (
 // stdout/stderr formatting around the shared pluginrun.Run dispatch.
 type pluginInvokeArgs struct {
 	Manifest   plugins.Manifest // already loaded + verified by the caller
-	WasmBytes  []byte           // already verified against Manifest.WASMSHA256
-	ToolName   string           // tool def name (matches Manifest.Tools[i].Name)
-	ArgsJSON   string           // JSON args; "{}" when omitted
+	Identity   plugins.RuntimeIdentity
+	WasmBytes  []byte // already verified against Manifest.WASMSHA256
+	ToolName   string // tool def name (matches Manifest.Tools[i].Name)
+	ArgsJSON   string // JSON args; "{}" when omitted
 	Cfg        *config.Config
 	WorkdirArg string    // raw --workdir arg ("" = default to InstallDir)
 	InstallDir string    // for default workdir + caller logging
@@ -77,6 +78,7 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 
 	args := pluginrun.RunArgs{
 		Manifest:  in.Manifest,
+		Identity:  in.Identity,
 		WasmBytes: in.WasmBytes,
 		ToolName:  in.ToolName,
 		Args:      json.RawMessage(in.ArgsJSON),

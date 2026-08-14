@@ -240,7 +240,7 @@ func LookupToolMetadata(name string) ToolMetadata {
 // installedByTool is keyed by the registered tool name, which is exactly the
 // name passed here.
 func installedCategoryMetadata(name string) (canonical, extra []string) {
-	mf, _, ok := LookupInstalledModule(name)
+	mf, _, _, ok := LookupInstalledModule(name)
 	if !ok {
 		return nil, nil
 	}

@@ -116,24 +116,35 @@ Grouped by surface. Scenario naming convention:
 
 ## O. Supervised work
 
+> **Legacy migration coverage:** these cases describe the native PR-257
+> implementation that established the behavior. They are regression inputs for
+> the EP-0064 WASM application migration, not evidence that native supervise
+> placement is accepted or release-ready. Replace implementation-coupled tests
+> with application/primitive contract tests as the migration lands.
+
 | # | Scenario | Status |
 |---|----------|--------|
-| O1 | `/supervise` opens a basic wizard defaulting to event mode + user-approved pivots | [DONE] unit picker test + PTY/xterm `TestBridgeE2E_Stado_SuperviseWizard` |
-| O2 | Advanced wizard exposes independent watchdog/verifier provider, thinking, effort, and budgets | [DONE] unit picker test + PTY/xterm `TestBridgeE2E_Stado_SuperviseWizard` |
-| O3 | Worker cannot approve the baseline, plan/contract pivot outside policy, or completion | [DONE] `internal/supervise` service authority tests |
-| O4 | Stale watchdog/verifier anchors cannot authorize later state | [DONE] `TestServiceRequiresHumanBaselineApprovalAndBindsVerdicts` |
-| O5 | Event bounded retries/streak and live indefinite capped-backoff policy, correction follow-up, and detector cooldown survive state transitions | [DONE] `internal/supervise` service/detector + `TestSuperviseLiveRetryDelayIncreasesAndCaps` |
-| O6 | Human-only merge/deploy/destructive tool boundaries are recognized before dispatch | [DONE] `TestSuperviseRiskBoundaryIsHumanOnly` |
-| O7 | Supervised prompt context enforces one active step, task deferral, human authority, and verifier-owned completion | [DONE] `TestSuperviseSystemContextEnforcesSingleTaskAndAuthority` |
-| O8 | Process restart restores run state/detector history and `/supervise status|resume|cancel` routes lifecycle | [UNIT] durable service + TUI lifecycle coverage; [PTY] release smoke checklist |
-| O9 | Reviewer repository list/read/search uses the immutable anchored session tree and rejects traversal/symlinks | [DONE] `TestRepositoryEvidenceReadsAndSearchesImmutableTree` + reviewer schema/query tests |
-| O10 | Busy follow-ups survive restart boundaries and are acknowledged only after marker-deduplicated worker delivery/task persistence | [DONE] durable inbox service tests + `TestSuperviseDeferredTaskIsBoundedAndMarkerDeduplicated` |
-| O11 | Premature prose/tool completion is detected, every plan step is required, and only served evidence citations can authorize advancement/completion | [DONE] completion matcher + service/reviewer authority tests |
-| O12 | Automatic context-recovery forks durably move the worker attachment and invalidate parent verdicts; manual session changes do not leak control tools | [DONE] `TestReattachSessionPreservesRootAndInvalidatesParentAuthority` + TUI detach/reload path |
+| O1 | `/supervise` opens a basic wizard defaulting to event mode + user-approved pivots | [BLOCKED C36] application-owned wizard and PTY replacement |
+| O2 | Advanced wizard exposes independent watchdog/verifier provider, thinking, effort, and token budgets | [BLOCKED C36] application-owned wizard and PTY replacement |
+| O3 | Worker cannot select the baseline, pivot outside policy, or claim completion without the application gates | [PLUGIN UNIT] model-tool gates; [BLOCKED C36] baseline workflow |
+| O4 | Stale watchdog/verifier anchors cannot authorize later state | [PLUGIN UNIT] all three stale-result classes; end-to-end migration pending |
+| O5 | Event bounded retries/streak and live capped-backoff policy, correction follow-up, and detector cooldown survive state transitions | [PLUGIN UNIT] repeated/race coverage; end-to-end migration pending |
+| O6 | Host-published tool identity/class/outcome can trigger conservative quality review without parsing command text into security authority | [PLUGIN UNIT] policy coverage; native risk-parser test is deletion debt |
+| O7 | Supervised context enforces one active step, durable input deferral, quality confirmation, and verifier-owned completion | [BROKER/TUI TEST] generic input deferral and exact continuation; [PLUGIN UNIT] step/verifier flow; [IN FLIGHT C36] supervise setup UI integration |
+| O8 | Exact-session rebind restores run state/detector history and `/supervise status|resume|cancel` routes lifecycle; full-process adoption is explicit | [PLUGIN UNIT] journal replay; [BLOCKED C36/C37] command UX and process adoption |
+| O9 | Reviewer repository access uses the immutable broker-stamped turn source and rejects mutable-tip fallback | [PLUGIN UNIT] exact `turn_ref` source and delayed-worker regression; end-to-end migration pending |
+| O10 | Busy follow-ups are immutable broker records, acknowledged only after exact deliver/defer disposition, and continued in explicit order | [BROKER/RPC/TUI TEST] C28 state machine, targeted mandatory event, receiver crash replay, and exact ordered continuation |
+| O11 | Premature prose cannot claim completion, every plan step is required, and only cited current evidence can advance or complete | [PLUGIN UNIT] explicit completion tool plus independent verifier; end-to-end migration pending |
+| O12 | Automatic context recovery atomically transfers the exact application run to its compacted child; manual forks inherit nothing | [BLOCKED C35] fail closed until controller/ancestry transfer lands |
 
 ---
 
-**Running:** `go test ./internal/tui/ -run TestUAT -v`
+**Legacy native regression run:** `go test ./internal/tui/ -run TestUAT -v`
+
+That command is not the replacement release gate. Native results stay useful as
+behavioral evidence while each row moves to official-plugin plus generic-host
+contract coverage; rows labelled blocked or in flight must not be reported as
+shipped.
 
 **Coverage summary:** 50 legacy UAT scenario tests across three files plus the
 supervised-work unit/integration matrix above:

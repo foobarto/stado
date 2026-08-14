@@ -23,11 +23,7 @@ func cacheDir() string {
 }
 
 func bundledBinary() (string, error) {
-	name := "ast-grep"
-	if isWindows() {
-		name = "ast-grep.exe"
-	}
-	return binext.Extract(cacheDir(), name, bundledBytes, bundledSHA256)
+	return binext.Extract(cacheDir(), "ast-grep", bundledBytes, bundledSHA256)
 }
 
 // BundledPath returns the filesystem path to the embedded ast-grep binary,

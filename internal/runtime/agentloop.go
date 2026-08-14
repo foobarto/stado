@@ -26,6 +26,7 @@ import (
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 // AgentLoopOptions parameterises a headless agent loop. Callers typically
@@ -112,6 +113,10 @@ type AgentLoopOptions struct {
 	// ThinkingBudgetTokens is threaded through to the provider when
 	// Thinking resolves to on. 0 means "use a sensible default."
 	ThinkingBudgetTokens int
+	// ReasoningEffort is a provider-native bounded effort value. Empty leaves
+	// the provider default. Callers with user/plugin input must validate model
+	// support before entering the loop.
+	ReasoningEffort string
 
 	// System is the optional AGENTS.md / CLAUDE.md project-instructions
 	// body fed into SystemTemplate as ProjectInstructions. Empty by
@@ -153,15 +158,6 @@ type AgentLoopOptions struct {
 	// nested subagents so their background registry builds remain silent.
 	QuietRegistryDiagnostics bool
 
-	// CostCapUSD is the optional cumulative-cost ceiling for this
-	// loop. Zero disables the guard (the common case). When set, the
-	// loop checks cumulative cost at every turn boundary and returns
-	// ErrCostCapExceeded once the ceiling is crossed. Partial output
-	// up to the moment of abort is still returned in the usual
-	// (text, msgs, err) tuple so callers can persist what the model
-	// already produced.
-	CostCapUSD float64
-
 	// TokenCap is the optional cumulative-token ceiling for this loop
 	// (sum of InputTokens + OutputTokens across all turns). Zero
 	// disables. Useful for local-runner setups where CostUSD is always
@@ -185,15 +181,9 @@ type AgentLoopOptions struct {
 	TopK        *int
 }
 
-// ErrCostCapExceeded is returned by AgentLoop when the cumulative
-// provider cost for the loop has crossed opts.CostCapUSD. Callers map
-// it to a non-zero exit code so CI / scripting pipelines can gate on
-// cost overruns.
-var ErrCostCapExceeded = errors.New("runtime: cost cap exceeded")
-
 // ErrTokenCapExceeded is returned by AgentLoop when the cumulative
 // input+output token count has crossed opts.TokenCap. Mirror of
-// ErrCostCapExceeded for the dollars-zero local-runner case.
+// the interactive token-only budget gate.
 var ErrTokenCapExceeded = errors.New("runtime: token cap exceeded")
 
 // ErrMaxTurnsExceeded is returned when the provider keeps requesting tool
@@ -218,6 +208,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		if err := opts.Broker.SetTaint(ctx, initialTaint); err != nil {
 			return "", opts.Messages, fmt.Errorf("runtime: set initial broker taint: %w", err)
 		}
+	}
+	parentSession := sessionFromExecutor(opts.Executor)
+	if publisher, ok := opts.Broker.(ApplicationEventPublisher); ok && parentSession != nil {
+		opts.OnSubagentEvent = AgentDownEventCallback(parentSession.ID, publisher, opts.OnSubagentEvent)
 	}
 	if opts.Metrics.ToolLatency == nil && opts.Metrics.TokensTotal == nil &&
 		opts.Metrics.CacheHitRatio == nil && opts.Executor != nil {
@@ -246,6 +240,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			Model:                    opts.Model,
 			Thinking:                 opts.Thinking,
 			ThinkingBudgetTokens:     opts.ThinkingBudgetTokens,
+			ReasoningEffort:          opts.ReasoningEffort,
 			System:                   opts.System,
 			SystemTemplate:           opts.SystemTemplate,
 			AgentName:                "stado-subagent",
@@ -261,9 +256,13 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		var fb *FleetBridgeAdapter
 		if spawnFn != nil {
 			fleet := NewFleet()
+			var fleetSpawner Spawner = loopRunner
+			if publisher, ok := opts.Broker.(ApplicationEventPublisher); ok {
+				fleetSpawner = ApplicationEventLeasedSpawner(fleetSpawner, publisher)
+			}
 			fb = &FleetBridgeAdapter{
 				Fleet:   fleet,
-				Spawner: loopRunner,
+				Spawner: fleetSpawner,
 				RootCtx: ctx,
 			}
 			if opts.Config != nil && loopRunner.Parent != nil {
@@ -303,6 +302,41 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	var totalCostUSD float64
 	var totalTokens, totalInputTokens, totalOutputTokens int
 	verifyRounds := 0
+	// EP-0064/C26: AgentLoop is an execution primitive, not a lifecycle-
+	// application composition owner. Loading cfg.Plugins.Background here made a
+	// fresh instance for every headless/ACP prompt and recursively loaded the
+	// parent's application inside reviewer subagents. Supported surfaces must
+	// own and route one persistent instance explicitly. For v1 that is the TUI;
+	// unsupported entry points reject configured applications before calling
+	// AgentLoop.
+	var lifecycleApplications []*LoadedLifecycleApplication
+	applicationSession := parentSession
+	applicationPublisher, _ := opts.Broker.(ApplicationEventPublisher)
+	publishTurnBoundary := func(turnCtx context.Context, turn, totalTokens int, treeBefore plumbing.Hash, text string, calls []agent.ToolUseBlock, results []agent.ToolResultBlock, usage agent.Usage, verification *VerifyOutcome, duration time.Duration) (bool, error) {
+		if applicationPublisher == nil || applicationSession == nil {
+			return false, nil
+		}
+		classes := make(map[string]string, len(calls))
+		if opts.Executor != nil && opts.Executor.Registry != nil {
+			for _, call := range calls {
+				classes[call.Name] = opts.Executor.Registry.ClassOf(call.Name).String()
+			}
+		}
+		if _, err := PublishSessionTurnCommitted(turnCtx, applicationPublisher, applicationSession, TurnCommitInput{
+			Iteration: turn, TreeBefore: treeBefore, ProviderName: opts.Provider.Name(), Model: opts.Model,
+			Usage: usage, CumulativeTokens: totalTokens, TokenLimit: opts.TokenCap,
+			Text: text, Calls: calls, Results: results, ToolClasses: classes, Verification: verification, Duration: duration,
+		}); err != nil {
+			return false, err
+		}
+		// Delivery is an admission barrier, not merely a background tick. It
+		// gives a strict-live application the chance to persist its hold before
+		// this loop can admit another provider or tool dispatch.
+		if err := DispatchLifecycleApplicationEvents(turnCtx, lifecycleApplications, 32); err != nil {
+			return false, err
+		}
+		return WaitForApplicationScheduleStatus(turnCtx, opts.Broker, lifecycleApplications)
+	}
 
 	// Append-only guardrail (DESIGN §"Context management" → "Append-only
 	// history"). Prior messages are the cached prefix; any in-place mutation
@@ -356,6 +390,24 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				// has been appended; an inbox flush only grows the
 				// suffix, so the prefix-of-priorLen check still
 				// matches priorHash on next iteration.
+			}
+		}
+		if err := DispatchLifecycleApplicationEvents(ctx, lifecycleApplications, 32); err != nil {
+			return finalText, msgs, err
+		}
+		completed, err := WaitForApplicationScheduleStatus(ctx, opts.Broker, lifecycleApplications)
+		if err != nil {
+			return finalText, msgs, err
+		}
+		if completed {
+			return finalText, msgs, nil
+		}
+		var turnTreeBefore plumbing.Hash
+		if applicationPublisher != nil && applicationSession != nil {
+			var err error
+			turnTreeBefore, err = applicationSession.TreeHead()
+			if err != nil {
+				return finalText, msgs, fmt.Errorf("runtime: observe pre-turn tree head: %w", err)
 			}
 		}
 
@@ -426,6 +478,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				budget = 16384
 			}
 			req.Thinking = &agent.ThinkingConfig{BudgetTokens: budget}
+		}
+		if opts.ReasoningEffort != "" && caps.SupportsReasoningEffort {
+			req.ReasoningEffort = opts.ReasoningEffort
 		}
 		// Vision filtering. When the provider can't accept images,
 		// quietly strip ImageBlocks before the request so the model
@@ -561,6 +616,23 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			pt := hooks.PostTurnLifecycle(turn, text, usage.InputTokens, usage.OutputTokens, usage.CostUSD, time.Since(turnStart))
 			opts.Hooks.Fire(turnCtx, hooks.PointPostTurn, pt)
 		}
+		for i, application := range lifecycleApplications {
+			if application == nil || application.Application == nil {
+				continue
+			}
+			unregister, tickErr := application.Application.Tick(turnCtx)
+			if tickErr != nil {
+				if application.Manifest.Lifecycle != nil && application.Manifest.Lifecycle.Failure == "closed" {
+					return finalText, msgs, fmt.Errorf("lifecycle application %s tick: %w", application.Identity.Canonical, tickErr)
+				}
+				slog.Warn("lifecycle application tick failed open", "application", application.Identity.Canonical, "err", tickErr)
+				unregister = true
+			}
+			if unregister {
+				_ = application.Close(context.Background())
+				lifecycleApplications[i] = nil
+			}
+		}
 
 		// Flush assistant turn (text + tool_uses) into history.
 		var asst []agent.Block
@@ -576,15 +648,6 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		finalText += text
 
-		if opts.CostCapUSD > 0 && totalCostUSD >= opts.CostCapUSD {
-			err := fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
-			if opts.Verify.Enabled() {
-				finalText = finalText[:finalTextBeforeTurn]
-				emitVerifyGenerationEnd(opts.OnVerifyEvent, verifyRounds+1, err)
-			}
-			turnSpan.End()
-			return finalText, msgs, err
-		}
 		if opts.TokenCap > 0 && totalTokens >= opts.TokenCap {
 			err := fmt.Errorf("%w: used %d of %d cap", ErrTokenCapExceeded, totalTokens, opts.TokenCap)
 			if opts.Verify.Enabled() {
@@ -614,6 +677,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		if len(calls) == 0 {
 			var passedEvents []VerifyEvent
+			var verificationOutcome *VerifyOutcome
 			if opts.Verify.Enabled() {
 				verifyRounds++
 				onVerifyEvent := func(event VerifyEvent) {
@@ -629,6 +693,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				}
 				outcome := RunVerificationRound(turnCtx, opts.Executor, opts.Host,
 					opts.Verify, verifyRounds, onVerifyEvent)
+				verificationOutcome = &outcome
 				switch outcome.Status {
 				case VerifyCancelled:
 					finalText = finalText[:finalTextBeforeTurn]
@@ -688,11 +753,35 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 							Round: verifyRounds, Command: outcome.Command, Feedback: outcome.Feedback,
 						}
 					}
+					completed, err := publishTurnBoundary(turnCtx, turn, totalTokens, turnTreeBefore, text, calls, nil, usage, verificationOutcome, time.Since(turnStart))
+					if err != nil {
+						turnSpan.RecordError(err)
+						turnSpan.SetStatus(codes.Error, err.Error())
+						turnSpan.End()
+						return finalText, msgs, err
+					}
+					if completed {
+						if opts.Executor != nil && opts.Executor.Session != nil {
+							if err := opts.Executor.Session.NextTurn(); err != nil {
+								turnSpan.End()
+								return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+							}
+						}
+						turnSpan.End()
+						return finalText, msgs, nil
+					}
 					priorLen = len(msgs)
 					priorHash = hashMessagesPrefix(msgs, priorLen)
 					turnSpan.End()
 					continue
 				}
+			}
+			_, err := publishTurnBoundary(turnCtx, turn, totalTokens, turnTreeBefore, text, calls, nil, usage, verificationOutcome, time.Since(turnStart))
+			if err != nil {
+				turnSpan.RecordError(err)
+				turnSpan.SetStatus(codes.Error, err.Error())
+				turnSpan.End()
+				return finalText, msgs, err
 			}
 			emitAgentEvents(opts.OnEvent, turnEvents)
 			for _, passed := range passedEvents {
@@ -730,6 +819,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
+		toolResults := make([]agent.ToolResultBlock, 0, len(calls))
 		var skillInjections []string
 		for _, c := range calls {
 			if !toolAllowed(allowedTools, c.Name) {
@@ -769,6 +859,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				Content:   content,
 				IsError:   isErr,
 			}
+			toolResults = append(toolResults, resultBlock)
 			results = append(results, agent.Block{ToolResult: &resultBlock})
 			if opts.OnToolOutcome != nil {
 				opts.OnToolOutcome(turn, c, resultBlock)
@@ -785,6 +876,23 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		for _, body := range skillInjections {
 			msgs = append(msgs, agent.Text(agent.RoleUser, body))
+		}
+		completed, err = publishTurnBoundary(turnCtx, turn, totalTokens, turnTreeBefore, text, calls, toolResults, usage, nil, time.Since(turnStart))
+		if err != nil {
+			turnSpan.RecordError(err)
+			turnSpan.SetStatus(codes.Error, err.Error())
+			turnSpan.End()
+			return finalText, msgs, err
+		}
+		if completed {
+			if opts.Executor != nil && opts.Executor.Session != nil {
+				if err := opts.Executor.Session.NextTurn(); err != nil {
+					turnSpan.End()
+					return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+				}
+			}
+			turnSpan.End()
+			return finalText, msgs, nil
 		}
 
 		priorLen = len(msgs)

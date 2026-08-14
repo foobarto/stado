@@ -33,29 +33,24 @@ func TestNetHTTPRequest_HostAllowlist(t *testing.T) {
 	}
 }
 
-func TestNetHTTPRequest_DoesNotBleedIntoNetHost(t *testing.T) {
-	// Regression: the new http_request parsing must not grow NetHost
-	// (the http_get allowlist) — mixing them would be a quiet
-	// privilege upgrade.
-	mf := plugins.Manifest{Capabilities: []string{"net:http_request:example.com"}}
+func TestRemovedNetCapabilitiesUnlockNothing(t *testing.T) {
+	// Pre-v1 cleanup: the removed stado_http_get bridge has no capability
+	// aliases. Keeping these forms parsed would make a manifest appear to hold
+	// authority which no live import consumes, obscuring capability audits.
+	mf := plugins.Manifest{Capabilities: []string{
+		"net:http_get",
+		"net:foo.bar",
+		"net:allow",
+		"net:deny",
+	}}
 	h := NewHost(mf, t.TempDir(), nil)
-	if len(h.NetHost) != 0 {
-		t.Fatalf("NetHost=%v after net:http_request — must stay empty (separate allowlists)", h.NetHost)
+	if h.NetHTTPRequest || h.NetHTTPRequestPrivate || h.NetHTTPClient {
+		t.Fatalf("removed net caps unlocked HTTP authority: request=%v private=%v client=%v",
+			h.NetHTTPRequest, h.NetHTTPRequestPrivate, h.NetHTTPClient)
 	}
-	if h.NetHTTPGet {
-		t.Fatalf("NetHTTPGet=true after only net:http_request — must stay false")
-	}
-}
-
-func TestNetHTTPGet_StillWorksAfterChange(t *testing.T) {
-	// Sanity: existing net:http_get / net:<host> behaviour intact.
-	mf := plugins.Manifest{Capabilities: []string{"net:http_get", "net:foo.bar"}}
-	h := NewHost(mf, t.TempDir(), nil)
-	if !h.NetHTTPGet {
-		t.Fatalf("NetHTTPGet=false, want true")
-	}
-	if len(h.NetHost) != 1 || h.NetHost[0] != "foo.bar" {
-		t.Fatalf("NetHost=%v, want [foo.bar]", h.NetHost)
+	if len(h.NetReqHost) != 0 || h.NetDial != nil || h.NetListen != nil {
+		t.Fatalf("removed net caps populated an allowlist: request=%v dial=%v listen=%v",
+			h.NetReqHost, h.NetDial, h.NetListen)
 	}
 }
 

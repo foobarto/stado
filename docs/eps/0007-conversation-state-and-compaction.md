@@ -133,5 +133,5 @@ process-local read log keyed by file path and requested range.
 - [EP-4: Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md)
 - [EP-9: Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md)
 - [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
-- [DESIGN.md](../../DESIGN.md#context-management)
+- [DESIGN.md — Context discipline](../../DESIGN.md#context-discipline)
 - [docs/features/context.md](../features/context.md)

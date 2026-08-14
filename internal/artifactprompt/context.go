@@ -45,7 +45,7 @@ func Build(ctx context.Context, o Options) (string, error) {
 	var rs []ranked
 	var shadowInputs []adaptive.Input
 	for _, a := range items {
-		hay := strings.ToLower(a.Summary + " " + a.Content + " " + a.Trigger + " " + strings.Join(a.Tags, " "))
+		hay := strings.ToLower(a.SearchableText() + " " + strings.Join(a.Tags, " "))
 		score := 0
 		for _, term := range terms {
 			if strings.Contains(hay, term) {
@@ -121,12 +121,14 @@ func Build(ctx context.Context, o Options) (string, error) {
 }
 func format(a artifacts.Artifact) string {
 	kind := string(a.Kind)
-	line := fmt.Sprintf("[%s/%s %s] %s", a.Scope, kind, a.ID, one(a.Summary))
-	if a.Trigger != "" {
-		line += " - trigger: " + one(a.Trigger)
-	}
-	if a.Content != "" {
-		line += " - " + one(a.Content)
+	line := fmt.Sprintf("[%s/%s %s] %s", a.Scope, kind, a.ID, one(a.Title()))
+	if data, ok := a.LearningData(); ok {
+		if data.Trigger != "" {
+			line += " - trigger: " + one(data.Trigger)
+		}
+		if data.Content != "" {
+			line += " - " + one(data.Content)
+		}
 	}
 	return line
 }

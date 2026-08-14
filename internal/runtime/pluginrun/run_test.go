@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -62,5 +64,56 @@ func TestMakeInvokeCallback_PrefersExecutor(t *testing.T) {
 	}
 	if len(hookLog) != 0 {
 		t.Fatalf("registry path should not fire executor hooks; log=%v", hookLog)
+	}
+}
+
+func TestRunRejectsMissingCanonicalIdentity(t *testing.T) {
+	manifest := plugins.Manifest{Name: "display-only", Version: "dev"}
+	result, err := Run(context.Background(), RunArgs{Manifest: manifest}, testHost{wd: t.TempDir()})
+	if err == nil {
+		t.Fatal("missing runtime identity unexpectedly accepted")
+	}
+	if result.Error == "" {
+		t.Fatalf("missing identity error was not returned in result: %+v", result)
+	}
+}
+
+func TestRunRejectsIdentityBoundToDifferentManifest(t *testing.T) {
+	identityManifest := plugins.Manifest{Name: "display-one", Version: "dev"}
+	identity, err := plugins.RuntimeIdentityForLocalSource(identityManifest, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	executedManifest := identityManifest
+	executedManifest.Name = "display-two"
+	result, err := Run(context.Background(), RunArgs{Manifest: executedManifest, Identity: identity}, testHost{wd: t.TempDir()})
+	if err == nil {
+		t.Fatal("identity for another manifest unexpectedly accepted")
+	}
+	if result.Error == "" {
+		t.Fatalf("identity mismatch was not returned in result: %+v", result)
+	}
+}
+
+func TestAttachAuthorityNamespacesUsesCanonicalIdentity(t *testing.T) {
+	manifest := plugins.Manifest{
+		Name:         "display-only",
+		Version:      "dev",
+		Capabilities: []string{"secrets:read", "state:read"},
+	}
+	identity, err := plugins.RuntimeIdentityForLocalSource(manifest, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := pluginRuntime.NewHostWithIdentity(manifest, identity, t.TempDir(), nil)
+	host.AttachAuthorityStores(t.TempDir(), pluginRuntime.NewInstanceStore(), nil)
+	if host.Secrets == nil || host.Secrets.PluginName != identity.Namespace {
+		t.Fatalf("secret namespace = %+v, want %q", host.Secrets, identity.Namespace)
+	}
+	if host.State == nil || host.State.PluginName != identity.Namespace {
+		t.Fatalf("state namespace = %+v, want %q", host.State, identity.Namespace)
+	}
+	if got := host.AuditIdentity(); got != identity.Canonical {
+		t.Fatalf("audit identity = %q, want %q", got, identity.Canonical)
 	}
 }

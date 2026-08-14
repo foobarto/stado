@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 )
 
 // Runner enforces a Policy for exec'd subprocess invocations.
 //
 // In-process tool calls (read/grep/…) go through a LightGuard instead which
 // checks the policy in Go without a subprocess boundary; Runner is for the
-// exec-class path where bubblewrap / sandbox-exec / …  wrap a child process.
+// exec-class path where bubblewrap or firejail wraps a child process.
 type Runner interface {
-	Name() string    // "bwrap" | "sandbox-exec" | "none" | …
+	Name() string    // "bwrap" | "firejail" | "none"
 	Available() bool // can this host use this runner?
 	Command(ctx context.Context, p Policy, cmd string, args []string, env []string) (*exec.Cmd, error)
 }
@@ -152,7 +151,3 @@ func setEnvValue(env []string, name, value string) []string {
 	}
 	return append(env, needle+value)
 }
-
-// GOOS is exported so tests can introspect which platform the package
-// compiled against.
-const GOOS = runtime.GOOS

@@ -139,8 +139,8 @@ func TestCheckOptInFeatures_SurfacesConfiguredAndUnset(t *testing.T) {
 	// With budget + hooks configured, the values must reflect that.
 	r2 := &report{}
 	cfg2 := &config.Config{}
-	cfg2.Budget.WarnUSD = 1.0
-	cfg2.Budget.HardUSD = 5.0
+	cfg2.Budget.WarnTokens = 1000
+	cfg2.Budget.HardTokens = 5000
 	cfg2.Hooks.PostTurn = "notify-send 'done'"
 	cfg2.Tools.Disabled = []string{"webfetch"}
 	checkOptInFeatures(r2, cfg2)
@@ -150,7 +150,7 @@ func TestCheckOptInFeatures_SurfacesConfiguredAndUnset(t *testing.T) {
 		all.WriteString(row.label + "=" + row.value + ";")
 	}
 	got := all.String()
-	for _, want := range []string{"$1.00", "$5.00", "notify-send", "webfetch"} {
+	for _, want := range []string{"1000", "5000", "notify-send", "webfetch"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in rows; got %q", want, got)
 		}

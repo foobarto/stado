@@ -9,6 +9,14 @@ requires: ["EP-0037"]
 extends: ["EP-0008"]
 see-also: ["EP-0018", "EP-0030", "EP-0039", "EP-0044"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Trust-boundary correction: EP-44 did not ship a per-project TOFU store;
+      it chose always-strip plus explicit user-config opt-ins. Project skill
+      `allowed-tools` therefore remains unconditionally inert. Any future
+      enablement needs a separately accepted authority path and cannot rely on
+      the nonexistent EP-44 gate.
   - date: 2026-06-29
     status: Partial
     note: >
@@ -94,7 +102,7 @@ Concretely, the gap today:
 | Plugin-bundled skills (namespaced) | `<plugin>/skills/` | no |
 | Arguments / substitution | `$ARGUMENTS`, `$N`, `$name`, `${...}` | no (EP-8 non-goal) |
 | Dynamic context injection | `` !`cmd` `` runs before model sees it | no (EP-8 non-goal) |
-| Per-skill tool pre-approval | `allowed-tools` | persona-scoped surfacing; project scope fail-closed pending trust |
+| Per-skill tool pre-approval | `allowed-tools` | persona-scoped surfacing; project scope fail-closed |
 | Invocation control | `disable-model-invocation`, `user-invocable` | **yes (Phase 1)** |
 | Forked/subagent execution | `context: fork` + `agent:` | no |
 | Per-persona skill scoping | via subagent `skills:` | **yes — stado is ahead here** |
@@ -228,11 +236,11 @@ skills and `allowed-tools` are privilege surface, and project skills are
 attacker-controlled input under EP-44's threat model. Rules:
 
 1. `allowed-tools` from a **project** skill (`.stado/skills/` inside the
-   repo) takes effect only after the project clears the EP-44 trust gate
-   (TOFU). Untrusted project skills load as model-invocable prompt text
-   but grant **no** tools — identical to how EP-44 strips powerful
-   project config keys. Personal/global skills (Phase 3) are operator-
-   authored and trusted by location.
+   repo) grants **no** tools. EP-44 did not ship its proposed per-project
+   TOFU store; its current posture is always-strip plus explicit user-config
+   opt-ins. A future project-skill authority path needs its own accepted
+   decision. Personal/global skills (Phase 3) are operator-authored and
+   trusted by location.
 2. `allowed-tools` never escalates past the session's own sandbox
    policy. It pre-approves a *prompt* for an already-available tool; it
    cannot widen the broker ceiling or the sandbox (consistent with the
@@ -284,7 +292,7 @@ load. For a project skill this is RCE-on-open. Therefore:
 - **Plugin-bundled skills** under `<plugin>/skills/<name>/SKILL.md`,
   namespaced `plugin:skill` so they can't collide with project/personal
   skills, and inheriting the plugin's existing trust/signing posture
-  (EP-39) rather than the project TOFU gate.
+  (EP-39), while project skills remain fail-closed.
 - Per-persona scoping (already shipped) composes on top unchanged.
 
 ## Migration / rollout
@@ -406,9 +414,10 @@ project's no-kid-gloves-pre-1.0 stance).
 
 ### D4. Bind new skill surface to the existing trust boundary, don't fork it
 
-- **Decided:** project-skill `allowed-tools` and `` !`cmd` `` injection
-  are gated on the EP-44 project-trust (TOFU) decision; plugin skills
-  inherit EP-39 plugin trust; `allowed-tools` never widens the sandbox.
+- **Decided:** project-skill `allowed-tools` and `` !`cmd` `` injection remain
+  inert under EP-44's shipped always-strip posture. Plugin skills inherit
+  EP-39 plugin trust; `allowed-tools` never widens the sandbox. A future
+  project authority mechanism requires an explicit replacement decision.
 - **Alternatives:** a skill-specific trust prompt; trusting project
   skills implicitly (matches some of Claude Code's defaults but violates
   EP-44).
@@ -456,7 +465,7 @@ project's no-kid-gloves-pre-1.0 stance).
 
 - [EP-8: Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md) — the current skill contract this extends.
 - [EP-37: Tool dispatch and operator surface](./0037-tool-dispatch-and-operator-surface.md) — the deferred-tool search/activate machinery reused for disclosure.
-- [EP-44: Repo-config trust boundary](./0044-repo-config-trust-boundary.md) — the trust gate project-skill tool grants and shell injection bind to.
+- [EP-44: Repo-config trust boundary](./0044-repo-config-trust-boundary.md) — the always-strip posture that leaves project-skill grants and shell injection inert.
 - [EP-39: Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) — trust posture inherited by plugin-bundled skills.
 - [EP-5: Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) — the ceiling `allowed-tools` can never widen.
 - [Agent Skills open standard](https://agentskills.io) and [Claude Code skills docs](https://code.claude.com/docs/en/skills) — the parity target.

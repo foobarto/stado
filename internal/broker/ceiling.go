@@ -293,6 +293,15 @@ func (s *Service) NarrowEffective(sessionID string, narrowed sandbox.Policy) err
 	if !IsSubsetOf(narrowed, st.handle.Effective) {
 		return fmt.Errorf("%w (session %s)", ErrEffectiveWiderThanCeiling, sessionID)
 	}
+	if st.scope.durable {
+		next := *st
+		next.handle.Effective = narrowed
+		next.scope.version++
+		if err := s.appendSessionScopeSnapshotLocked(&next, s.now()); err != nil {
+			return err
+		}
+		st.scope.version = next.scope.version
+	}
 	st.handle.Effective = narrowed
 	return nil
 }

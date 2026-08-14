@@ -36,7 +36,6 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
-	"github.com/foobarto/stado/internal/secrets"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -47,6 +46,10 @@ import (
 type RunArgs struct {
 	// Manifest is the plugin manifest (declares tools, caps, version).
 	Manifest plugins.Manifest
+
+	// Identity is the loader-authenticated canonical source identity. Every
+	// caller, including local development, must populate it explicitly.
+	Identity plugins.RuntimeIdentity
 
 	// WasmBytes is the verified wasm module body.
 	WasmBytes []byte
@@ -120,7 +123,11 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	if inherited, ok := pluginRuntime.InheritedCaps(ctx); ok {
 		mf.Capabilities = inherited
 	}
-	rtHost := pluginRuntime.NewHost(mf, args.Workdir, nil)
+	identity := args.Identity
+	if identityErr := identity.ValidateManifest(args.Manifest); identityErr != nil {
+		return tool.Result{Error: identityErr.Error()}, fmt.Errorf("pluginrun: identity: %w", identityErr)
+	}
+	rtHost := pluginRuntime.NewHostWithIdentity(mf, identity, args.Workdir, nil)
 	if args.Cfg != nil {
 		rtHost.StateDir = args.Cfg.StateDir()
 	}
@@ -138,21 +145,15 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	}
 	defer func() { _ = rt.Close(ctx) }()
 
-	attachMemoryBridge(args.Cfg, rtHost, args.Manifest.Name)
-
-	if rtHost.Secrets != nil && args.Cfg != nil {
-		rtHost.Secrets.Store = secrets.NewStore(args.Cfg.StateDir())
-		rtHost.Secrets.PluginName = args.Manifest.Name
-		if args.SecretsAudit != nil {
-			rtHost.Secrets.AuditEmitter = args.SecretsAudit
-		}
+	stateDir := ""
+	if args.Cfg != nil {
+		stateDir = args.Cfg.StateDir()
 	}
-	if rtHost.State != nil {
-		rtHost.State.Store = rt.InstanceStore()
-		rtHost.State.PluginName = args.Manifest.Name
-	}
+	rtHost.AttachAuthorityStores(stateDir, rt.InstanceStore(), args.SecretsAudit)
 
-	attachLifecycleBridges(rtHost, h)
+	if err := attachLifecycleBridges(ctx, rtHost, h, identity, args.Manifest); err != nil {
+		return tool.Result{Error: err.Error()}, fmt.Errorf("pluginrun: attach broker bridge: %w", err)
+	}
 
 	// Per-call progress collector lives in ctx (Executor.Run installs
 	// it); the host's ProgressEmitter is already wired by
@@ -179,7 +180,7 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 
 	if rtHost.SessionObserve || rtHost.SessionRead || rtHost.SessionFork || rtHost.LLMInvokeBudget > 0 {
 		if args.SessionBridgeBuilder != nil {
-			bridge, note, berr := args.SessionBridgeBuilder(ctx, args.SessionID, args.Manifest.Name, rtHost.LLMInvokeBudget > 0)
+			bridge, note, berr := args.SessionBridgeBuilder(ctx, args.SessionID, identity.Canonical, rtHost.LLMInvokeBudget > 0)
 			if berr != nil {
 				return tool.Result{Error: berr.Error()}, berr
 			}
@@ -192,7 +193,7 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 			// session:* / llm:invoke calls. Same shape the CLI uses
 			// today when --session is not provided.
 			bridge := pluginRuntime.NewSessionBridge(nil, nil, "")
-			bridge.PluginName = args.Manifest.Name
+			bridge.PluginName = identity.Canonical
 			rtHost.SessionBridge = bridge
 		}
 	}
@@ -225,24 +226,29 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	return pt.Run(ctx, args.Args, h)
 }
 
-// attachMemoryBridge wires a local-disk memory bridge onto the
-// plugin runtime host when the manifest declares it needs one.
-// Mirrors cmd/stado/plugin_run.go:attachPluginMemoryBridge — kept
-// in this package so callers don't need to remember the wiring.
-func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName string) {
-	if cfg == nil || host == nil || !host.NeedsMemoryBridge() {
-		return
-	}
-	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
-}
-
 // attachLifecycleBridges pulls FleetBridge, PTYManager, ApprovalBridge
 // off the caller's tool.Host via interface assertions and wires them
 // into the plugin runtime host. Each is optional — host that lacks the
 // interface leaves the bridge nil, which the host imports treat as
 // "feature unavailable for this dispatch." Same pattern bundledPluginTool.Run
 // has used since EP-0038c.
-func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
+type artifactBrokerProvider interface {
+	ArtifactBrokerBinding(context.Context, plugins.RuntimeIdentity, plugins.Manifest) (pluginRuntime.ArtifactBridgeBinding, error)
+}
+
+func attachLifecycleBridges(ctx context.Context, rtHost *pluginRuntime.Host, h tool.Host, identity plugins.RuntimeIdentity, manifest plugins.Manifest) error {
+	if rtHost.NeedsArtifactBridge() {
+		provider, ok := h.(artifactBrokerProvider)
+		if !ok {
+			return fmt.Errorf("artifact capabilities declared but no broker binding provider is attached")
+		}
+		binding, err := provider.ArtifactBrokerBinding(ctx, identity, manifest)
+		if err != nil {
+			return err
+		}
+		rtHost.ArtifactBridge = binding.Bridge
+		rtHost.ArtifactCaller = binding.Caller
+	}
 	if afp, ok := h.(tool.AgentFleetProvider); ok {
 		if fb, ok := afp.AgentFleetBridge().(pluginRuntime.FleetBridge); ok {
 			rtHost.FleetBridge = fb
@@ -277,6 +283,7 @@ func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
 			pe.EmitProgress(plugin, text)
 		}
 	}
+	return nil
 }
 
 // makeInvokeCallback returns the stado_tool_invoke dispatch closure.

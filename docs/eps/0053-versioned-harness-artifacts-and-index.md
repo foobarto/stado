@@ -7,6 +7,7 @@ implemented-in: v0.78.0
 type: Standards
 created: 2026-08-12
 supersedes: ["EP-0015"]
+extended-by: ["EP-0063"]
 requires: ["EP-0004", "EP-0015", "EP-0059"]
 see-also: ["EP-0016", "EP-0044", "EP-0052", "EP-0054", "EP-0058"]
 history:
@@ -22,7 +23,7 @@ history:
     note: Initial draft.
 ---
 
-> **Relationships:** **Supersedes:** [EP-0015](./0015-memory-system-plugin.md) · **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0015](./0015-memory-system-plugin.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0016](./0016-learning-self-improvement-plugin.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0054](./0054-addressable-context-and-research-agents.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
+> **Relationships:** **Supersedes:** [EP-0015](./0015-memory-system-plugin.md) · **Extended by:** [EP-0063](./0063-plugin-defined-harness-artifacts.md) · **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0015](./0015-memory-system-plugin.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0016](./0016-learning-self-improvement-plugin.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0054](./0054-addressable-context-and-research-agents.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
 
 # EP-0053: Versioned Harness Artifacts and Rebuildable Index
 
