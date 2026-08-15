@@ -98,6 +98,7 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
 	m.metrics = metrics
+	m.brokerRoot = brokerController
 	m.broker = brokerController
 	m.verifyConfig = runtime.VerifyConfigFrom(cfg)
 	m.verifyEnabled = m.verifyConfig.Enabled()
@@ -124,6 +125,17 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 			cfg.Agent.SystemPromptPath, m.systemPromptPath))
 	}
 	m.SetRootContext(runCtx)
+	if sess != nil {
+		activeBroker, owned, peerErr := m.openSessionBroker(runCtx, sess)
+		if peerErr != nil {
+			return fmt.Errorf("tui: %w", peerErr)
+		}
+		m.broker = activeBroker
+		m.brokerPeerOwned = owned
+	}
+	if exec != nil {
+		exec.DispatchGate = runtime.SchedulingDispatchGate(m.broker)
+	}
 	// Cancel any background fleet agents on exit. They spawn off a
 	// non-cancellable root context, so without this they outlive the UI as
 	// orphaned goroutines / child processes (EP-0034). Deferred so it fires on
@@ -159,7 +171,6 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 		runSpan.SetAttributes(attribute.String("session.id", sess.ID))
 	}
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
-	m.SetBudget(cfg.Budget.WarnUSD, cfg.Budget.HardUSD)
 	m.SetBudgetTokens(cfg.Budget.WarnTokens, cfg.Budget.HardTokens)
 	m.SetBudgetTokensSplit(cfg.Budget.WarnInputTokens, cfg.Budget.HardInputTokens, cfg.Budget.WarnOutputTokens, cfg.Budget.HardOutputTokens)
 	m.SetHooks(cfg.Hooks.PostTurn)
@@ -171,22 +182,6 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 	// startup notices so they surface in-band as a system block.
 	lifecycleHooks, hookWarnings := hooks.BuildLifecycleRunnerWithWarnings(cfg)
 	notices = append(notices, hookWarnings...)
-	// Native LSP increment 2: register the built-in post-edit diagnostics
-	// hook on the SAME runner, after any Lua hooks (observe-only, runs
-	// last). Append handles the nil-runner case (no Lua hooks configured),
-	// so this is also what gives the TUI a runner carrying just the LSP
-	// hook. Pinned to the session's LSP manager + diagnostics store + cwd
-	// so servers reap with the session and edits resolve against the
-	// user's checkout.
-	// Opt-in only (Codex #12): auto-diagnostics launches an unsandboxed
-	// language server (an operator-PATH binary that reads repo-controlled
-	// project config and may invoke build tooling) after every mutating edit.
-	// Gate it behind [lsp].auto_diagnostics so a malicious repo can't drive
-	// host LSP spawns via a prompt-injected edit.
-	if m.cfg != nil && m.cfg.LSP.AutoDiagnostics && m.lspManager != nil && m.lspDiagnostics != nil {
-		diagHook := lspfind.NewDiagnosticsHook(m.lspManager, m.lspDiagnostics, m.cwd)
-		lifecycleHooks = lifecycleHooks.Append(diagHook)
-	}
 	m.lifecycleHooks = lifecycleHooks
 	if exec != nil {
 		exec.Hooks = lifecycleHooks
@@ -214,6 +209,18 @@ func Run(cfg *config.Config, startupNotices []string, executorSandbox runtime.Ex
 	// via the host-import ABI. Failures are advisory — a bad plugin
 	// shouldn't brick the TUI.
 	m.LoadBackgroundPlugins(cfg)
+	m.registerSkillSlashCommands(func(string) {})
+	// Native fact-only diagnostics observe after operator Lua and signed WASM
+	// application policy. Keeping this append here makes the EP-0064 order
+	// executable: Lua (config order), WASM (canonical identity), native
+	// observers last.
+	if m.cfg != nil && m.cfg.LSP.AutoDiagnostics && m.lspManager != nil && m.lspDiagnostics != nil {
+		diagHook := lspfind.NewDiagnosticsHook(m.lspManager, m.lspDiagnostics, m.cwd)
+		m.lifecycleHooks = m.lifecycleHooks.Append(diagHook)
+		if m.executor != nil {
+			m.executor.Hooks = m.lifecycleHooks
+		}
+	}
 	defer m.closeBackgroundPlugins(context.Background())
 	// Wrap stdin with an OSC-response stripper. See osc_reader.go:
 	// the terminal's late replies to lipgloss/termenv's one-shot
@@ -274,6 +281,12 @@ func (m *Model) Shutdown() {
 	if m.fleet != nil {
 		m.fleet.CancelAll()
 	}
+	// Run normally closes application modules first via closeBackgroundPlugins.
+	// Keep Shutdown independently safe for tests and early-return paths, then
+	// retire only the non-owning active peer. The root daemon connection belongs
+	// to the command entry point and deliberately survives until Run returns.
+	m.closeLifecycleApplications(context.Background())
+	_ = m.closeActiveBrokerPeer()
 }
 
 // emitSessionSummary walks the session's trace ref and writes a

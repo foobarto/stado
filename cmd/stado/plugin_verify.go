@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,7 +37,14 @@ var pluginVerifyCmd = &cobra.Command{
 			return fmt.Errorf("verify: %w", err)
 		}
 		ts := plugins.NewTrustStore(cfg.StateDir())
-		if err := ts.VerifyManifest(m, sig); err != nil {
+		identity, err := plugins.RuntimeIdentityForLocalSource(*m, dir)
+		if err != nil {
+			return fmt.Errorf("verify: local source identity: %w", err)
+		}
+		if err := ts.VerifyManifestPackage(identity.Namespace, m, sig); err != nil {
+			if strings.HasPrefix(err.Error(), "verify: ") {
+				return err
+			}
 			return fmt.Errorf("verify: %w", err)
 		}
 

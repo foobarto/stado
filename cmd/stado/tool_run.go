@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -121,13 +120,13 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	// Codex #089: pre-fix only registered + canonical were checked, so
 	// `disabled=["gtfobins.lookup"]` did NOT block `stado tool run
 	// gtfobins.lookup` — the registered name was `gtfobins_lookup`
-	// (single underscore, no canonical mapping in LookupToolMetadata),
+	// (single underscore, no canonical wire-name mapping),
 	// and the pattern's `.` prevented any match. Matching the
 	// user-typed `name` too means the operator's intent ("block this
 	// tool by the dotted name I see in /tools") actually fires.
 	if !opts.Force && cfg != nil {
 		registeredName := registered.Name()
-		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		for _, pat := range cfg.Tools.Disabled {
 			if runtime.ToolMatchesGlob(registeredName, pat) ||
 				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) ||
@@ -146,7 +145,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	// operator's allowlist. Same --force escape as the disabled path.
 	if !opts.Force && cfg != nil && len(cfg.Tools.Enabled) > 0 {
 		registeredName := registered.Name()
-		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		allowed := false
 		for _, pat := range cfg.Tools.Enabled {
 			if runtime.ToolMatchesGlob(registeredName, pat) ||
@@ -171,52 +170,26 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		stderr = os.Stderr
 	}
 
-	// Meta-tool path (tools.search / tools.describe / tools.categories /
-	// tools.in_category / tools.activate / tools.deactivate /
-	// plugin.load / plugin.unload). These are native Go implementations
-	// in internal/runtime/meta_tools.go — no WASM module backs them, so
-	// the bundled / installed lookups below would fall through and the
-	// caller would see "registered but its source plugin not found"
-	// despite the tool being live in every other surface (TUI, MCP,
-	// agent loop). Dispatch directly against the registered Go object
-	// using NullHost; activation-style meta-tools (activate / load /
-	// etc.) detect the missing host capability and return a structured
-	// "current host does not support activation" error of their own.
-	if runtime.IsMetaTool(registered.Name()) {
-		res, err := registered.Run(ctx, json.RawMessage(argsJSON), tools.NullHost{})
+	// Bundled path. Direct dispatch consumes the same verified manifest
+	// projection as the default registry; it never reconstructs a contract
+	// from the Go tool object.
+	if contract, ok, lookupErr := bundled.LookupToolContract(registered.Name()); lookupErr != nil {
+		return lookupErr
+	} else if ok {
+		identity, err := plugins.RuntimeIdentityForBundledSource(contract.Source, contract.Manifest)
 		if err != nil {
-			if res.Error != "" {
-				fmt.Fprintln(stderr, res.Error)
-			}
-			return err
+			return fmt.Errorf("bundled identity: %w", err)
 		}
-		if res.Error != "" {
-			return fmt.Errorf("%s", res.Error)
-		}
-		fmt.Fprintln(stdout, res.Content)
-		return nil
-	}
-
-	// Bundled path.
-	if info, ok := bundled.LookupModuleByToolName(registered.Name()); ok {
-		pluginName := bundled.ManifestNamePrefix + "-" + info.Name
-		bareToolDef := toolDefFromRegistered(registered)
-		manifest := plugins.Manifest{
-			Name:         pluginName,
-			Version:      info.Version,
-			Author:       info.Author,
-			Capabilities: info.Capabilities,
-			Tools:        []plugins.ToolDef{bareToolDef},
-		}
-		wasmBytes, err := bundled.Wasm(info.Name)
+		wasmBytes, err := bundled.Wasm(contract.Source)
 		if err != nil {
 			return fmt.Errorf("bundled wasm load: %w", err)
 		}
 		installDir, _ := os.Getwd()
 		return runPluginInvocation(ctx, pluginInvokeArgs{
-			Manifest:   manifest,
+			Manifest:   contract.Manifest,
+			Identity:   identity,
 			WasmBytes:  wasmBytes,
-			ToolName:   bareToolDef.Name,
+			ToolName:   contract.Definition.Name,
 			ArgsJSON:   argsJSON,
 			Cfg:        cfg,
 			WorkdirArg: opts.Workdir,
@@ -228,7 +201,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	}
 
 	// Installed-plugin path.
-	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+	if mfst, identity, wasmPath, ok := runtime.InstalledModuleForTool(registered); ok {
 		// #023: registry construction (registerInstalledPluginTools) only
 		// checks the trust-store signature + wasm sha — it does NOT consult
 		// the configured CRL or transparency log. Without re-running the
@@ -274,6 +247,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		installDir, _ := os.Getwd()
 		return runPluginInvocation(ctx, pluginInvokeArgs{
 			Manifest:   mfst,
+			Identity:   identity,
 			WasmBytes:  wasmBytes,
 			ToolName:   bareName,
 			ArgsJSON:   argsJSON,
@@ -297,10 +271,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 // are checked so the gate trips regardless of how the tool was
 // looked up.
 func ptyBoundShellTool(name string) bool {
-	canonical := name
-	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
-		canonical = md.Canonical
-	}
+	canonical := runtime.CanonicalToolName(name)
 	switch canonical {
 	case
 		"shell.spawn",
@@ -349,7 +320,7 @@ func lookupToolInRegistry(reg *tools.Registry, query string) (pkgtool.Tool, bool
 		}
 	}
 	for _, candidate := range reg.All() {
-		if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
+		if runtime.ToolMetadataFor(candidate).Canonical == query {
 			return candidate, true
 		}
 	}
@@ -359,39 +330,6 @@ func lookupToolInRegistry(reg *tools.Registry, query string) (pkgtool.Tool, bool
 		}
 	}
 	return nil, false
-}
-
-// toolDefFromRegistered builds a plugins.ToolDef from a registered
-// tool. The Name field uses the bare suffix from a wire-form name
-// (e.g. fs__read → "read") because the wasm dispatcher in
-// internal/plugins/runtime/tool.go prepends "stado_tool_" to def.Name
-// to resolve the export. Tools registered with non-wire-form names
-// (legacy bare names like "read", "write") use the registered name
-// as-is — ParseWireForm returns ok=false for those.
-func toolDefFromRegistered(t pkgtool.Tool) plugins.ToolDef {
-	registered := t.Name()
-	bare := registered
-	if alias, sub, ok := tools.ParseWireForm(registered); ok && alias != "" {
-		bare = sub
-	}
-	return plugins.ToolDef{
-		Name:        bare,
-		Description: t.Description(),
-		Schema:      marshalSchemaJSON(t.Schema()),
-	}
-}
-
-// marshalSchemaJSON serializes a schema map as JSON. Returns "{}" on
-// error so the wasm dispatcher receives a parseable empty schema.
-func marshalSchemaJSON(schema map[string]any) string {
-	if schema == nil {
-		return `{"type":"object"}`
-	}
-	b, err := json.Marshal(schema)
-	if err != nil {
-		return `{"type":"object"}`
-	}
-	return string(b)
 }
 
 func init() {

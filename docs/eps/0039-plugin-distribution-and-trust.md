@@ -2,13 +2,94 @@
 ep: 39
 title: Plugin distribution and trust — anchor repo, versioned identity, lock file
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
 extends: ["EP-0006"]
 see-also: ["EP-0006", "EP-0012", "EP-0035", "EP-0037", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Cleanup C71/C75-C85 completes the source-keyed store cutover and closes
+      newly exposed admission gaps: exact user-state install receipts prevent
+      project record/lock fabrication from minting authority; remote reopen
+      also requires the accepted owner signer; trust, receipt, and lock RMW
+      transactions are cross-process serialized; active markers fail closed;
+      tool collisions are preflighted; lock rows are immutable continuity
+      history while receipt revocation precedes removal; signed ABI export and
+      min_stado_version gates are uniform; and the retired split anchor store
+      is deleted. Scoped management selectors disambiguate identical project
+      and global rows. One shared installed verifier now applies dynamic
+      CRL/Rekor policy at every execution surface. EP-39 remains Partial because
+      the original wider post-v0.80 distribution scope is still deferred.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      Cleanup C71 closes the identity-placement drift. Every installed package
+      lives under a host-derived source/provenance store key and carries a
+      complete install record validated on reopen. Remote records require one
+      exact store-keyed lock row; local records retain the canonical original
+      source path and signer. Activation markers bind source-namespace digests
+      to exact store keys. Configuration and commands accept exact canonical
+      sources/store keys; display aliases work only when globally unique.
+      Legacy flat directories are rejected rather than inferred. Retained
+      rollback packages retain their lock rows, and accepted tag rewrites keep
+      both exact provenances while selecting the reviewed replacement.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      C69's immutable source/package lock is implemented, but cleanup C71
+      found a separate D12 identity-placement drift. Installed directories and
+      configured IDs are still keyed by flat Manifest.Name-version aliases, so
+      two independently signed canonical source namespaces with the same
+      display metadata collide before runtime identity verification. EP-39
+      remains Partial until the store and activation path are canonical-source
+      keyed and friendly aliases are non-authoritative unique lookups only.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      Cleanup C69 closes the remaining v0.80 distribution amendment gap.
+      Every semver source ref is dereferenced through its bounded host API to
+      a lowercase full commit before package bytes are admitted; annotated
+      GitHub tags are followed to their commit and GitLab uses the tag's exact
+      commit ID. The lock retains source_revision, resolved_commit, the
+      canonical signed-manifest digest, and the WASM digest. Reinstall compares
+      both source mapping and signed package before trust or install mutation,
+      refuses moved tags and same-commit package replacement by default, and
+      requires the dedicated --accept-tag-rewrite operator action to replace
+      either. Full-commit identities remain metadata-independent exact pins.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Cleanup C69 corrected a false closure claim. C53 now separates the
+      fetched source ref from the signed package version, but semver installs
+      still do not resolve and persist the ref's full commit or compare it on
+      reinstall. The normative D13 tag-move refusal therefore remains
+      unimplemented. EP-39 stays Partial until the lock records the dereferenced
+      commit and moved-tag acceptance is an explicit operator action.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      v0.80 distribution correction (cleanup C51-C54): owner-anchor acceptance
+      and signer trust now commit in one verified transaction; rollback floors
+      are signer-plus-canonical-package scoped; legacy signer-global floors
+      remain inert audit evidence and never mint a source namespace;
+      lock/runtime identity records source_revision separately from signed
+      package_version and rejects tag/package mismatches; GitHub monorepo update
+      discovery is package-aware, while unsupported monorepo hosts remain
+      exact-pin only. The normative amendment below supersedes conflicting
+      trust-store, lock-shape, and repo-wide-latest examples in the original
+      design history.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      Documentation correction: D12 is the later, authoritative amendment to
+      D7's original manifest-name directory and global `.active` symlink.
+      Current installs use canonical source identity; active selection is
+      project-local with a per-user fallback. D7 remains decision history, not
+      an alternative current layout.
   - date: 2026-05-05
     status: Draft
     note: Initial draft. Companion to EP-0037 (dispatch + naming) and EP-0038 (ABI v2 + bundled wasm). Extends EP-0006's signed-WASM trust model with VCS-based identity, anchor-of-trust pattern, multi-version coexistence, and lock file.
@@ -64,6 +145,128 @@ history:
 > then reinstall; `stado plugin update` fetches newer tagged releases. Owner
 > anchor TOFU **on remote install is shipped** (v0.70.0) — prompt or
 > `--trust-anchor`; unreachable anchor fails closed.
+
+## Normative v0.80 distribution amendment
+
+This section is the current contract. Earlier examples below describe the
+design path and may name planned scope choices, cache files, or lock fields
+that never became authoritative.
+
+### One owner decision, one trust transaction
+
+A remote install fetches the full Ed25519 owner-anchor key, not only its
+fingerprint. First sight requires the interactive decision or
+`--trust-anchor`. That decision is prepared in memory; it does not write an
+owner pin yet. Stado then validates the logical package identity, exact source
+ref, manifest version, WASM digest, signature, minimum host version, and configured
+revocation state. Only after all those checks pass does one atomic replacement
+of `$XDG_DATA_HOME/stado/plugins/trusted_keys.json` record:
+
+- the signer public key and fingerprint;
+- the accepted `<host>/<owner>` association; and
+- the rollback floor for the canonical package/source namespace.
+
+A bad signature, signer/anchor mismatch, revoked package, or failed policy
+check leaves neither half of the trust decision behind. An anchor outage is
+tolerated for cached owners because the same record retains the public key;
+uncached package artifacts still need a reachable source or release cache. A
+changed published anchor fails closed until the operator verifies the rotation
+out of band and runs `stado plugin untrust-anchor <host/owner>`.
+
+The older owner-fingerprint directory is unsupported pre-v1 state. Stado never
+reads it as authority or migrates it implicitly; the operator removes it after
+review and explicitly accepts the owner again into the unified trust record.
+
+### Package-scoped rollback and retired legacy state
+
+One offline key commonly signs several official packages in a monorepo. A
+single signer-global version is therefore not a meaningful rollback floor.
+`version_floors` is keyed by the signer fingerprint plus the
+host-authenticated, unversioned source namespace, for example:
+
+```text
+signer 49cbeaa8289e6623 + github.com/foobarto/stado-plugins/supervise -> 0.1.0
+signer 49cbeaa8289e6623 + github.com/foobarto/stado-plugins/browser   -> 0.12.0
+```
+
+`Manifest.Name` is presentation metadata and cannot select this namespace.
+Pre-v0.80 `last_version` remains inert audit evidence. It is never consulted or
+migrated into a source namespace. Explicit reinstall verifies the canonical
+source and signer, then creates or advances only that exact package floor. The
+global legacy value is never copied onto any package.
+
+### Source revision is not package version
+
+The logical identity still ends in either a semver selector or a full commit
+SHA. The lock now records the exact ref that supplied the bytes separately from
+the version signed into the manifest:
+
+```toml
+[[plugin]]
+identity           = "github.com/foobarto/stado-plugins/supervise@v0.1.0"
+source_revision    = "supervise/v0.1.0"
+resolved_commit    = "0123456789abcdef0123456789abcdef01234567"
+store_key           = "remote-..."
+package_version    = "0.1.0"
+manifest_digest    = "sha256:..."
+wasm_sha256        = "..."
+anchor_fingerprint = "49cbeaa8289e6623"
+installed_at       = "2026-08-14T12:00:00Z"
+```
+
+A semver selector must match the signed package version and is dereferenced to
+a lowercase full commit through the source host before package bytes are
+admitted. The mapping is checked again after fetch. An existing exact-identity
+lock with a different mapping, canonical manifest digest, or WASM digest
+refuses the install before trust, destination, or lock mutation. This also
+catches replaced release assets while a git tag still names the same commit;
+`--accept-tag-rewrite` is the deliberate, out-of-band-verified
+operator action that permits replacement. A commit selector may carry any
+valid signed semver, but its full SHA must equal both `source_revision` and
+`resolved_commit`. A legacy lock without commit/package-version evidence, a
+mismatched tag, an invalid resolved ref, or a mismatched anchor fails closed;
+it is not reclassified as a local-path plugin.
+`plugin update` does not turn a full-SHA pin into a moving semver selection;
+the operator must install an explicit new identity to leave that commit.
+
+### Host acceptance, management scope, and live state
+
+An install record and project lock describe provenance but are not host
+acceptance: a repository can write both. Successful installation therefore
+writes a user-state receipt for the canonical install root plus exact store
+key. The store key hashes the complete provenance record. Every installed
+runtime reopen validates the record, receipt, signature/floor, manifest/WASM
+digests, and—for remote rows—the exact accepted owner signer. This is a
+same-UID host record, not a defence against an operator deliberately rewriting
+their own stado state.
+
+`project:` and `global:` are management-selector prefixes, not package
+identity. They disambiguate an exact row installed in both roots. Active state
+contains one validated store key per source namespace and any present corrupt,
+oversized, unreadable, or stale marker fails closed. Removal and GC revoke
+receipts before deleting bytes. Lock rows remain immutable provenance and
+tag-continuity history so deleting an old package cannot make a moved tag look
+new on reinstall.
+
+A nonempty signed `min_stado_version` is checked both during install and every
+runtime reopen. It must be stable semver. A development, malformed, or
+prerelease host identity cannot claim to satisfy it.
+
+### Package-aware monorepo releases and updates
+
+The preferred official release is `<plugin-subdir>/vX.Y.Z` with flat
+`plugin.wasm`, `plugin.manifest.json`, and `plugin.manifest.sig` assets. A
+repo-wide `vX.Y.Z` release is also valid for a subpackage only when it contains
+all three exact `<subdir-with-slashes-replaced-by-dashes>-plugin.*` assets.
+Raw-tree fallback reads `<subdir>/dist/` from the already-dereferenced full
+commit rather than asking the raw endpoint to resolve mutable tag text again.
+
+GitHub update discovery inspects a bounded release list and selects only the
+subpackage-prefixed tag or a repo-wide release with that package's complete
+prefixed asset set. A sibling package's newer release and ambiguous flat
+monorepo assets are ignored. GitLab monorepo latest discovery is intentionally
+not claimed in v0.80: install an exact pinned identity there. Exact pinned
+install remains supported even when latest discovery is unavailable.
 
 ## Problem
 
@@ -1114,91 +1317,54 @@ Migration path for the HTB toolkit specifically:
 
 ### §K — CLI surface delta
 
-Adds to existing `stado plugin`:
+The v0.80 implemented distribution surface is:
 
 ```
-plugin install <local-path-or-archive>           # existing (unchanged)
-plugin install <repo>[@version]                  # NEW: remote
-plugin install --from-lock                       # NEW: reproducible install
-plugin install ... --autoload                    # NEW: pin to autoload
-plugin install ... --build                       # NEW: opt-in source build fallback
-plugin install ... --keep-active                 # NEW: install but don't switch active
-plugin install ... --no-cache                    # NEW: bypass tarball cache
-plugin install ... --force                       # NEW (formalised): override sha drift / version conflict
-
-plugin update <name>|--all|--check               # NEW
-plugin update-anchor <host>/<owner>              # NEW: re-fetch anchor pubkey
-plugin use <repo> <version>                      # NEW: switch active version
-plugin trust <repo|fpr> [--scope=...]            # extended: scope arg
-plugin trust <fpr> --pubkey-file <path>          # NEW: legacy file-based trust
-plugin untrust <fpr>|<owner>                     # NEW
-plugin verify <name>                             # NEW: re-verify signature against trust
-plugin remove <repo>[@version]                   # NEW (or extended): version-specific remove
-plugin sign <dir> --key <path>                   # NEW: explicit signing step
-plugin dev <dir>                                 # NEW: gen-key+build+trust+install+reload loop
-
-plugin ls --all-versions                         # NEW flag
-plugin ls --json                                 # NEW flag (consistent with tool ls)
-
-plugin doctor <name>                             # extended: cap-vs-sandbox checks
+plugin install [--local] <local-dir|canonical-remote-identity>
+               [--signer <pubkey>] [--trust-anchor] [--autoload]
+               [--force] [--accept-tag-rewrite]
+plugin update [[project:|global:]<source|store-key>|all] [--check]
+plugin use [project:|global:]<source|store-key>
+plugin verify <local-dir>
+plugin verify-installed [project:|global:]<source|store-key>
+plugin remove [project:|global:]<source|store-key>
+plugin info|doctor|reload [project:|global:]<source|store-key>
+plugin installed
+plugin list
+plugin gc [--keep N] [--apply]
+plugin trust <pubkey> [author]
+plugin untrust <fingerprint>
+plugin untrust-anchor <host/owner>
+plugin sign <manifest> --key <seed>
+plugin dev <dir> [--watch]
 ```
 
-In TUI: `/plugin install github.com/foo/bar@v1.0.0` always
-**performs the install fully** (downloads, verifies, writes to
-disk, mutates trust state, updates the user-level
-`plugin-state.toml`). Codex review #18 flagged that earlier
-"per-session by default" framing was incoherent — install IS
-durable by definition; you can't make it session-local.
-
-What IS per-session by default for `/plugin install`:
-
-- Whether the newly-installed plugin's tools become **enabled
-  for the current session** (so the model can call them
-  immediately without restart).
-- Whether the new install becomes the project's **active version
-  pin** (writes to `.stado/plugin-lock.toml`).
-
-`/plugin install <repo>@<version>` defaults: install durable,
-enabled this-session, NOT pinned to project. Flags:
-
-- `/plugin install ... --pin-project` — also write to
-  `.stado/plugin-lock.toml` so the install persists across
-  sessions in this project.
-- `/plugin install ... --autoload` — also add to
-  `[tools.autoload]` for this project (requires `--pin-project`
-  too — autoload without pinning the version makes no sense).
-- `/plugin install ... --no-enable` — install but don't enable
-  for this session (only useful for "I'm setting up but not
-  ready to use yet" workflows).
-
-The CLI `stado plugin install` defaults are different: install
-durable, enabled, AND pinned to project (commits to
-`.stado/plugin-lock.toml`). Operator who runs the CLI command
-intentionally is opting into team-shareable state.
+Installation and trust mutation are CLI operations in v0.80. The TUI may invoke
+or reload already-installed exact packages, but it does not expose a second
+distribution transaction with different persistence or authority semantics.
 
 ## Migration / rollout
 
-EP-0039 is additive at the plugin-install layer:
+The v0.80 source-keyed store is a one-way pre-v1 cutover:
 
-- Existing local-dir installs continue to work unchanged.
-- Existing trust entries continue to work for local installs.
+- Existing source directories can be reinstalled explicitly.
+- Existing signer keys remain usable for local installs, but signer-global
+  legacy rollback values are inert and never mint a source namespace.
 - Remote VCS install is new; first use per owner triggers the
   TOFU anchor prompt.
 - Lock file appears on first remote install per project; existing
   projects without a lock file aren't affected unless they install
   remotely.
-- The install-dir layout migrates from flat `<name>-<version>/`
-  (collision-prone — codex review #3) to canonical-identity-keyed
-  `<host>/<owner>/<repo>/<version>/` (per §F). Existing flat-
-  layout installs are migrated transparently on first run after
-  EP-0039 lands; identity is reconstructed from the manifest's
-  signed metadata + lock file when available, or the operator
-  is prompted to confirm the canonical identity for orphan
-  installs.
-- Active-version state moves from a global `<name>.active` symlink
-  to per-project `.stado/plugin-lock.toml` + per-user
-  `~/.config/stado/plugin-state.toml` (per §F). Existing global
-  symlinks are replaced by user-level state on migration.
+- The install-dir layout is a flat host-generated `remote-<sha256>` or
+  `local-<sha256>` store key whose digest binds the complete install record.
+  Pre-v1 `<name>-<version>` directories are rejected with a reinstall
+  diagnostic. Source authority is never inferred from old display aliases.
+- Active state is an exact store key below a marker named by the digest of the
+  stable authenticated source namespace. Project and user roots remain
+  independent; no manifest name participates in marker selection.
+- User-state exact install receipts—not project records or locks—record live
+  host acceptance. Removal revokes the receipt before deleting bytes; lock
+  rows remain immutable source-continuity history.
 - Quality-pass items (sha drift, `--pubkey-file`, `update`, etc.)
   are isolated changes to existing CLI commands.
 
@@ -1418,6 +1584,11 @@ sole operator and can adapt to format changes between versions.
 
 ### D7. Multi-version coexistence; one active per name per session
 
+> **Historical shape, amended by D12.** Side-by-side versions remain the
+> decision, but D12 replaces the `<name>-<version>/` directory and global
+> `.active` symlink below with canonical identity-keyed directories plus
+> project-local/per-user selection.
+
 - **Decided:** install side-by-side at `<name>-<version>/`;
   `.active` symlink tracks active. Project pins via
   `[plugins.<name>] version = "..."`.
@@ -1485,11 +1656,13 @@ sole operator and can adapt to format changes between versions.
 
 ### D12. Identity-keyed install layout, per-project active version
 
-- **Decided:** install dir is `<host>/<owner>/<repo>/<version>/`
-  (canonical identity), not `<name>-<version>/`. Active-version
-  state lives per-project in `.stado/plugin-lock.toml` plus per-
-  user fallback in `~/.config/stado/plugin-state.toml`. The
-  global `<name>.active` symlink is gone.
+- **Decided:** install dir is a host-derived source/provenance store key, not a
+  guest manifest name and not a nested path whose segments could become an
+  accidental filesystem API. Its record binds canonical source, namespace,
+  package version, signed manifest/WASM/signer, and remote ref/full commit.
+  Active state maps a source-namespace digest to one exact store key within
+  each project or user root. A separate user-state receipt admits that exact
+  `(canonical root, store key)` row; project files alone cannot mint authority.
 - **Alternatives:** keep the manifest-name-based flat layout
   (the original draft); per-user-only active state; per-system
   global symlink (the original draft).

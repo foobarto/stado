@@ -79,14 +79,17 @@ const (
 	// layer so daemon-side handlers can reference them without
 	// importing internal/broker (avoids upward dependency from
 	// internal/daemon to internal/broker).
-	ErrCodeBrokerPolicyDeny        = -32020
-	ErrCodeBrokerInvalidPurpose    = -32021
-	ErrCodeBrokerInvalidProfile    = -32022
-	ErrCodeBrokerSessionNotFound   = -32023
-	ErrCodeBrokerSessionTerminated = -32024
-	ErrCodeBrokerPolicyLoad        = -32025
-	ErrCodeBrokerInvalidParams     = -32026
-	ErrCodeBrokerInternal          = -32027
+	ErrCodeBrokerPolicyDeny             = -32020
+	ErrCodeBrokerInvalidPurpose         = -32021
+	ErrCodeBrokerInvalidProfile         = -32022
+	ErrCodeBrokerSessionNotFound        = -32023
+	ErrCodeBrokerSessionTerminated      = -32024
+	ErrCodeBrokerPolicyLoad             = -32025
+	ErrCodeBrokerInvalidParams          = -32026
+	ErrCodeBrokerInternal               = -32027
+	ErrCodeBrokerSessionScopeActive     = -32028
+	ErrCodeBrokerSessionScopeCredential = -32029
+	ErrCodeBrokerSessionHandoffConflict = -32030
 )
 
 // JSON-RPC method names. Every request carries a method from this list;

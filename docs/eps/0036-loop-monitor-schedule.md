@@ -38,8 +38,9 @@ and `CronCreate` (OS-level persistence). Stado needs the same primitives.
 
 ```
 /loop <prompt>               immediate-repeat: re-run <prompt> when each
-                             turn finishes; stops on /loop stop or
-                             [LOOP_DONE] in the agent's response.
+                             turn finishes; stops on /loop stop,
+                             [LOOP_DONE] in the agent's response, or when
+                             /supervise takes ownership of worker turns.
 /loop <duration> <prompt>    timed: wait <duration> between turns.
                              e.g. /loop 5m "check deploy status"
                              Duration format: Go time.ParseDuration

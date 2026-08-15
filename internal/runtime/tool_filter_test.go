@@ -29,29 +29,19 @@ func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
 	cfg.Tools.Enabled = []string{"fs__read", "fs__grep"}
 	ApplyToolFilter(reg, cfg)
 
-	// The meta-tool kernel always survives (EP-0037), so assert on the
-	// non-meta surface only.
 	var names []string
-	metaCount := 0
 	for _, tl := range reg.All() {
-		if IsMetaTool(tl.Name()) {
-			metaCount++
-			continue
-		}
 		names = append(names, tl.Name())
 	}
 	sort.Strings(names)
 	want := []string{"fs__grep", "fs__read"}
 	if len(names) != 2 {
-		t.Fatalf("expected 2 non-meta tools (read+grep), got %d: %v", len(names), names)
+		t.Fatalf("expected 2 tools (read+grep), got %d: %v", len(names), names)
 	}
 	for i, n := range want {
 		if names[i] != n {
 			t.Errorf("names[%d] = %q, want %q", i, names[i], n)
 		}
-	}
-	if metaCount == 0 {
-		t.Error("the meta-tool kernel must survive the allowlist (EP-0037)")
 	}
 }
 
@@ -163,15 +153,8 @@ func TestApplyToolFilter_EmptyAllowFailsClosed(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"renamed-tool", "missing-tool"}
 	ApplyToolFilter(reg, cfg)
-	// Fail-closed reduces to the non-disableable meta-tool kernel (EP-0037),
-	// not literally empty: every NON-meta tool must be gone, the kernel stays.
-	for _, tl := range reg.All() {
-		if !IsMetaTool(tl.Name()) {
-			t.Errorf("unmatched [tools].enabled should fail closed; non-meta tool %q survived", tl.Name())
-		}
-	}
-	if len(reg.All()) == 0 {
-		t.Error("fail-closed must retain the meta-tool kernel, not empty the registry (EP-0037)")
+	if len(reg.All()) != 0 {
+		t.Errorf("unmatched [tools].enabled should empty the registry; got %v", listNames(reg.All()))
 	}
 }
 
@@ -192,80 +175,16 @@ func TestApplyToolFilter_CanonicalNameMatchesWireForm(t *testing.T) {
 		t.Errorf("fs__read should survive [tools].enabled=[fs.read] (canonical → wire match)")
 	}
 	for _, tl := range reg.All() {
-		if tl.Name() != "fs__read" && !IsMetaTool(tl.Name()) {
+		if tl.Name() != "fs__read" {
 			t.Errorf("tool %q should have been filtered out by [fs.read] allowlist", tl.Name())
 		}
 	}
 }
 
-// TestApplyToolFilter_MetaToolKernelNonDisableable: EP-0037 §E — the meta-tool
-// dispatch kernel (tools.*/plugin.load/unload) survives even an explicit
-// attempt to disable it, and an allowlist that omits it. Otherwise the model
-// loses the ability to discover/activate any non-autoloaded tool. Reproduce-
-// first: before the fix, both paths unregistered the kernel.
-func TestApplyToolFilter_MetaToolKernelNonDisableable(t *testing.T) {
-	kernel := []string{
-		"tools__search", "tools__describe", "tools__categories", "tools__in_category",
-		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload",
+func TestSkillsLoadHasNoNativeFallback(t *testing.T) {
+	if _, ok := BuildDefaultRegistry(nil).Get("skills__load"); ok {
+		t.Fatal("native registry resurrected skills__load; it belongs to an explicitly installed WASM plugin")
 	}
-
-	t.Run("explicit disable cannot remove the kernel", func(t *testing.T) {
-		reg := BuildDefaultRegistry(nil)
-		cfg := &config.Config{}
-		cfg.Tools.Disabled = []string{"tools.*", "plugin.*"}
-		ApplyToolFilter(reg, cfg)
-		for _, k := range kernel {
-			if _, ok := reg.Get(k); !ok {
-				t.Errorf("meta-tool %q must survive disabled=[tools.*,plugin.*] (kernel is non-disableable)", k)
-			}
-		}
-	})
-
-	t.Run("allowlist that omits the kernel still keeps it", func(t *testing.T) {
-		reg := BuildDefaultRegistry(nil)
-		cfg := &config.Config{}
-		cfg.Tools.Enabled = []string{"fs__read"}
-		ApplyToolFilter(reg, cfg)
-		for _, k := range kernel {
-			if _, ok := reg.Get(k); !ok {
-				t.Errorf("meta-tool %q must survive an allowlist that omits it", k)
-			}
-		}
-	})
-}
-
-// TestSkillsLoad_Deniable: EP-0045 trust rule 3 — skills__load is registered
-// by default but is NOT part of the non-disableable kernel, so [tools].disabled
-// removes it (turning model invocation off wholesale). Contrast with
-// TestApplyToolFilter_MetaToolKernelNonDisableable, where the kernel survives.
-func TestSkillsLoad_Deniable(t *testing.T) {
-	if IsMetaTool("skills__load") {
-		t.Fatal("skills__load must NOT be a non-disableable kernel meta-tool (EP-0045 rule 3)")
-	}
-	t.Run("registered by default", func(t *testing.T) {
-		reg := BuildDefaultRegistry(nil)
-		if _, ok := reg.Get("skills__load"); !ok {
-			t.Error("skills__load should be registered by default")
-		}
-	})
-	t.Run("explicit disable removes it", func(t *testing.T) {
-		reg := BuildDefaultRegistry(nil)
-		cfg := &config.Config{}
-		cfg.Tools.Disabled = []string{"skills__load"}
-		ApplyToolFilter(reg, cfg)
-		if _, ok := reg.Get("skills__load"); ok {
-			t.Error("[tools].disabled=[skills__load] must unregister it (deniable off-switch)")
-		}
-	})
-	t.Run("glob disable removes it", func(t *testing.T) {
-		reg := BuildDefaultRegistry(nil)
-		cfg := &config.Config{}
-		cfg.Tools.Disabled = []string{"skills.*"}
-		ApplyToolFilter(reg, cfg)
-		if _, ok := reg.Get("skills__load"); ok {
-			t.Error("[tools].disabled=[skills.*] must unregister it")
-		}
-	})
 }
 
 func TestToolMatchesGlob(t *testing.T) {
@@ -295,14 +214,13 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"fs__read", "shell.bash", false},
 		// Canonical-with-dash: alias "htb-lab" → wire "htb_lab"
 		{"htb_lab__spawn", "htb-lab.spawn", false}, // exact canonical doesn't normalise dashes; pattern must use the wire-segment form. Documented behaviour.
-		// Legacy bare-name PATTERN (operator wrote the pre-EP-0038 name in
-		// the filter) must still match the wasm tool that replaced it —
-		// otherwise [tools].disabled is a silent no-op (security finding).
-		{"web__fetch", "webfetch", true}, // hidden-superseded
-		{"shell__exec", "bash", true},    // renamed alias bash → shell.exec
-		{"fs__read", "read", true},
-		{"fs__ls", "ls", true},           // hidden-superseded
-		{"web__fetch", "ripgrep", false}, // unrelated legacy name must NOT match
+		// Removed pre-v1 bare aliases are not a second contract language.
+		// Operators configure exact manifest names or canonical dotted names.
+		{"web__fetch", "webfetch", false},
+		{"shell__exec", "bash", false},
+		{"fs__read", "read", false},
+		{"fs__ls", "ls", false},
+		{"web__fetch", "ripgrep", false},
 		// Empty inputs.
 		{"", "", true},
 		{"fs__read", "", false},
@@ -329,12 +247,6 @@ func TestAutoloadedTools_DefaultCore(t *testing.T) {
 	for _, want := range []string{"fs__read", "fs__write", "fs__edit", "fs__glob", "fs__grep", "shell__bash"} {
 		if !names[want] {
 			t.Errorf("default autoload should include %q", want)
-		}
-	}
-	// Meta-tools always present regardless of config.
-	for _, want := range []string{"tools__search", "tools__describe", "tools__categories", "tools__in_category"} {
-		if !names[want] {
-			t.Errorf("meta-tool %q should always be autoloaded", want)
 		}
 	}
 }
@@ -388,10 +300,6 @@ func TestAutoloadedTools_CustomAutoload(t *testing.T) {
 	if names["bash"] {
 		t.Error("bash should NOT be autoloaded when not in custom autoload list")
 	}
-	// Meta-tools still always present.
-	if !names["tools__search"] {
-		t.Error("tools__search should always be autoloaded")
-	}
 }
 
 // TestAutoloadedToolsWithExtra_PromotesPersonaTools: extra patterns
@@ -410,7 +318,7 @@ func TestAutoloadedToolsWithExtra_PromotesPersonaTools(t *testing.T) {
 	// promotion adds it.
 	var promote string
 	for _, tl := range reg.All() {
-		if !baseNames[tl.Name()] && !IsMetaTool(tl.Name()) {
+		if !baseNames[tl.Name()] {
 			promote = tl.Name()
 			break
 		}

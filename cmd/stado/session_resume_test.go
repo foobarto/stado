@@ -90,8 +90,7 @@ func TestSessionResume_ChdirOnValidWorktree(t *testing.T) {
 		t.Fatalf("chdir to worktree should succeed: %v", err)
 	}
 	after, _ := os.Getwd()
-	// macOS / Linux / CI may report via /private/tmp or /tmp —
-	// compare via EvalSymlinks to avoid symlink noise.
+	// Compare via EvalSymlinks to avoid mount/symlink noise in Linux CI.
 	afterResolved, _ := filepath.EvalSymlinks(after)
 	wtResolved, _ := filepath.EvalSymlinks(wt)
 	if afterResolved != wtResolved {

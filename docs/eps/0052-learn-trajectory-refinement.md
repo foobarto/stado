@@ -2,18 +2,19 @@
 ep: 52
 title: Learn — Evidence-Backed Trajectory Refinement
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
-implemented-in: v0.78.0
+status: Accepted
 type: Standards
 created: 2026-08-12
 supersedes: ["EP-0016"]
 requires: ["EP-0015", "EP-0021", "EP-0046", "EP-0053", "EP-0057", "EP-0059"]
 see-also: ["EP-0007", "EP-0009", "EP-0044", "EP-0047"]
 history:
+  - date: 2026-08-14
+    status: Accepted
+    note: The candidate-only TUI lifecycle application is source-complete in the staged official plugin repository, but remains unsigned and unpublished. Fresh activation still requires the separately trusted EP-59 presenter, and provider reply loss cannot yet be made exactly once.
   - date: 2026-08-12
-    status: Implemented
-    version: v0.78.0
-    note: Shipped in v0.78.0 as part of the memory, context, and continual-harness implementation.
+    status: Accepted
+    note: The earlier v0.78.0 native implementation did not satisfy the plugin-application, authority, and crash-accounting contract and was removed during the pre-v1 corrective migration.
   - date: 2026-08-12
     status: Accepted
     note: Accepted after product, security, and distributed-systems adversarial review.
@@ -25,6 +26,14 @@ history:
 > **Relationships:** **Supersedes:** [EP-0016](./0016-learning-self-improvement-plugin.md) · **Requires:** [EP-0015](./0015-memory-system-plugin.md), [EP-0021](./0021-assistant-turn-metadata.md), [EP-0046](./0046-verify-work-phase.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0047](./0047-structured-loop-result-and-output.md)
 
 # EP-0052: Learn — Evidence-Backed Trajectory Refinement
+
+> **Implementation status (2026-08-14):** Source for the explicit,
+> candidate-only `/learn` lifecycle application is complete in the staged
+> official plugin repository. It is unsigned and unpublished. Core stado has no
+> native `stado learn` fallback. Fresh activation and the full review presenter
+> remain Accepted work, and provider success followed by reply loss is an
+> explicitly irreducible ambiguity until provider invocation gains durable
+> idempotency.
 
 ## Problem
 
@@ -40,7 +49,8 @@ action. Before v1 stado can replace it with a smaller canonical `learn` surface.
 
 ## Goals
 
-- Make `stado learn` and `/learn` the canonical learning interfaces.
+- Make `/learn` and the signed lifecycle application's `learn` tool the
+  canonical learning interfaces.
 - Analyze structured trajectory facts plus bounded surrounding conversation.
 - Produce small, typed, evidence-bound candidates for operator review.
 - Learn primarily from mistakes and corrections, while also capturing repeated
@@ -60,24 +70,17 @@ action. Before v1 stado can replace it with a smaller canonical `learn` surface.
 
 ### Surfaces
 
-The canonical commands are:
+The accepted target surface is owned by one explicit TUI lifecycle application:
 
 ```text
-stado learn [--session ID] [--focus TEXT]        # alias of `learn run`
-stado learn run [--session ID] [--focus TEXT]
-stado learn propose ...                          # explicit/manual capture
-stado learn candidates|reviews
-stado learn show|approve|edit|reject|supersede|delete
-stado learn document|stale|export
-
 /learn [focus]
-/learn review
-/learn history
+learn {"action":"review","focus":"optional"}
 ```
 
-`stado learning` is removed. Pre-v1 migration produces a direct unknown-command
-error with a one-line `stado learn` replacement hint; it is not retained as an
-alias. Existing lesson items remain valid and are migrated by EP-53.
+`stado learning` and the temporary native `stado learn` surface are removed,
+not retained as aliases. Existing lesson items remain valid and are migrated by
+EP-53. Inspection uses bounded generic artifact queries owned by the admitted
+application; fresh activation remains outside the guest ABI.
 
 Bare `/learn` is a host command that captures the immediately preceding completed
 turn and schedules a dedicated review job. If invoked while generation is active,
@@ -165,7 +168,8 @@ supersession event; no prior event is removed.
 
 ### Trigger policy
 
-Initial release runs only on explicit `/learn` or `stado learn`. Later host
+Initial release runs only on explicit `/learn` or the application's visible
+`learn` tool. Later host
 suggestions may fire after repeated failures, user correction, verification
 exhaustion, compaction, rollback, or goal completion. Suggestions may initiate a
 review only when operator config permits; they still create candidates only.
@@ -174,7 +178,8 @@ review only when operator config permits; they still create candidates only.
 
 1. Add the new review/event contracts without changing prompt retrieval.
 2. Migrate EP-16 lesson records into EP-53 artifact versions.
-3. Replace CLI documentation and command registration with `learn`.
+3. Remove native CLI documentation and command registration; admit the signed
+   TUI lifecycle package explicitly.
 4. Add `/learn` and review UI.
 5. Add opt-in lifecycle suggestions after explicit use is measured.
 
@@ -189,8 +194,12 @@ review only when operator config permits; they still create candidates only.
 - Review output truncates or fails schema validation: no state change occurs.
 - Repeated reviews create duplicates: EP-53 FTS/tag candidates surface them
   during review; no silent merge occurs.
-- Crash after provider response: job retry uses the same ID/input sequence and
-  cannot charge or create candidates twice.
+- Crash before a durable review result: intent recovery prevents an automatic
+  second provider call, but provider success followed by reply loss remains
+  ambiguous because the provider primitive has no durable idempotency key. The
+  review fails honestly instead of claiming exactly-once cost. Once a result is
+  durable, exact receipt-bound candidates resume idempotently without another
+  provider call.
 
 ## Test strategy
 
@@ -213,7 +222,8 @@ review only when operator config permits; they still create candidates only.
 
 ### D1. Learn, not refine or learning
 
-- **Decided:** use the verb `learn` for CLI, slash command, and lifecycle.
+- **Decided:** use the verb `learn` for the application tool, slash command,
+  and lifecycle.
 - **Alternatives:** retain `learning`; copy Prime Agent's `refine`.
 - **Why:** `learn` names the operator intent and covers extraction, review,
   validation, and supersession rather than only mutation.
@@ -234,10 +244,10 @@ review only when operator config permits; they still create candidates only.
 - **Alternatives:** ask a model to rediscover all patterns from conversation.
 - **Why:** deterministic evidence is cheaper, auditable, and less injectable.
 
-### D4. Remove the pre-v1 alias
+### D4. Remove native pre-v1 commands
 
-- **Decided:** remove `stado learning` instead of carrying a compatibility
-  command.
+- **Decided:** remove `stado learning` and the temporary native `stado learn`
+  implementation instead of carrying compatibility commands.
 - **Alternatives:** indefinite alias or warning-only deprecation period.
 - **Why:** pre-v1 is the time to converge on one vocabulary; persisted data is
   migrated independently of CLI compatibility.

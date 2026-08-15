@@ -3,9 +3,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>stado — sandboxed, git-native coding agent for the terminal</title>
-<meta name="description" content="stado — a sandboxed, git-native coding agent with retained subagents, isolated research, adaptive retrieval, durable automation, and a signed audit log.">
+<meta name="description" content="stado — a sandboxed, git-native coding agent with retained subagents, broker-owned artifacts, durable automation, signed WASM plugins, and a signed audit log.">
 <meta property="og:title" content="stado — sandboxed, git-native coding agent for the terminal">
-<meta property="og:description" content="A herd of durable agents that keep your working tree clean: retained workers, isolated research, adaptive context, signed audit, and capability sandboxing.">
+<meta property="og:description" content="A herd of durable agents that keep your working tree clean: retained workers, adaptive context, signed WASM plugins, signed audit, and capability sandboxing.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://foobarto.github.io/stado/">
 <meta property="og:image" content="https://foobarto.github.io/stado/assets/img/stado-three-sheep-standing-guard.webp">
@@ -1656,27 +1656,28 @@
   <div class="wrap">
     <div class="section-head">
       <div>
-        <span class="small-caps"><span class="cube"></span>§ feature reel · on main</span>
+        <span class="small-caps"><span class="cube"></span>§ feature reel · current + accepted direction</span>
       </div>
       <h2>The agent loop grew a <em>memory</em>, a crew, and a nervous system.</h2>
     </div>
 
     <div class="features">
       <article class="feature span-4">
-        <div class="tag"><span class="idx">▍ EP-0002 · 0006 · 0038</span><span class="sep">/</span> plugin-first tools</div>
+        <div class="tag"><span class="idx">▍ EP-0002 · 0006 · 0038 · 0066</span><span class="sep">/</span> plugin-first tools</div>
         <h3>Swap the tool. Keep the <em>guardrails</em>.</h3>
-        <p>Most bundled and installed tools share a capability-gated ABI in <span class="mono">wazero</span>. Bundled modules are trusted embedded release assets; installed plugins require signature, trust-store, and digest verification. <span class="mono">tasks</span> remains the native bootstrap exception.</p>
+        <p>Bundled and installed applications share a capability-gated ABI in <span class="mono">wazero</span>. Bundled modules are trusted embedded release assets; installed plugins require signature, trust-store, digest, and canonical-identity verification. The stado-owned native model-tool allowlist is empty; the exact external MCP adapter is not a native product application.</p>
         <div class="ep-links">
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0002-all-tools-as-plugins.md">tool architecture →</a>
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0006-signed-wasm-plugin-runtime.md">wasm runtime →</a>
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md">shared ABI →</a>
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0066-canonical-plugin-authority-and-application-placement.md">placement + identity →</a>
         </div>
       </article>
 
       <article class="feature span-4">
-        <div class="tag"><span class="idx">▍ EP-0054</span><span class="sep">/</span> isolated research</div>
+        <div class="tag"><span class="idx">▍ EP-0054</span><span class="sep">/</span> isolated research · accepted contract</div>
         <h3>Send the archaeology <em>elsewhere</em>.</h3>
-        <p>Launch bounded research agents for long repository investigations, keep their context isolated, and address the result later through a durable handle.</p>
+        <p>The accepted design launches bounded research agents for long investigations and keeps their context isolated. Its official replacement package is not shipped until signed, published, installed, and release-verified.</p>
         <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0054-addressable-context-and-research-agents.md">read the design →</a>
       </article>
 
@@ -1693,14 +1694,14 @@
       <article class="feature span-4">
         <div class="tag"><span class="idx">▍ EP-0058</span><span class="sep">/</span> measured retrieval</div>
         <h3>Measure before you <em>adapt</em>.</h3>
-        <p>Shadow-rank authorized context under hard budgets and compare it with active retrieval. Feedback is explainable and reportable, but does not alter prompts yet.</p>
+        <p>Accepted direction: shadow-rank authorized context under hard budgets before any adaptive policy changes prompts. Ranking, reports, signing, and publication remain unfinished.</p>
         <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0058-measured-adaptive-retrieval.md">read the design →</a>
       </article>
 
       <article class="feature span-4">
         <div class="tag"><span class="idx">▍ EP-0052</span><span class="sep">/</span> trajectory learning</div>
         <h3>Turn mistakes into <em>lessons</em>.</h3>
-        <p>Review completed trajectories for concrete lesson candidates, approve the useful ones, and make future work better without silently rewriting memory.</p>
+        <p>Staged unsigned source reviews bounded evidence into candidates only. Fresh activation awaits a separately trusted presenter; commands and UI callbacks cannot approve artifacts.</p>
         <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0052-learn-trajectory-refinement.md">read the design →</a>
       </article>
 
@@ -1733,10 +1734,22 @@
       </article>
 
       <article class="feature span-6">
-        <div class="tag"><span class="idx">▍ EP-0060</span><span class="sep">/</span> native bounded harness</div>
-        <h3>The model delegates. Stado <em>governs</em>.</h3>
-        <p>Native guidance teaches the model when to research, retain, learn, and coordinate without handing tools, audit, approvals, or sandbox policy to another harness.</p>
+        <div class="tag"><span class="idx">▍ EP-0060 + EP-0066</span><span class="sep">/</span> bounded harness guidance</div>
+        <h3>The model delegates. The ceiling still <em>holds</em>.</h3>
+        <p>Host facts say what is available and what happened. WASM application policy decides when to research, retain, learn, and coordinate without gaining tools, audit, approvals, or sandbox authority. Native stado contains no guidance wording or fallback.</p>
         <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0060-native-harness-guidance.md">read the guidance →</a>
+        <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0066-canonical-plugin-authority-and-application-placement.md">placement correction →</a>
+      </article>
+
+      <article class="feature span-6">
+        <div class="tag"><span class="idx">▍ EP-0062 + EP-0064</span><span class="sep">/</span> supervised work · plugin release pending</div>
+        <h3>A watchdog for work that must be <em>right</em>.</h3>
+        <p><span class="mono">/supervise</span> belongs to the official WASM lifecycle application under <span class="mono">foobarto/stado-plugins/supervise</span>: it owns contract flow, cadence, detectors, prompts, and verdict policy while the broker supplies authenticated facts and enforces scoped holds, pause, and stop. Native stado has no fallback. The application source is checkpointed, but <span class="mono">supervise/v0.1.0</span> is not yet real-key-signed or published.</p>
+        <div class="ep-links">
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0062-harness-enforced-supervised-work.md">quality semantics →</a>
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0064-wasm-lifecycle-applications.md">application placement →</a>
+          <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/features/supervise.md">use /supervise →</a>
+        </div>
       </article>
     </div>
   </div>
@@ -1799,7 +1812,8 @@
           Stado core is the runtime, capability sandbox, and signed-distribution lifecycle.
           <span class="mono">fs.read</span>, <span class="mono">shell.bash</span>, <span class="mono">web.fetch</span>,
           <span class="mono">rg.search</span> — even <span class="mono">auto-compact</span> — ship as signed WASM plugins.
-          Don't like one? Rewrite it in any language that targets wasm.
+          Don't like one? Rewrite it in any language that targets wasm. Stado-owned native model-tool
+          registration debt is empty; explicit lifecycle applications own larger workflows.
         </p>
         <div class="audit">
           <div class="ln"><span class="h">fs.read</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
@@ -1837,18 +1851,8 @@
           <tbody>
             <tr>
               <td class="os">linux</td>
-              <td>landlock · bubblewrap · seccomp BPF · pasta CONNECT proxy<span class="desc">strongest path; whole-process <span class="mono">--sandbox-fs</span> available</span></td>
+              <td>landlock · bubblewrap · seccomp BPF · pasta CONNECT proxy<span class="desc">the supported current and v1 platform; sandboxed by default</span></td>
               <td><span class="ok">▮ shipped</span></td>
-            </tr>
-            <tr>
-              <td class="os">macos</td>
-              <td>sandbox-exec with generated profiles<span class="desc">same capability vocabulary; no whole-process path</span></td>
-              <td><span class="ok">▮ shipped</span></td>
-            </tr>
-            <tr>
-              <td class="os">windows</td>
-              <td>warning-only passthrough<span class="desc">v2: job objects + restricted tokens — phase 3.6</span></td>
-              <td><span class="pending">◐ v2 planned</span></td>
             </tr>
             <tr>
               <td class="os">wasm</td>
@@ -1891,7 +1895,7 @@
       <div>
         <span class="small-caps"><span class="cube"></span>§ install</span>
       </div>
-      <h2>Three paths. Pick the one that fits your <em>threat model</em>.</h2>
+      <h2>Three Linux paths. Pick the one that fits your <em>threat model</em>.</h2>
     </div>
 
     <div class="install-grid">
@@ -1900,7 +1904,7 @@
         <div class="step">▍ option i</div>
         <h4>Install script</h4>
         <p>One curl. Cosign-verified manifest. Lands in <span class="mono" style="color:var(--ink)">~/.local/bin</span> by default.</p>
-        <div class="req"><span>linux</span><span>macos</span><span>curl</span><span>cosign</span></div>
+        <div class="req"><span>linux</span><span>curl</span><span>cosign</span></div>
         <pre class="cmd">curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | bash</pre>
       </div>
 
@@ -1908,7 +1912,7 @@
         <div class="step">▍ option ii</div>
         <h4>Homebrew</h4>
         <p>For folks who already trust the tap. Updates land through <span class="mono" style="color:var(--ink)">brew upgrade</span>.</p>
-        <div class="req"><span>macos</span><span>linux</span><span>brew</span></div>
+        <div class="req"><span>linux</span><span>brew</span></div>
         <pre class="cmd">brew install foobarto/tap/stado</pre>
       </div>
 
@@ -1916,7 +1920,7 @@
         <div class="step">▍ option iii</div>
         <h4>From source</h4>
         <p>Go 1.26+. Pure Go, <span class="mono" style="color:var(--ink)">CGO_ENABLED=0</span>. Bundled wasm tools are built at <span class="mono" style="color:var(--ink)">make</span> time.</p>
-        <div class="req"><span>go 1.26+</span><span>any os</span></div>
+        <div class="req"><span>go 1.26+</span><span>linux</span></div>
         <pre class="cmd">git clone https://github.com/foobarto/stado &amp;&amp; cd stado &amp;&amp; make</pre>
       </div>
 
@@ -1986,7 +1990,7 @@
       <div class="surface">
         <span class="sicon">‹ tui ›</span>
         <h5>Terminal UI</h5>
-        <p>Bubbletea. Streaming. Slash commands. Model picker. Theme picker. Task manager.</p>
+        <p>Bubbletea. Streaming. Slash commands. Model picker. Theme picker. Explicit lifecycle applications.</p>
       </div>
       <div class="surface">
         <span class="sicon">‹ run ›</span>

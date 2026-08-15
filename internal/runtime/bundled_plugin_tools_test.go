@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,16 +57,11 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	if !ok {
 		t.Fatal("read tool missing")
 	}
-	// Step 7 of EP-no-internal-tools: fs__read is now a wasm tool
-	// registered via newBundledWasmTool, which wraps in renamedTool
-	// (not the legacy *bundledPluginTool that wrapped natives).
-	rt, ok := got.(*renamedTool)
+	// The concrete adapter gets its visible name directly from the embedded
+	// manifest; no Go-owned renaming wrapper participates in registration.
+	pt, ok := got.(*bundledPluginTool)
 	if !ok {
-		t.Fatalf("fs__read type = %T, want *renamedTool", got)
-	}
-	pt, ok := rt.inner.(*bundledPluginTool)
-	if !ok {
-		t.Fatalf("renamedTool.inner = %T, want *bundledPluginTool", rt.inner)
+		t.Fatalf("fs__read type = %T, want *bundledPluginTool", got)
 	}
 	if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
 		t.Fatalf("fs__read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
@@ -91,8 +87,29 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	}
 	if got, ok := reg.Get("agent__spawn"); !ok {
 		t.Fatal("agent__spawn tool missing")
-	} else if _, ok := got.(*renamedTool); !ok {
-		t.Fatalf("agent__spawn type = %T, want *renamedTool", got)
+	} else if _, ok := got.(*bundledPluginTool); !ok {
+		t.Fatalf("agent__spawn type = %T, want *bundledPluginTool", got)
+	}
+	for name, capabilities := range map[string][]string{
+		"agent__spawn":         {"agent:spawn", "agent:spawn:configure"},
+		"agent__list":          {"agent:list"},
+		"agent__read_messages": {"agent:read"},
+		"agent__send_message":  {"agent:send"},
+		"agent__cancel":        {"agent:cancel"},
+	} {
+		registered, ok := reg.Get(name)
+		if !ok {
+			t.Errorf("%s tool missing", name)
+			continue
+		}
+		pt, ok := registered.(*bundledPluginTool)
+		if !ok {
+			t.Errorf("%s type = %T, want *bundledPluginTool", name, registered)
+			continue
+		}
+		if !reflect.DeepEqual(pt.manifest.Capabilities, capabilities) {
+			t.Errorf("%s capabilities = %v, want %v", name, pt.manifest.Capabilities, capabilities)
+		}
 	}
 }
 
@@ -342,9 +359,8 @@ func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
 // TestBundledShellReadUntil_RoundTripsThroughWasm: shell__read_until
 // dispatched via the bundled wasm path returns the host's match envelope
 // unchanged. Drives the path the agent actually uses: tool registry → wasm
-// wrapper → stado_terminal_expect → manager.Expect → JSON response. (The
-// host import keeps the name stado_terminal_expect; only the agent-facing
-// tool was renamed expect → read_until.)
+// wrapper → stado_pty_expect → manager.Expect → JSON response. (The
+// agent-facing tool is named read_until.)
 func TestBundledShellReadUntil_RoundTripsThroughWasm(t *testing.T) {
 	if _, err := exec.LookPath("printf"); err != nil {
 		t.Skip("requires `printf` binary")

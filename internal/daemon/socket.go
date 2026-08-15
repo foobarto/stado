@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 )
 
@@ -13,30 +12,21 @@ import (
 // Resolution order:
 //
 //  1. $STADO_DAEMON_SOCKET if set (operator override).
-//  2. $XDG_RUNTIME_DIR/stado/daemon.sock on Linux when XDG_RUNTIME_DIR
+//  2. $XDG_RUNTIME_DIR/stado/daemon.sock when XDG_RUNTIME_DIR
 //     is set — that's a tmpfs created at login, owner-only by default,
 //     and auto-cleaned at logout. Right home for ephemeral per-uid state.
 //  3. Fallback: $TMPDIR/stado-<uid>/daemon.sock.
 //
-// Returns an error only if uid lookup fails on a platform where it's
-// supposed to be available (i.e., never on Linux/macOS).
+// Stado is Linux-only; os.Getuid is therefore always available.
 func SocketPath() (string, error) {
 	if p := os.Getenv("STADO_DAEMON_SOCKET"); p != "" {
 		return p, nil
 	}
 	uid := os.Getuid()
-	if runtime.GOOS == "linux" {
-		if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
-			return filepath.Join(rt, "stado", "daemon.sock"), nil
-		}
+	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
+		return filepath.Join(rt, "stado", "daemon.sock"), nil
 	}
 	tmp := os.TempDir()
-	if uid < 0 {
-		// On Windows os.Getuid returns -1 — caller should set
-		// STADO_DAEMON_SOCKET explicitly. Returning a deterministic
-		// fallback so unit tests on non-unix machines have something.
-		return filepath.Join(tmp, "stado", "daemon.sock"), nil
-	}
 	return filepath.Join(tmp, "stado-"+strconv.Itoa(uid), "daemon.sock"), nil
 }
 

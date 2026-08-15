@@ -1,68 +1,53 @@
-# `stado learn`
+# Learn lifecycle application
 
-Review completed trajectories and manage evidence-backed operational lessons.
+Core stado no longer exposes native `stado learn` or `stado learning`
+commands. The accepted learning workflow is owned by the same official,
+TUI-only lifecycle package as `/memory`.
 
-## What It Does
+> **Availability (2026-08-14):** The package source is complete in the staged
+> official plugin repository, but it is unsigned and unpublished. `/learn`
+> appears only after the signed package is published, installed, admitted, and
+> explicitly enabled. There is no native CLI or TUI fallback.
 
-`stado learn --session-id <id>` (or the explicit `stado learn run`) asks an
-isolated reviewer to inspect host-recorded mistake and correction signals. A
-review may create up to five versioned `lesson` candidates; it never activates
-them. One-off failures are deliberately ignored.
-
-The pre-v1 `stado learning` command has been removed. Existing legacy memory
-logs can be imported once with `stado learn migrate`.
-
-## Common Flow
-
-```sh
-stado learn --session-id sess_...
-stado learn run --session-id sess_... --focus "tool argument corrections"
-stado learn candidates --session-id sess_...
-stado learn artifact art_... --session-id sess_...
-stado learn retrieval-report
-stado learn migrate
-```
-
-In the TUI, `/learn [focus]` reviews the just-completed session trajectory.
-Candidate review is available without starting another model turn:
+## Review flow
 
 ```text
-/learn candidates
-/learn show art_...
-/learn approve art_...
+/learn
+/learn tool argument corrections
 ```
 
-Approval is intentionally unavailable through ordinary `stado learn approve`.
-An agent can invoke a CLI through a shell, so that is not proof of operator
-intent. The interactive approval path creates a one-use broker grant bound to
-the exact artifact version, body, scope, and actor before committing activation.
+The application catalogs and opens a bounded set of authorized session
+evidence, records a durable review intent, invokes the configured provider, and
+strictly validates at most five suggestions. Every resulting memory or lesson
+is a candidate. The broker accepts only opaque evidence receipt IDs issued for
+exact opens under the same plugin/session/generation binding and persists the
+broker-derived evidence references.
 
-## Commands
+The durable journal records the review identity, evidence set, provider, model,
+usage, cleanup facts, result, proposal materialization, and completion. A
+durable result whose proposals were only partly materialized is recovered before
+new evidence is selected, so restart does not strand it. Journal projection is
+strictly bounded and fails closed if the relevant history is truncated.
 
-| Command | Purpose |
-|---------|---------|
-| `stado learn [run] --session-id <id>` | Review one completed trajectory and record the review job |
-| `stado learn candidates` | List visible candidate and migrated legacy lessons |
-| `stado learn artifact <id>` | Show one authorized memory or lesson artifact |
-| `stado learn migrate` | Archive and idempotently import the legacy memory JSONL store |
-| `stado learn retrieval-report` | Show shadow adaptive-retrieval observations |
+There is one honest cost limitation: provider invocation has no durable
+idempotency primitive. If the provider succeeded but its reply was lost before
+the result was journaled, the outcome is ambiguous. Recovery refuses to invoke
+the provider automatically again, avoiding an unacknowledged duplicate charge,
+but it cannot claim that the first call did not charge.
 
-The legacy lesson lifecycle subcommands remain under `stado learn` for local
-audit and migration work (`propose`, `list`, `show`, `edit`, `reject`, `delete`,
-`supersede`, `document`, `stale`, and `export`). They operate on the legacy
-store and do not bypass the trusted activation boundary.
+## Authority
 
-## Scope and Safety
+The application has no activation capability and does not interpret a command
+or UI boolean as operator authority. Fresh promotion awaits a separately
+trusted, predeclared EP-59 presenter that binds a consumed grant to the exact
+artifact version, body, scope, and actor. Historically approved legacy records
+may already be active after the one-way migration because that preserves a
+previous operator grant; it is not fresh model-selected activation.
 
-Review scope is `session` by default; `--scope repo` and `--scope global` are
-available when the host can bind the corresponding identity. Session artifacts
-are visible to the creating session and its descendants, not siblings or
-ancestors.
+Candidates and active artifacts remain untrusted guidance below operator and
+repository instructions. They cannot grant tools, expand scope, approve a
+plugin, or rewrite their provenance.
 
-Lessons are untrusted guidance below operator and repository instructions. An
-active lesson cannot grant tools, permissions, or authority. Reviewer outputs
-retain their evidence provenance and taint, and secret-bearing material is not
-made eligible for normal prompt retrieval.
-
-See [Adaptive context and learning](../adaptive-context.md) for the persistence,
-research-agent, retained-agent, and adaptive-ranking contracts.
+See [Memory and learn lifecycle application](memory.md) for migration and
+retrieval details, and [EP-0052](../eps/0052-learn-trajectory-refinement.md)
+for the accepted target contract.

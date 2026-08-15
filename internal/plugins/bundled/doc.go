@@ -4,14 +4,12 @@
 //
 //  1. The embed.FS of wasm/*.wasm files and the Wasm / MustWasm
 //     accessors that hand callers the raw module bytes.
-//  2. The registry of bundled-module metadata (Info, RegisterModule,
-//     RegisterModuleWithWasm, List, LookupByName, LookupModuleByToolName).
+//  2. The verified source-adjacent manifest inventory.
 //
 // The wasm sources for these modules live at plugins/bundled/<name>/;
 // plugins/bundled/build.sh compiles them into
-// internal/plugins/bundled/wasm/. Each module registers itself via an
-// init() RegisterModule call (see auto_compact.go for the canonical
-// shape).
+// internal/plugins/bundled/wasm/. Core inventory is derived from those
+// manifests rather than Go init registration.
 //
 // What does not belong here: host-side runtime policy. Which background
 // plugins to start at session boot, per-plugin lifecycle adapters,
@@ -19,9 +17,4 @@
 // in internal/runtime (specifically background_defaults.go). Keeping
 // this package an asset store rather than a policy store is what lets
 // internal/runtime own host-side bootstrap as a single concern.
-//
-// The userbundled sibling package extends the registry at process
-// startup with wasm appended to the binary by `stado plugin bundle`;
-// those entries store their bytes inline on the Info (WasmSource set)
-// rather than reading them from this package's embed.FS.
 package bundled

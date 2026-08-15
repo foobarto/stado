@@ -106,7 +106,7 @@ func TestStartupBanner_RendersOnLandingScreen(t *testing.T) {
 // a height check alone passes even with the bug.
 func TestStartupBanner_LandingWrapsWideBanner(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	longLine := "stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) " +
+	longLine := "stado: warn: install a Linux wrapper (bwrap/firejail) " +
 		"and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. " +
 		"Suppress with STADO_SUPPRESS_SANDBOX_WARN=1."
 	m.injectStartupNotices([]string{
@@ -121,7 +121,7 @@ func TestStartupBanner_LandingWrapsWideBanner(t *testing.T) {
 		}
 	}
 	// Content must survive the wrap, not be dropped/truncated.
-	if !strings.Contains(out, "install a wrapper") || !strings.Contains(out, "SUPPRESS_SANDBOX_WARN") {
+	if !strings.Contains(out, "install a Linux wrapper") || !strings.Contains(out, "SUPPRESS_SANDBOX_WARN") {
 		t.Errorf("wrapped banner dropped content; out=%q", out)
 	}
 }
@@ -140,7 +140,7 @@ func TestStartupBanner_ShortTerminalKeepsInputVisible(t *testing.T) {
 	m.injectStartupNotices([]string{
 		"stado: warn: running without a process-containment sandbox.",
 		"stado: warn: host subprocesses (shell, plugin runners, LSP, daemon, hooks) inherit the host's filesystem and network access.",
-		"stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with STADO_SUPPRESS_SANDBOX_WARN=1.",
+		"stado: warn: install a Linux wrapper (bwrap/firejail) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with STADO_SUPPRESS_SANDBOX_WARN=1.",
 		"stado: sandbox=default session=cd2223241e25471f20b67ee745481439 (broker-mediated)",
 		"stado: writable: /home/foobarto/Dokumenty/stado/hack/pty-bridge, /tmp",
 		"stado: 13 credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)",

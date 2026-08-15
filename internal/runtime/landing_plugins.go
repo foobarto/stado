@@ -11,8 +11,7 @@ import (
 )
 
 // pluginNamer is satisfied by tools that carry a backing plugin
-// manifest. bundledPluginTool, installedPluginTool, and renamedTool
-// (delegating to its inner) all implement it. Tools without a plugin
+// manifest. bundledPluginTool and installedPluginTool implement it. Tools without a plugin
 // (meta-tools, ad-hoc test stubs) don't, and are skipped by callers.
 type pluginNamer interface {
 	PluginName() string

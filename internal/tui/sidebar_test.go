@@ -57,7 +57,8 @@ func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 	m.usage.CostUSD = 0.17
 	m.ctxSoftThreshold = 0.70
 	m.ctxHardThreshold = 0.90
-	m.SetBudget(0.10, 2.00)
+	m.SetBudgetTokens(100, 200)
+	m.cumulativeInputTokens = 120
 	m.executor = &tools.Executor{Runner: sandbox.NoneRunner{}}
 	m.queuedPrompt = "retry after reading the failing test"
 	m.blocks = append(m.blocks, block{
@@ -85,7 +86,7 @@ func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 		"queued: retry after reading the",
 		"Risk",
 		"ctx 82% / hard 90%",
-		"budget $0.17 / $2.00",
+		"budget 120 / 200 tok",
 		"sandbox: none",
 		"Agent",
 		"agent: Do",

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -102,11 +103,39 @@ func (p *Provider) BaseURL() string { return p.baseURL }
 
 func (p *Provider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		SupportsPromptCache:  true,
-		SupportsThinking:     true,
-		MaxParallelToolCalls: 8,
-		SupportsVision:       true,
-		MaxContextTokens:     200_000,
+		SupportsPromptCache:         true,
+		SupportsThinking:            true,
+		SupportsReasoningEffort:     false,
+		ThinkingOutputReserveTokens: thinkingHeadroomTokens,
+		MaxParallelToolCalls:        8,
+		SupportsVision:              true,
+		MaxContextTokens:            200_000,
+	}
+}
+
+func (p *Provider) CapabilitiesForModel(model string) agent.Capabilities {
+	caps := p.Capabilities()
+	caps.SupportsReasoningEffort = anthropicReasoningEffortSupported(model)
+	return caps
+}
+
+func anthropicReasoningEffortSupported(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	for _, family := range []string{
+		"claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+		"claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+		"claude-sonnet-4-6", "claude-sonnet-5",
+	} {
+		if model == family || strings.HasPrefix(model, family+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func applyReasoningEffort(params *sdk.MessageNewParams, req agent.TurnRequest) {
+	if req.ReasoningEffort != "" && anthropicReasoningEffortSupported(req.Model) {
+		params.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffort(req.ReasoningEffort)}
 	}
 }
 
@@ -186,6 +215,7 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 			},
 		}
 	}
+	applyReasoningEffort(&params, req)
 
 	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
 		trace.WithAttributes(

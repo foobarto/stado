@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestCreateSessionSubagentRegistrationIsAtomicWithParentMutation(t *testing.
 	}
 
 	terminated := make(chan error, 1)
-	go func() { terminated <- svc.TerminateSession(parent.SessionID) }()
+	go func() { terminated <- svc.TerminateSession(parent.SessionID, parent.controllerToken) }()
 	select {
 	case err := <-terminated:
 		t.Fatalf("parent mutation interleaved with child registration: %v", err)
@@ -149,7 +150,8 @@ func TestDispatchSessionCreate_SubagentCarriesParentSession(t *testing.T) {
 	}
 	raw, err := json.Marshal(SessionCreateParams{
 		Purpose: PurposeSubagent, Profile: ProfileDefault,
-		ParentSessionID: parent.SessionID, Role: "explorer", Mode: "read_only",
+		ParentSessionID: parent.SessionID, ParentControllerToken: parent.controllerToken,
+		Role: "explorer", Mode: "read_only",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +165,69 @@ func TestDispatchSessionCreate_SubagentCarriesParentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCWD := filepath.Join(stateHome, "stado", "worktrees", handle.SessionID)
-	if handle.SessionID == "" || handle.CWD != wantCWD || handle.Ceiling.CWD != wantCWD {
+	if handle.SessionID == "" || !strings.HasPrefix(handle.ControllerToken, "controller_") || handle.CWD != wantCWD || handle.Ceiling.CWD != wantCWD {
 		t.Fatalf("child result = %+v", handle)
+	}
+}
+
+func TestDispatchSessionCreateAuthenticatesParentWithoutLoggingBearer(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	writer := &MemoryWriter{}
+	svc := NewService(DefaultPolicy(), writer)
+	parent, decision, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat, Profile: ProfileDefault, CWD: t.TempDir(),
+	})
+	if err != nil || !decision.Admit {
+		t.Fatalf("parent=%+v decision=%+v err=%v", parent, decision, err)
+	}
+	dispatchCreate := func(params SessionCreateParams) ([]byte, error) {
+		raw, err := json.Marshal(params)
+		if err != nil {
+			return nil, err
+		}
+		return svc.Dispatch(t.Context(), MethodSessionCreate, raw)
+	}
+	if _, err := dispatchCreate(SessionCreateParams{
+		Purpose: PurposeSubagent, Profile: ProfileDefault,
+		ParentSessionID: parent.SessionID, ParentControllerToken: "controller_wrong",
+		Role: "explorer", Mode: "read_only",
+	}); err == nil || !strings.Contains(err.Error(), "controller") {
+		t.Fatalf("subagent accepted wrong parent controller: %v", err)
+	}
+	childRaw, err := dispatchCreate(SessionCreateParams{
+		Purpose: PurposeSubagent, Profile: ProfileDefault,
+		ParentSessionID: parent.SessionID, ParentControllerToken: parent.controllerToken,
+		Role: "explorer", Mode: "read_only",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var child SessionHandleResult
+	if err := json.Unmarshal(childRaw, &child); err != nil {
+		t.Fatal(err)
+	}
+	peerRaw, err := dispatchCreate(SessionCreateParams{
+		Purpose: PurposeMainChat, Profile: ProfileDefault, CWD: t.TempDir(),
+		ParentSessionID: parent.SessionID, ParentControllerToken: parent.controllerToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peer SessionHandleResult
+	if err := json.Unmarshal(peerRaw, &peer); err != nil {
+		t.Fatal(err)
+	}
+	logged, err := json.Marshal(writer.Records())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{parent.controllerToken, child.ControllerToken, peer.ControllerToken} {
+		if strings.Contains(string(logged), token) {
+			t.Fatal("session controller token entered a CapabilityRequest or Decision record")
+		}
 	}
 }

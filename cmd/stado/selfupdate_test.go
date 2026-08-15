@@ -4,7 +4,6 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"compress/gzip"
 	"io"
 	"net/http"
@@ -23,19 +22,11 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestPickAsset_MatchesGOOSGOARCH(t *testing.T) {
-	osName := runtime.GOOS
 	arch := runtime.GOARCH
-	suffix := ".tar.gz"
-	if osName == "windows" {
-		suffix = ".zip"
-	}
-	wantName := "stado_1.2.3_" + osName + "_" + arch + suffix
+	wantName := "stado_1.2.3_linux_" + arch + ".tar.gz"
 	assets := []ghAsset{
 		{Name: "stado_1.2.3_linux_amd64.tar.gz"},
 		{Name: "stado_1.2.3_linux_arm64.tar.gz"},
-		{Name: "stado_1.2.3_darwin_amd64.tar.gz"},
-		{Name: "stado_1.2.3_darwin_arm64.tar.gz"},
-		{Name: "stado_1.2.3_windows_amd64.zip"},
 		{Name: wantName}, // ensure this exact one is present for the active host
 		{Name: "checksums.txt"},
 	}
@@ -43,8 +34,8 @@ func TestPickAsset_MatchesGOOSGOARCH(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pickAsset: %v", err)
 	}
-	if !strings.Contains(got.Name, osName) || !strings.Contains(got.Name, arch) {
-		t.Errorf("got %q, should match %s/%s", got.Name, osName, arch)
+	if !strings.Contains(got.Name, "linux") || !strings.Contains(got.Name, arch) {
+		t.Errorf("got %q, should match linux/%s", got.Name, arch)
 	}
 }
 
@@ -64,7 +55,7 @@ func TestFetchChecksums_ParsesFile(t *testing.T) {
 	// We can't exercise the HTTP path without a live release, but the parsing
 	// logic lives inline — replicate it here for correctness.
 	body := `abc123def456  stado_1.0_linux_amd64.tar.gz
-7890ab  stado_1.0_darwin_arm64.tar.gz
+7890ab  stado_1.0_linux_arm64.tar.gz
 malformed line without two fields
 `
 	out := map[string]string{}
@@ -78,7 +69,7 @@ malformed line without two fields
 	if out["stado_1.0_linux_amd64.tar.gz"] != "abc123def456" {
 		t.Errorf("amd64 hash parse wrong: %v", out)
 	}
-	if out["stado_1.0_darwin_arm64.tar.gz"] != "7890ab" {
+	if out["stado_1.0_linux_arm64.tar.gz"] != "7890ab" {
 		t.Errorf("arm64 hash parse wrong: %v", out)
 	}
 	if len(out) != 2 {
@@ -215,38 +206,6 @@ func TestExtractBinary_RejectsSymlinkedArchivePath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("expected symlink error, got %v", err)
-	}
-}
-
-func TestExtractBinary_ZipRejectsSymlinkEntry(t *testing.T) {
-	archivePath := filepath.Join(t.TempDir(), "stado.zip")
-	f, err := os.Create(archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zw := zip.NewWriter(f)
-	h := &zip.FileHeader{Name: "stado"}
-	h.SetMode(os.ModeSymlink | 0o777)
-	w, err := zw.CreateHeader(h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write([]byte("/tmp/elsewhere")); err != nil {
-		t.Fatal(err)
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = extractBinary(archivePath, "stado_1.0_windows_amd64.zip")
-	if err == nil {
-		t.Fatal("expected zip symlink entry to be rejected")
-	}
-	if !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("expected regular-file error, got %v", err)
 	}
 }
 

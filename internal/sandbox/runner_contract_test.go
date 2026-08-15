@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux
 
 package sandbox
 
@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -18,8 +17,7 @@ import (
 // Tier 1 (every available runner): command construction +
 // exec-allow-list error path. No subprocess executed.
 //
-// Tier 2 (only runners that enforce policy at runtime — bwrap on
-// Linux, sandbox-exec on macOS): runs the built command and
+// Tier 2 (Linux runners that enforce policy at runtime): runs the built command and
 // asserts the kernel-level denial actually fires. NoneRunner has
 // no Tier 2 (it enforces nothing).
 //
@@ -49,8 +47,7 @@ func availableRunners(t *testing.T) []Runner {
 }
 
 // enforcingRunners returns the subset of availableRunners that
-// actually enforce Policy at runtime (FS, net) — bwrap on Linux,
-// sandbox-exec on macOS. NoneRunner is excluded.
+// actually enforce Policy at runtime (FS, net). NoneRunner is excluded.
 func enforcingRunners(t *testing.T) []Runner {
 	t.Helper()
 	var out []Runner
@@ -67,12 +64,11 @@ func enforcingRunners(t *testing.T) []Runner {
 // can actually run a benign command on this host. `Available()`
 // only checks the wrapper binary is on PATH — but bwrap requires
 // user-namespace setup the kernel may refuse (nested containers,
-// locked-down sysctls), and sandbox-exec may be present but
-// disabled. The probe runs `true` under default-allow; runners
+// locked-down sysctls). The probe runs `true` under default-allow; runners
 // that fail are skipped from Tier 2 with a clear log line.
 //
 // This avoids false-fails on hosts where the runner binary is
-// installed but the kernel/system rejects its namespace requests
+// installed but the kernel rejects its namespace requests
 // — codex CI flagged this on round-4 review.
 func tier2ReadyRunners(t *testing.T) []Runner {
 	t.Helper()
@@ -229,15 +225,14 @@ func TestRunnerContract_T2_NegativeControl(t *testing.T) {
 	}
 }
 
-// TestRunnerContract_T2_FSWriteDenied: enforcing runners (bwrap /
-// sandbox-exec) refuse a write to a path not listed in
+// TestRunnerContract_T2_FSWriteDenied: enforcing Linux runners refuse a write to a path not listed in
 // Policy.FSWrite. The denial surfaces as a non-zero subprocess
 // exit, not as an error from Command — Tier 2 enforcement happens
 // inside the spawned process.
 func TestRunnerContract_T2_FSWriteDenied(t *testing.T) {
 	runners := tier2ReadyRunners(t)
 	if len(runners) == 0 {
-		t.Skipf("no enforcing runner ready on %s (binary missing or environment blocks it)", runtime.GOOS)
+		t.Skip("no enforcing Linux runner ready (binary missing or environment blocks it)")
 	}
 	shell := pickShell(t)
 
@@ -280,7 +275,7 @@ func TestRunnerContract_T2_FSWriteDenied(t *testing.T) {
 func TestRunnerContract_T2_FSWriteAllowed(t *testing.T) {
 	runners := tier2ReadyRunners(t)
 	if len(runners) == 0 {
-		t.Skipf("no enforcing runner ready on %s (binary missing or environment blocks it)", runtime.GOOS)
+		t.Skip("no enforcing Linux runner ready (binary missing or environment blocks it)")
 	}
 	shell := pickShell(t)
 

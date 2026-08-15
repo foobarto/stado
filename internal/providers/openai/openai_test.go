@@ -80,6 +80,40 @@ func TestBuildParams_ToolsAndParallelFlag(t *testing.T) {
 	}
 }
 
+func TestBuildParams_ReasoningEffort(t *testing.T) {
+	params, err := buildParams(agent.TurnRequest{Model: "o3-test", ReasoningEffort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(params.ReasoningEffort) != "high" {
+		t.Fatalf("reasoning effort = %q", params.ReasoningEffort)
+	}
+}
+
+func TestBuildParams_ClampsExtendedReasoningEffort(t *testing.T) {
+	for _, effort := range []string{"xhigh", "max"} {
+		params, err := buildParams(agent.TurnRequest{Model: "o3-test", ReasoningEffort: effort})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(params.ReasoningEffort) != "high" {
+			t.Fatalf("reasoning effort %q mapped to %q, want high", effort, params.ReasoningEffort)
+		}
+	}
+}
+
+func TestBuildParams_OmitsReasoningEffortForNonReasoningModel(t *testing.T) {
+	for _, model := range []string{"gpt-4o", "gpt-4.1"} {
+		params, err := buildParams(agent.TurnRequest{Model: model, ReasoningEffort: "high"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if params.ReasoningEffort != "" {
+			t.Fatalf("model %q received reasoning effort %q", model, params.ReasoningEffort)
+		}
+	}
+}
+
 func TestConvertMessages_RejectsOversizedToolInput(t *testing.T) {
 	_, err := convertMessages("", []agent.Message{{
 		Role: agent.RoleAssistant,
@@ -99,6 +133,12 @@ func TestCapabilities(t *testing.T) {
 	c := p.Capabilities()
 	if c.SupportsThinking {
 		t.Error("chat-completions openai provider should not advertise thinking support")
+	}
+	if c.SupportsReasoningEffort {
+		t.Error("provider-wide capabilities must not advertise model-specific reasoning effort")
+	}
+	if !p.CapabilitiesForModel("gpt-5.6").SupportsReasoningEffort || p.CapabilitiesForModel("gpt-4.1").SupportsReasoningEffort {
+		t.Error("reasoning-effort capability was not gated by model")
 	}
 	if c.MaxContextTokens != 128_000 {
 		t.Errorf("ctx = %d", c.MaxContextTokens)

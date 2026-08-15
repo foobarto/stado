@@ -166,11 +166,42 @@ func TestFleetBridge_CapGate_DeniesEveryImportWithoutCap(t *testing.T) {
 	}
 }
 
+func TestFleetBridge_OperationScopedCapabilitiesDoNotWiden(t *testing.T) {
+	br := &recordingFleetBridge{listResult: []AgentListEntry{{ID: "agent-1"}}}
+	h := newBridgeHarness(t).
+		withCaps("agent:list").
+		withFleetBridge(br).
+		install()
+	if got := h.callImport(context.Background(), "stado_agent_list", 1024, 4096); got <= 0 {
+		t.Fatalf("agent:list returned %d", got)
+	}
+	if got := h.callImport(context.Background(), "stado_agent_spawn", 0, 0, 1024, 4096); got != -1 {
+		t.Fatalf("agent:list widened to spawn: got %d", got)
+	}
+	if br.listCalls.Load() != 1 || br.spawnCalls.Load() != 0 {
+		t.Fatalf("bridge calls list=%d spawn=%d", br.listCalls.Load(), br.spawnCalls.Load())
+	}
+}
+
+func TestFleetBridge_LegacyAggregateCapabilityGrantsNoOperation(t *testing.T) {
+	br := &recordingFleetBridge{}
+	h := newBridgeHarness(t).
+		withCaps("agent:fleet").
+		withFleetBridge(br).
+		install()
+	if got := h.callImport(context.Background(), "stado_agent_list", 1024, 4096); got != -1 {
+		t.Fatalf("legacy aggregate capability returned %d, want denial", got)
+	}
+	if br.listCalls.Load() != 0 {
+		t.Fatal("legacy aggregate capability reached fleet bridge")
+	}
+}
+
 // ---- Contract 2: nil-bridge --------------------------------------------
 
 func TestFleetBridge_NilBridge_AllImportsReturnSentinel(t *testing.T) {
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:spawn", "agent:list", "agent:read", "agent:send", "agent:cancel").
 		install()
 
 	cases := []struct {
@@ -199,34 +230,46 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 	want := AgentSpawnResult{ID: "agent-7", SessionID: "sess-7", Status: "queued"}
 	br := &recordingFleetBridge{spawnResult: want}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:spawn", "agent:spawn:configure").
 		withFleetBridge(br).
 		install()
 
 	// Cover every AgentSpawnRequest field so forwarding regressions
 	// in B3's bridge wiring don't slip past as silent zeroings.
 	req := AgentSpawnRequest{
-		Prompt:         "do the thing",
-		Model:          "claude-x",
-		Async:          true,
-		Ephemeral:      true,
-		ParentSession:  "parent-sess-1",
-		AllowedTools:   []string{"fs_read", "rg__rg"},
-		SandboxProfile: "strict",
-		Persona:        "researcher",
-		Role:           "worker",
-		Mode:           "workspace_write",
-		Ownership:      "implement the parser",
-		WriteScope:     []string{"internal/parser/**"},
-		MaxTurns:       9,
-		TimeoutSeconds: 420,
-		Source:         &AgentSource{SessionID: "source-1", At: "turns/3"},
-		ToolProfile:    "worker-safe",
-		NarrowTools:    []string{"fs__read", "fs__write"},
-		TokenBudget:    12000,
-		Execution:      "retained",
+		Prompt:               "do the thing",
+		Provider:             "anthropic",
+		Model:                "claude-x",
+		Thinking:             "on",
+		ThinkingBudgetTokens: 8000,
+		ReasoningEffort:      "xhigh",
+		Async:                true,
+		Ephemeral:            true,
+		ParentSession:        "parent-sess-1",
+		AllowedTools:         []string{"fs_read", "rg__rg"},
+		SandboxProfile:       "strict",
+		Persona:              "researcher",
+		Role:                 "worker",
+		Mode:                 "workspace_write",
+		Ownership:            "implement the parser",
+		WriteScope:           []string{"internal/parser/**"},
+		MaxTurns:             9,
+		TimeoutSeconds:       420,
+		Source:               &AgentSource{SessionID: "source-1", At: "turns/3"},
+		ToolProfile:          "worker-safe",
+		NarrowTools:          []string{"fs__read", "fs__write"},
+		TokenBudget:          12000,
+		Execution:            "retained",
 	}
 	reqBytes, _ := json.Marshal(req)
+	// Authority-bearing package ownership is not guest input. Even an explicit
+	// JSON attempt is ignored and replaced from the loader-bound Host identity.
+	var guestRequest map[string]any
+	if err := json.Unmarshal(reqBytes, &guestRequest); err != nil {
+		t.Fatal(err)
+	}
+	guestRequest["child_tool_owner"] = "github.com/other/plugin"
+	reqBytes, _ = json.Marshal(guestRequest)
 	h.memWrite(0, reqBytes)
 	const resPtr, resCap = 256, 512
 
@@ -237,14 +280,19 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		t.Fatalf("expected positive bytes-written, got %d", n)
 	}
 	got := br.lastSpawnReq
-	if !reflect.DeepEqual(got, req) {
-		t.Errorf("forwarded request = %#v, want %#v", got, req)
+	wantRequest := req
+	wantRequest.ChildToolOwner = h.host.Identity.Namespace
+	if !reflect.DeepEqual(got, wantRequest) {
+		t.Errorf("forwarded request = %#v, want %#v", got, wantRequest)
 	}
 	if got.Prompt != req.Prompt {
 		t.Errorf("Prompt = %q, want %q", got.Prompt, req.Prompt)
 	}
 	if got.Model != req.Model {
 		t.Errorf("Model = %q, want %q", got.Model, req.Model)
+	}
+	if got.Provider != req.Provider || got.Thinking != req.Thinking || got.ThinkingBudgetTokens != req.ThinkingBudgetTokens || got.ReasoningEffort != req.ReasoningEffort {
+		t.Errorf("provider profile = %#v, want %#v", got, req)
 	}
 	if got.Async != req.Async {
 		t.Errorf("Async = %v, want %v", got.Async, req.Async)
@@ -276,6 +324,59 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 	}
 }
 
+func TestFleetBridge_SpawnIdempotencyScopeIsHostInjected(t *testing.T) {
+	br := &recordingFleetBridge{spawnResult: AgentSpawnResult{ID: "agent-1", Status: "running"}}
+	h := newBridgeHarness(t).
+		withCaps("agent:spawn").
+		withFleetBridge(br).
+		withApplicationScope("broker-session-1", 7).
+		install()
+	reqBytes, _ := json.Marshal(AgentSpawnRequest{Prompt: "review", Async: true, IdempotencyKey: "review:turn-9"})
+	h.memWrite(0, reqBytes)
+	if got := h.callImport(context.Background(), "stado_agent_spawn", 0, uint64(len(reqBytes)), 1024, 4096); got <= 0 {
+		t.Fatalf("spawn returned %d", got)
+	}
+	got := br.lastSpawnReq
+	if got.IdempotencyKey != "review:turn-9" {
+		t.Fatalf("idempotency key = %q", got.IdempotencyKey)
+	}
+	if got.Caller.PluginID != h.host.Identity.Namespace || got.Caller.SessionID != "broker-session-1" || got.Caller.Generation != 7 {
+		t.Fatalf("caller scope = %#v", got.Caller)
+	}
+}
+
+func TestFleetBridge_SpawnIdempotencyRequiresLifecycleScope(t *testing.T) {
+	br := &recordingFleetBridge{}
+	h := newBridgeHarness(t).
+		withCaps("agent:spawn").
+		withFleetBridge(br).
+		install()
+	reqBytes, _ := json.Marshal(AgentSpawnRequest{Prompt: "review", Async: true, IdempotencyKey: "review:turn-9"})
+	h.memWrite(0, reqBytes)
+	if got := h.callImport(context.Background(), "stado_agent_spawn", 0, uint64(len(reqBytes)), 1024, 4096); got != -1 {
+		t.Fatalf("spawn returned %d, want denial", got)
+	}
+	if br.spawnCalls.Load() != 0 {
+		t.Fatal("unscoped idempotent spawn reached fleet bridge")
+	}
+}
+
+func TestFleetBridge_SpawnConfigurationRequiresSeparateSignedCapability(t *testing.T) {
+	br := &recordingFleetBridge{}
+	h := newBridgeHarness(t).
+		withCaps("agent:spawn").
+		withFleetBridge(br).
+		install()
+	reqBytes, _ := json.Marshal(AgentSpawnRequest{Prompt: "review", Provider: "anthropic", Model: "claude", Thinking: "on"})
+	h.memWrite(0, reqBytes)
+	if got := h.callImport(context.Background(), "stado_agent_spawn", 0, uint64(len(reqBytes)), 1024, 4096); got != -1 {
+		t.Fatalf("configured spawn returned %d, want denial", got)
+	}
+	if br.spawnCalls.Load() != 0 {
+		t.Fatal("configured spawn reached bridge without configure capability")
+	}
+}
+
 func TestFleetBridge_Forwarding_List(t *testing.T) {
 	want := []AgentListEntry{
 		{ID: "a-1", SessionID: "s-1", Status: "running", Model: "m-x"},
@@ -283,7 +384,7 @@ func TestFleetBridge_Forwarding_List(t *testing.T) {
 	}
 	br := &recordingFleetBridge{listResult: want}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:list").
 		withFleetBridge(br).
 		install()
 
@@ -309,10 +410,14 @@ func TestFleetBridge_Forwarding_ReadMessages(t *testing.T) {
 		},
 		Offset: 2,
 		Status: "running",
+		Terminal: &AgentTerminalMetadata{
+			Usage: AgentTokenUsage{InputTokens: 12, OutputTokens: 4}, UsageComplete: true,
+			Cleanup: &AgentCleanupDiagnostic{Kind: "provider_close", Fingerprint: "sha256:abc"},
+		},
 	}
 	br := &recordingFleetBridge{readResult: want}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:read").
 		withFleetBridge(br).
 		install()
 
@@ -349,12 +454,16 @@ func TestFleetBridge_Forwarding_ReadMessages(t *testing.T) {
 	if got.Status != "running" || got.Offset != 2 || len(got.Messages) != 1 {
 		t.Errorf("messages = %+v, want %+v", got, want)
 	}
+	if got.Terminal == nil || !got.Terminal.UsageComplete || got.Terminal.Usage.InputTokens != 12 ||
+		got.Terminal.Cleanup == nil || got.Terminal.Cleanup.Fingerprint != "sha256:abc" {
+		t.Fatalf("terminal metadata = %#v", got.Terminal)
+	}
 }
 
 func TestFleetBridge_Forwarding_SendMessage(t *testing.T) {
 	br := &recordingFleetBridge{}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:send").
 		withFleetBridge(br).
 		install()
 
@@ -381,7 +490,7 @@ func TestFleetBridge_Forwarding_SendMessage(t *testing.T) {
 func TestFleetBridge_Forwarding_Cancel(t *testing.T) {
 	br := &recordingFleetBridge{}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:cancel").
 		withFleetBridge(br).
 		install()
 
@@ -417,7 +526,7 @@ func TestFleetBridge_Forwarding_Cancel(t *testing.T) {
 func TestFleetBridge_Cancel_PropagatesToSpawn(t *testing.T) {
 	br := &recordingFleetBridge{blockSpawn: true}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:spawn").
 		withFleetBridge(br).
 		install()
 
@@ -445,7 +554,7 @@ func TestFleetBridge_Cancel_PropagatesToSpawn(t *testing.T) {
 func TestFleetBridge_Cancel_PropagatesToReadMessages(t *testing.T) {
 	br := &recordingFleetBridge{blockRead: true}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:read").
 		withFleetBridge(br).
 		install()
 
@@ -475,7 +584,7 @@ func TestFleetBridge_Cancel_PropagatesToReadMessages(t *testing.T) {
 func TestFleetBridge_Cancel_PropagatesToList(t *testing.T) {
 	br := &recordingFleetBridge{blockList: true}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:list").
 		withFleetBridge(br).
 		install()
 
@@ -499,7 +608,7 @@ func TestFleetBridge_Cancel_PropagatesToList(t *testing.T) {
 func TestFleetBridge_Cancel_PropagatesToSendMessage(t *testing.T) {
 	br := &recordingFleetBridge{blockSend: true}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:send").
 		withFleetBridge(br).
 		install()
 
@@ -530,7 +639,7 @@ func TestFleetBridge_Cancel_PropagatesToSendMessage(t *testing.T) {
 func TestFleetBridge_Cancel_PropagatesToCancel(t *testing.T) {
 	br := &recordingFleetBridge{blockCancel: true}
 	h := newBridgeHarness(t).
-		withCaps("agent:fleet").
+		withCaps("agent:cancel").
 		withFleetBridge(br).
 		install()
 

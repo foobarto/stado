@@ -150,17 +150,10 @@ func (m *Model) statusContextRows() []statusRow {
 	}
 }
 
-// statusBudgetSummary renders the /status modal budget row. USD caps
-// render as dollar amounts; token caps (the local-runner case where
-// CostUSD is always 0) render as compact token counts. Both can be
-// present at once. Returns "unbounded" when nothing is configured so a
-// token-only budget no longer collapses to a misleading "warn $0.00,
-// hard $0.00" (or gets omitted entirely).
+// statusBudgetSummary renders token caps in the /status modal. Currency is an
+// observational row above and is not repeated as an enforcement threshold.
 func (m *Model) statusBudgetSummary() string {
 	var parts []string
-	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
-		parts = append(parts, fmt.Sprintf("warn $%.2f, hard $%.2f", m.budgetWarnUSD, m.budgetHardUSD))
-	}
 	addTokens := func(label string, warn, hard int) {
 		if warn <= 0 && hard <= 0 {
 			return

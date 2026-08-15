@@ -1,0 +1,19 @@
+{
+  "schema": "stado.dev/session-turn-facts/v1",
+  "anchor": {
+    "session_sequence": 4294967297,
+    "turn_ref": "git:refs/sessions/fixture/tree@0123456789abcdef0123456789abcdef01234567#turn-1-iteration-1",
+    "tree_digest": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "provider_tokens": {
+    "input_tokens": 120,
+    "output_tokens": 30,
+    "cached_tokens": 40,
+    "budget_tokens": 2000
+  },
+  "assistant": {
+    "message_ref": "git:refs/sessions/fixture/tree@0123456789abcdef0123456789abcdef01234567#turn-1-iteration-1:assistant",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "excerpt": "Implemented the candidate and recorded exact evidence."
+  }
+}

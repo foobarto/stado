@@ -102,29 +102,19 @@ func renderConfigHuman(w interface {
 		write("  segments   %s\n\n", strings.Join(cfg.TUI.Footer.Segments, ", "))
 	}
 
-	write("[memory]\n")
-	write("  enabled        %v\n", cfg.Memory.Enabled)
-	write("  max_items      %d\n", cfg.Memory.EffectiveMaxItems())
-	write("  budget_tokens  %d\n\n", cfg.Memory.EffectiveBudgetTokens())
-
 	write("[context]\n")
 	write("  soft_threshold   %.2f\n", cfg.Context.SoftThreshold)
 	write("  hard_threshold   %.2f\n\n", cfg.Context.HardThreshold)
 
-	// Always render [budget] so users can see "(unset)" and remember
-	// the knob exists. Zero values mean no cap; label them that way
-	// so the listing doubles as documentation.
+	// Always render the token-only budget surface. Provider currency remains
+	// observational and is deliberately not a cap.
 	write("[budget]\n")
-	if cfg.Budget.WarnUSD > 0 {
-		write("  warn_usd   $%.2f\n", cfg.Budget.WarnUSD)
-	} else {
-		write("  warn_usd   (unset — no warn pill)\n")
-	}
-	if cfg.Budget.HardUSD > 0 {
-		write("  hard_usd   $%.2f\n\n", cfg.Budget.HardUSD)
-	} else {
-		write("  hard_usd   (unset — no hard gate)\n\n")
-	}
+	write("  warn_tokens          %d\n", cfg.Budget.WarnTokens)
+	write("  hard_tokens          %d\n", cfg.Budget.HardTokens)
+	write("  warn_input_tokens    %d\n", cfg.Budget.WarnInputTokens)
+	write("  hard_input_tokens    %d\n", cfg.Budget.HardInputTokens)
+	write("  warn_output_tokens   %d\n", cfg.Budget.WarnOutputTokens)
+	write("  hard_output_tokens   %d\n\n", cfg.Budget.HardOutputTokens)
 
 	write("[verify]\n")
 	if len(cfg.Verify.Commands) == 0 {

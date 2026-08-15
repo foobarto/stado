@@ -1,99 +1,83 @@
-# `stado memory`
+# Memory and learn lifecycle application
 
-Review the local memory store used by plugins that declare `memory:*`
-capabilities.
+Core stado no longer has a native `stado memory` command, a `[memory]` config
+section, or an ambient memory context path. Memory and learning policy belongs
+to one official lifecycle application, and that application runs only in the
+interactive TUI.
 
-## What It Does
+> **Availability (2026-08-14):** The official package is source-complete in the
+> staged `stado-plugins` repository but is unsigned and unpublished. The
+> commands below appear only after the signed package is published, installed,
+> admitted with its exact identity, and explicitly enabled. There is no native
+> compatibility fallback.
 
-`stado memory` lists, inspects, edits, approves, rejects, deletes,
-supersedes, and exports memory items stored under the stado state directory.
-Plugin-proposed items start as `candidate`; they are not returned to
-memory queries until approved.
+## Application commands
 
-Approved memories are injected into provider prompts by default; set
-`[memory].enabled = false` in `config.toml` to opt out. Only
-user-approved, scoped, non-secret items are ever injected, so the
-default-on surface is reviewed context, not silent capture. Injection is
-bounded by `[memory].max_items` and `[memory].budget_tokens`, and the
-prompt block is labeled as untrusted context below stado identity and
-project instructions. TUI, `stado run`, headless, and ACP use the same
-prompt context path.
+The package declares these commands:
 
-Session-scoped memories are inherited down the fork tree: a session sees
-the session-scoped memories of every session it forked from (EP-15), so a
-decision recorded in a session survives a compaction/fork into its
-descendants. Repo- and global-scoped memories apply to the whole repo and
-to every repo respectively.
-
-## Common Flow
-
-```sh
-stado memory list
-stado memory show mem_...
-stado memory edit mem_... --summary "Prefer small diffs" --body "Keep changes focused."
-stado memory approve mem_...
-stado memory supersede mem_... --summary "Prefer reviewable replacements"
-stado memory reject mem_...
-stado memory delete mem_...
-stado memory compact
-stado memory session off
-stado memory session on
-stado memory export > memories.json
+```text
+/memory status
+/memory on
+/memory off
+/memory list
+/memory add <text>
+/learn [focus]
 ```
 
-Use `stado memory list --json` for scripts.
+`/memory on|off|status` changes the exact session/generation application
+setting in the broker journal. `/memory list` shows a bounded, digest-fenced
+view. `/memory add` proposes a candidate; it does not activate one. `/learn`
+reviews bounded broker-opened evidence and can only propose receipt-bound
+candidates.
 
-## Commands
+Fresh candidate activation is intentionally absent. An in-process command or
+UI response is not proof of operator intent. Promotion remains unavailable
+until a separately trusted, predeclared EP-59 presenter can issue and consume a
+grant for the exact artifact version, text, and scope.
 
-| Command | Purpose |
-|---------|---------|
-| `stado memory list` | Show the folded memory view |
-| `stado memory show <id>` | Print one memory item as JSON |
-| `stado memory edit <id>` | Append an edit event for a folded item |
-| `stado memory approve <id>` | Promote a candidate to approved |
-| `stado memory supersede <id>` | Replace an approved memory with a new approved item |
-| `stado memory reject <id>` | Mark a memory rejected |
-| `stado memory delete <id>` | Hide a memory from retrieval, keeping a terminal `deleted` audit tombstone (cannot be re-approved or re-rejected; re-propose to bring it back) |
-| `stado memory compact` | Rewrite the log to its folded state (one event per live item) |
-| `stado memory session [on|off|status]` | Toggle approved-memory retrieval for the current session/worktree |
-| `stado memory export` | Export folded items as JSON |
+When enabled, the application's `pre_llm` callback contributes a small labeled
+projection of active, authorized artifacts. The host validates a strict
+response envelope and byte/item bounds. This contribution is TUI-only:
+`stado run`, headless, ACP, and child application contexts do not receive an
+implicit native memory block.
 
-## Notes
+## Legacy data migration
 
-The backing store is append-only JSONL. Delete, reject, and supersede
-operations append events rather than rewriting old ones. Delete and reject
-keep an audit tombstone in the folded view (`deleted` / `rejected`), so the
-item stays visible through `list`/`show`/`export`; it is simply excluded
-from retrieval. Supersede appends a new approved item and marks the old
-item `superseded`. Edit operations also append a new event, replacing only
-the folded active view. Prompt retrieval remains scoped: only approved,
-non-secret items matching the requested global, repo, or session scope (the
-querying session or any of its ancestors) are returned through
-`memory:read`.
+The only legacy bridge is the lifecycle-only
+`artifact:migrate:legacy-memory-v1` operation. The application can trigger it,
+but cannot choose a path, supply bytes, forge identity, select scope bindings,
+or control destination IDs.
 
-Because the log only grows, `stado memory compact` rewrites it to its
-folded state — exactly one event per live item, tombstones included — to
-reclaim space without changing which memories are active. Reads degrade
-gracefully past the 128 MB store cap (so an oversized store can still be
-inspected and compacted); writes are refused over the cap until `compact`
-brings the log back under it.
+The broker reads the fixed rooted legacy file `memory/memory.jsonl`, archives
+the exact bytes and fsyncs the archive before any canonical write, and verifies
+the installed application identity plus both declared kind/schema digests.
+Large stores are split into bounded inert stages. Nothing becomes visible until
+one final completion marker validates the complete ordered stage set, exact
+source watermark, archive digest, identity, and destination expectations.
 
-Prompt retrieval is on by default and can be opted out globally with
-`[memory].enabled = false`, or per session with `stado memory session off`,
-which creates a `.stado/memory-disabled` marker in the current
-session/worktree (`stado memory session on` removes it). Candidate,
-rejected, deleted, superseded, expired, and `secret` memories are never
-injected into prompts; they remain visible through review/export surfaces
-for auditability.
+Migration is one-way and fail-closed. A changed source, corrupt or unbound
+record, conflicting destination, missing/extra stage, archive mismatch, or
+quarantine condition leaves the source untouched and exposes no partial
+artifacts. A completed marker permanently fences rereading the source.
 
-The legacy JSONL store remains available for audit and can be imported with
-`stado learn migrate`. The new broker-owned artifact store preserves ordinary
-`memory` and behavioral `lesson` kinds as versioned, scope-bound records. Its
-SQLite FTS index is disposable; the hash-chained broker event log remains the
-authority. Approved legacy memories stay active after migration, while approved
-legacy lessons require interactive reaffirmation before prompt use.
+Historically approved memories and lessons both migrate to `active`, preserving
+authority already granted through the old operator workflow. Candidate,
+rejected, superseded, and deleted states remain exact. This historical rule
+does not let the application activate a fresh candidate.
 
-Fast prompt retrieval selects only active, authorized, non-expired artifacts
-under hard item and token limits. Use the isolated `memory__research` tool for a
-deeper search that returns a synthesis with precise artifact citations rather
-than copying the explored corpus into the parent context.
+Legacy aliases are preserved only as bounded provenance references and
+migration evidence; `legacy_id` is not part of the generic artifact envelope.
+
+## Scope and sensitivity
+
+The broker derives principal, repository, session anchor, ancestry, and
+generation from the authenticated binding. The guest cannot widen them. Secret
+records are preserved canonically and remain available to native/operator audit,
+but application queries and evidence surfaces exclude them, including exact-ID
+opens.
+
+Plugin authors should use the generic artifact imports documented in
+[Plugin host imports](../plugins/host-imports.md) and
+[EP-0063](../eps/0063-plugin-defined-harness-artifacts.md). A new
+memory-shaped JSONL writer or `stado_cfg_state_dir` authority bridge is not a
+supported extension point.

@@ -37,7 +37,8 @@ func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
 // Returns the byte length of the message written into buf_ptr,
 // or 0 if no error is stashed. The host's FS imports populate
 // host.lastFSError when they return -1 due to a structured cause
-// (scope guard, capability deny, IO failure); the wasm caller
+// (scope guard, capability deny, IO failure); successful calls clear
+// any prior message. The wasm caller
 // reads the message after observing -1 to surface the specific
 // cause via the negative-return tool error envelope. Ungated —
 // no capability is needed since the message is the host's view
@@ -147,37 +148,42 @@ func registerFSReaddirImport(builder wazero.HostModuleBuilder, host *Host) {
 func registerFSStatImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+			host.lastFSError = ""
+			fail := func(message string) {
+				host.lastFSError = message
+				stack[0] = api.EncodeI32(-1)
+			}
 			pathPtr := api.DecodeU32(stack[0])
 			pathLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufCap := api.DecodeU32(stack[3])
 			if pathLen > maxPluginRuntimeFSPathBytes {
-				stack[0] = api.EncodeI32(-1)
+				fail("path too large")
 				return
 			}
 			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
 			if err != nil {
-				stack[0] = api.EncodeI32(-1)
+				fail("invalid path")
 				return
 			}
 			abs, err := realPath(host.Workdir, path)
 			if err != nil {
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			if !host.allowRead(abs) {
 				host.Logger.Warn("stado_fs_stat denied", slog.String("path", abs))
-				stack[0] = api.EncodeI32(-1)
+				fail("path " + abs + " is not in fs:read capability")
 				return
 			}
 			payload, err := statEntry(abs)
 			if err != nil {
 				host.Logger.Warn("stado_fs_stat failed", slog.String("path", abs), slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			if uint32(len(payload)) > bufCap {
-				stack[0] = api.EncodeI32(-1)
+				fail("response buffer too small")
 				return
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, payload))
@@ -199,35 +205,40 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 	// the manifest's fs:read entries.
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			host.lastFSError = ""
+			fail := func(message string) {
+				host.lastFSError = message
+				stack[0] = api.EncodeI32(-1)
+			}
 			pathPtr := api.DecodeU32(stack[0])
 			pathLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufCap := api.DecodeU32(stack[3])
 			if pathLen > maxPluginRuntimeFSPathBytes {
 				host.Logger.Warn("stado_fs_read denied — path too large", slog.Uint64("path_len", uint64(pathLen)))
-				stack[0] = api.EncodeI32(-1)
+				fail("path too large")
 				return
 			}
 			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
 			if err != nil {
-				stack[0] = api.EncodeI32(-1)
+				fail("invalid path")
 				return
 			}
 			abs, err := realPath(host.Workdir, path)
 			if err != nil {
 				host.Logger.Warn("stado_fs_read denied — symlink resolution failed", slog.String("path", path), slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			if !host.allowRead(abs) {
 				host.Logger.Warn("stado_fs_read denied", slog.String("path", abs))
-				stack[0] = api.EncodeI32(-1)
+				fail("path " + abs + " is not in fs:read capability")
 				return
 			}
 			data, err := readAllowedFile(abs, host.FSRead, pluginFSReadLimit(bufCap))
 			if err != nil {
 				host.Logger.Warn("stado_fs_read failed", slog.String("path", abs), slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			if uint64(len(data)) > uint64(bufCap) {
@@ -235,7 +246,7 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 					slog.String("path", abs),
 					slog.Int("data_bytes", len(data)),
 					slog.Uint64("buf_cap", uint64(bufCap)))
-				stack[0] = api.EncodeI32(-1)
+				fail("file exceeds response buffer")
 				return
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))

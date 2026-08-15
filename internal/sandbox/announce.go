@@ -91,13 +91,13 @@ func HostUnsandboxedLines(cfg WrapConfig) []string {
 		return []string{
 			"stado: warn: [sandbox] mode = \"external\" but no wrapper evidence detected for this entry point.",
 			"stado: warn: only `stado run` validates external-mode wrapping today; TUI / session resume / headless do not.",
-			"stado: warn: launch this entry point under your wrapper (bwrap/firejail/sandbox-exec/container), or set mode = \"wrap\" to have stado re-exec itself. Suppress with " + SuppressEnvVar + "=1.",
+			"stado: warn: launch this entry point under your Linux wrapper (bwrap/firejail/container), or set mode = \"wrap\" to have stado re-exec itself. Suppress with " + SuppressEnvVar + "=1.",
 		}
 	default: // "off" or empty
 		return []string{
 			"stado: warn: running without a process-containment sandbox.",
 			"stado: warn: host subprocesses (shell, plugin runners, LSP, daemon, hooks) inherit the host's filesystem and network access.",
-			"stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with " + SuppressEnvVar + "=1.",
+			"stado: warn: install a Linux wrapper (bwrap/firejail) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with " + SuppressEnvVar + "=1.",
 		}
 	}
 }

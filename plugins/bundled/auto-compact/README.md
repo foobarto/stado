@@ -6,7 +6,8 @@ What it does:
 
 1. Observes session events via `session:observe`
 2. Reads token count/history via `session:read`
-3. Summarises through `llm:invoke`
+3. Shapes a summarisation request in WASM and sends it through the generic
+   `provider:invoke` primitive
 4. Recovers by `session:fork` into a compacted child session
 
 The parent session is never rewritten in place.
@@ -32,7 +33,14 @@ The bundled manifest declares:
 - `session:observe`
 - `session:read`
 - `session:fork`
-- `llm:invoke:30000`
+- `provider:invoke:30000`
+
+The signed capability is the cumulative token ceiling for this plugin
+instance. Provider construction, credentials, authenticated plugin identity,
+and accounting stay in the native host. Prompt shape, summary policy, and the
+model-facing result stay in this plugin. The guest checks the returned buffer
+length before slicing and rejects provider facts whose total exceeds the signed
+30,000-token ceiling.
 
 ## Manual build/install
 
@@ -54,7 +62,7 @@ CLI compaction. The bundled default background plugin remains separate.
 
 - The bundled runtime ID is `auto-compact`.
 - The installable demo from this directory still uses the manifest
-  version in `plugin.manifest.template.json`, so its on-disk plugin ID
-  remains `<name>-<version>` after `plugin install`.
+  version in `plugin.manifest.template.json`. `plugin install` assigns a
+  source-derived store key; the manifest name remains display metadata.
 - The plugin reacts to event payloads queued by stado; today the
   meaningful kinds are `turn_complete` and `context_overflow`.

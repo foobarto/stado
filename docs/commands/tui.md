@@ -21,8 +21,9 @@ Boot sequence:
 4. Walk cwd upward for `AGENTS.md` / `CLAUDE.md` → injected as the
    system prompt on every turn.
 5. Load `.stado/skills/` (flat `*.md` and `<name>/SKILL.md` bundles) →
-   available as `/skill:<name>` for the operator **and** to the model
-   via `skills__load` (EP-0045).
+   available as `/skill:<name>` for the operator and as bounded host facts to
+   the explicitly installed official `skills` plugin (EP-0045). Native stado
+   adds no model listing or loader tool.
 6. Load the bundled `auto-compact` background plugin, then any extra
    installed plugins from `[plugins].background` in **user** config.
    Project-local plugins under `.stado/plugins/` autoload only when
@@ -169,7 +170,6 @@ memorising:
 | `Ctrl+X S` | Open status modal |
 | `Ctrl+X H` | Cycle thinking display: preview, auto, collapsed, expanded |
 | `Ctrl+X O` | Cycle tool-output display: preview, auto, collapsed, expanded |
-| `Ctrl+X K` | Open shared task manager |
 | `Shift+Tab` | Expand the focused (or latest) tool call / assistant turn details |
 | `Alt+Up` / `Alt+Down` | Move focus to older / newer expandable block (then `Shift+Tab` toggles it) |
 | Mouse left-click | Click any tool block to focus + expand it (hold `Shift` while click-dragging if you need terminal-native selection — or set `[tui].mouse_capture = false` to disable app mouse capture entirely) |
@@ -357,27 +357,36 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   active-session-only policy for inactive sessions
 - `/subagents` — recent spawned child sessions with status, worktree,
   changed-file counts, scope violations, and adoption commands
+- `/supervise [objective]` — application-owned supervised work. This command is
+  registered dynamically only when the official signed, installed `supervise`
+  lifecycle application is explicitly enabled. Its first intended release is
+  `supervise/v0.1.0` for stado 0.80.0; that artifact is not published yet, and
+  there is no native fallback. Once available, `status|resume|cancel` manage the
+  durable run. This is distinct from `/supervisor`; see the
+  [feature guide](../features/supervise.md)
 - `/adopt [child] [--apply]` — dry-run or explicitly apply worker
   subagent changes into the current parent session
-- `/tasks` — shared task manager for user/agent work items;
-  `/tasks add <title>` creates a quick open task
+- `/tasks` — dynamic command supplied only by the explicitly admitted signed
+  tasks lifecycle application; core stado has no native task command or picker
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
-- `/memory [on|off|status]` — show or toggle approved-memory retrieval
-  for this session
-- `/learn [focus]` — review the completed trajectory for evidence-backed lesson
-  candidates; `/learn candidates`, `/learn show <id>`, and `/learn approve <id>`
-  provide the trusted interactive review path
+- `/memory [status|on|off|list|add ...]` — dynamic command supplied only by the
+  explicitly admitted signed official memory lifecycle application. Core stado
+  has no native memory command. The staged source is currently unsigned and
+  unpublished, so this surface is not yet generally available
+- `/learn [focus]` — dynamic candidate-only review command from that same
+  application. It uses exact broker evidence receipts and cannot activate a
+  candidate; fresh promotion awaits a separately trusted EP-59 presenter
 - `/btw` — off-band side-question mode
 - `/skill` — list user-invocable skills (`[user-only]` marks entries hidden
   from the model); `/skill:<name>` injects a skill body into the conversation.
   Model-only (`user-invocable: false`) entries are omitted and direct user
-  invocation is refused. Skills also surface to the model: each `name` +
-  `description` enters the system prompt and the model can load one on
-  its own via `skills__load` (EP-0045). A skill with
-  `disable-model-invocation: true` stays operator-only; denying
-  `skills__load` via `[tools].disabled` turns model invocation off while
-  `/skill:` keeps working.
+  invocation is refused. With the explicit official `skills` WASM package
+  installed and surfaced, the model uses `skills__search` and `skills__load`;
+  the loaded body remains a labeled tool result. A skill with
+  `disable-model-invocation: true` is mechanically absent from that resource
+  catalog. Omitting/denying the plugin load tool prevents model body invocation
+  while `/skill:` keeps working.
 
 ## Multi-session Overlay
 
@@ -456,7 +465,7 @@ relevant sections:
 | `[defaults]` | provider, model, `allow_project_persona` (user only) |
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
-| `[budget]` | warn + hard caps on cumulative cost and tokens |
+| `[budget]` | warn + hard caps on cumulative tokens |
 | `[hooks]` | `post_turn` lifecycle shell hook (user only) |
 | `[plugins]` | `allow_project_plugins`, `background` (user only), CRL, Rekor |
 | `[mcp.servers.<name>]` | external MCP tool servers (user only) |

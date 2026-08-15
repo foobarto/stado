@@ -152,7 +152,7 @@ var scheduleInstallCronCmd = &cobra.Command{
 sentinel so uninstall-cron can remove only stado-managed lines.
 Idempotent — re-running replaces existing entries.
 
-Requires 'crontab' on PATH. Not supported on Windows.`,
+Requires the Linux 'crontab' command on PATH.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

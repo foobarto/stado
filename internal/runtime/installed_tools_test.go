@@ -2,60 +2,20 @@ package runtime
 
 import (
 	"context"
-	"os"
+	"crypto/ed25519"
+	"crypto/rand"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
-
-// TestActiveVersionMarker_Reads: when a marker file exists, returns
-// its contents trimmed.
-func TestActiveVersionMarker_Reads(t *testing.T) {
-	dir := t.TempDir()
-	activeDir := filepath.Join(dir, "plugins", "active")
-	if err := os.MkdirAll(activeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(activeDir, "fs"), []byte("v1.2.3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got := activeVersionMarker(dir, "fs")
-	if got != "v1.2.3" {
-		t.Errorf("activeVersionMarker(_, fs) = %q, want %q", got, "v1.2.3")
-	}
-}
-
-// TestActiveVersionMarker_Missing: returns empty string when no
-// marker file exists.
-func TestActiveVersionMarker_Missing(t *testing.T) {
-	dir := t.TempDir()
-	got := activeVersionMarker(dir, "missing")
-	if got != "" {
-		t.Errorf("activeVersionMarker(_, missing) = %q, want empty", got)
-	}
-}
-
-// TestActiveVersionMarker_StripsWhitespace: marker file with
-// trailing whitespace round-trips cleanly.
-func TestActiveVersionMarker_StripsWhitespace(t *testing.T) {
-	dir := t.TempDir()
-	activeDir := filepath.Join(dir, "plugins", "active")
-	if err := os.MkdirAll(activeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(activeDir, "shell"), []byte("  v0.5.0  \n\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got := activeVersionMarker(dir, "shell")
-	if got != "v0.5.0" {
-		t.Errorf("activeVersionMarker should trim whitespace; got %q", got)
-	}
-}
 
 // TestInstalledPluginTool_NameAndDescription: the wrapper exposes
 // the manifest's tool name and description without loading wasm.
@@ -64,12 +24,13 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 		Name:    "test-plugin",
 		Version: "v0.1.0",
 		Tools: []plugins.ToolDef{{
-			Name:        "lookup",
-			Description: "Lookup a thing",
-			Schema:      `{"type":"object"}`,
+			Name:         "lookup",
+			Description:  "Lookup a thing",
+			Schema:       `{"type":"object"}`,
+			Capabilities: plugins.CapabilitySubset(),
 		}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating, nil, nil)
+	tl := newInstalledPluginTool(mf, plugins.RuntimeIdentity{}, mf.Tools[0], "/nonexistent/wasm/path", "", tool.ClassNonMutating, nil, nil)
 	if tl.Name() != "lookup" {
 		t.Errorf("Name() = %q, want lookup", tl.Name())
 	}
@@ -82,6 +43,28 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 	}
 }
 
+func TestInstalledToolInvocationRechecksRevokedAdmissionAfterRegistryBuild(t *testing.T) {
+	cfg := isolatedRuntimeConfig(t)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := installOverridePlugin(t, cfg, priv, pub, "live-admission", plugins.ToolDef{Name: "receipt__live"})
+	reg := tools.NewRegistry()
+	registerInstalledPluginTools(reg, cfg)
+	tl, ok := reg.Get("receipt__live")
+	if !ok {
+		t.Fatal("admitted installed tool was not registered")
+	}
+	if err := plugins.RemoveInstallReceipt(cfg.StateDir(), filepath.Dir(pkg.Dir), pkg.Record.StoreKey); err != nil {
+		t.Fatal(err)
+	}
+	result, err := tl.Run(context.Background(), []byte(`{}`), nil)
+	if err == nil || !strings.Contains(err.Error(), "exact install receipt") || !strings.Contains(result.Error, "exact install receipt") {
+		t.Fatalf("post-registry receipt revocation result=%+v err=%v", result, err)
+	}
+}
+
 // TestInstalledPluginTool_RunDispatchesViaPluginrun: Step 0.1 changed
 // installedPluginTool.Run from a sentinel-error returner to a real
 // invoker that dispatches via pluginrun.Run. Verify the new contract:
@@ -91,9 +74,9 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 func TestInstalledPluginTool_RunDispatchesViaPluginrun(t *testing.T) {
 	mf := plugins.Manifest{
 		Name: "test-plugin", Version: "v0.1.0",
-		Tools: []plugins.ToolDef{{Name: "lookup"}},
+		Tools: []plugins.ToolDef{{Name: "lookup", Capabilities: plugins.CapabilitySubset()}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating, nil, nil)
+	tl := newInstalledPluginTool(mf, plugins.RuntimeIdentity{}, mf.Tools[0], "/nonexistent", "", tool.ClassNonMutating, nil, nil)
 	res, err := tl.Run(context.Background(), nil, nil)
 	if err == nil {
 		t.Fatal("Run() with nonexistent wasm path should error")
@@ -106,127 +89,6 @@ func TestInstalledPluginTool_RunDispatchesViaPluginrun(t *testing.T) {
 	// server callers silently fail for installed plugins.
 	if got := res.Error; strings.Contains(got, "not invokable directly via Tool.Run") {
 		t.Errorf("Result.Error still contains pre-Step-0.1 sentinel string: %q", got)
-	}
-}
-
-// TestPickActiveVersion_PrefersMarker: marker file wins over disk
-// candidates.
-func TestPickActiveVersion_PrefersMarker(t *testing.T) {
-	dir := t.TempDir()
-	activeDir := filepath.Join(dir, "plugins", "active")
-	_ = os.MkdirAll(activeDir, 0o755)
-	_ = os.WriteFile(filepath.Join(activeDir, "fs"), []byte("v0.1.0"), 0o644)
-
-	got := pickActiveVersion(dir, "fs", []string{"v0.1.0", "v0.2.0", "v1.0.0"})
-	if got != "v0.1.0" {
-		t.Errorf("pickActiveVersion = %q, want v0.1.0 (marker wins)", got)
-	}
-}
-
-// TestPickActiveVersion_HighestSemverFallback: no marker, highest
-// semver wins.
-func TestPickActiveVersion_HighestSemverFallback(t *testing.T) {
-	dir := t.TempDir()
-	got := pickActiveVersion(dir, "fs", []string{"v0.1.0", "v0.10.0", "v0.2.0", "v1.0.0"})
-	if got != "v1.0.0" {
-		t.Errorf("pickActiveVersion = %q, want v1.0.0", got)
-	}
-	got2 := pickActiveVersion(dir, "fs", []string{"v0.1.0", "v0.10.0", "v0.2.0"})
-	if got2 != "v0.10.0" {
-		t.Errorf("pickActiveVersion = %q, want v0.10.0 (10 > 2)", got2)
-	}
-	// Also verify no-v form (matches real install-dir convention).
-	got3 := pickActiveVersion(dir, "fs", []string{"0.1.0", "0.10.0", "0.2.0"})
-	if got3 != "0.10.0" {
-		t.Errorf("pickActiveVersion no-v form = %q, want 0.10.0", got3)
-	}
-}
-
-// TestPickActiveVersion_MarkerPointsAtMissingVersion: marker
-// references a version not in candidates → return "".
-func TestPickActiveVersion_MarkerPointsAtMissingVersion(t *testing.T) {
-	dir := t.TempDir()
-	activeDir := filepath.Join(dir, "plugins", "active")
-	_ = os.MkdirAll(activeDir, 0o755)
-	_ = os.WriteFile(filepath.Join(activeDir, "fs"), []byte("v9.9.9"), 0o644)
-
-	got := pickActiveVersion(dir, "fs", []string{"v0.1.0", "v0.2.0"})
-	if got != "" {
-		t.Errorf("pickActiveVersion = %q, want empty (marker version not installed)", got)
-	}
-}
-
-// TestPickActiveVersion_NoCandidates: empty candidates → "".
-func TestPickActiveVersion_NoCandidates(t *testing.T) {
-	dir := t.TempDir()
-	got := pickActiveVersion(dir, "fs", nil)
-	if got != "" {
-		t.Errorf("pickActiveVersion empty = %q, want empty", got)
-	}
-}
-
-// TestGroupInstalledByName_GroupsAndSkips: name-version dirs are
-// grouped; non-matching entries (active/ subdir, files, malformed
-// names) are skipped.
-func TestGroupInstalledByName_GroupsAndSkips(t *testing.T) {
-	dir := t.TempDir()
-	pluginsDir := filepath.Join(dir, "plugins")
-	for _, sub := range []string{
-		"fs-v0.1.0", "fs-v0.2.0", "shell-v1.0.0", // v-prefixed
-		"agent-1.0.0", // no-v form (real install convention)
-		"active",      // metadata dir; must be skipped
-		"no-dash",     // malformed name; must be skipped
-	} {
-		_ = os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755)
-	}
-	_ = os.WriteFile(filepath.Join(pluginsDir, "stray.txt"), []byte("ignore"), 0o644)
-
-	got, err := groupInstalledByName(pluginsDir)
-	if err != nil {
-		t.Fatalf("groupInstalledByName: %v", err)
-	}
-	if len(got) != 3 {
-		t.Fatalf("expected 3 groups, got %d: %+v", len(got), got)
-	}
-	if len(got["fs"]) != 2 {
-		t.Errorf("fs versions = %v, want 2 entries", got["fs"])
-	}
-	if len(got["shell"]) != 1 {
-		t.Errorf("shell versions = %v, want 1 entry", got["shell"])
-	}
-	if len(got["agent"]) != 1 || got["agent"][0] != "1.0.0" {
-		t.Errorf("agent versions = %v, want [1.0.0]", got["agent"])
-	}
-}
-
-// TestGroupInstalledByName_NoPluginsDir: missing dir returns empty
-// map without error.
-func TestGroupInstalledByName_NoPluginsDir(t *testing.T) {
-	dir := t.TempDir()
-	got, err := groupInstalledByName(filepath.Join(dir, "plugins"))
-	if err != nil {
-		t.Fatalf("groupInstalledByName on missing dir: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected empty map; got %+v", got)
-	}
-}
-
-// TestGroupInstalledByName_HandlesMultiDashNames: "htb-lab-v0.1.0"
-// → name "htb-lab", version "v0.1.0". The split is on the LAST "-v"
-// preceding a digit.
-func TestGroupInstalledByName_HandlesMultiDashNames(t *testing.T) {
-	dir := t.TempDir()
-	pluginsDir := filepath.Join(dir, "plugins")
-	_ = os.MkdirAll(filepath.Join(pluginsDir, "htb-lab-v0.1.0"), 0o755)
-	_ = os.MkdirAll(filepath.Join(pluginsDir, "exfil-server-v0.1.0"), 0o755)
-
-	got, _ := groupInstalledByName(pluginsDir)
-	if len(got["htb-lab"]) != 1 || got["htb-lab"][0] != "v0.1.0" {
-		t.Errorf("htb-lab grouping = %+v; want {htb-lab: [v0.1.0]}", got)
-	}
-	if len(got["exfil-server"]) != 1 {
-		t.Errorf("exfil-server grouping wrong: %+v", got)
 	}
 }
 
@@ -257,120 +119,192 @@ func TestRegisterInstalledPluginTools_NilCfgNoOp(t *testing.T) {
 	}
 }
 
-// TestLookupInstalledModule_NotFound: looking up a tool that
-// hasn't been registered returns ok=false.
-func TestLookupInstalledModule_NotFound(t *testing.T) {
-	// Reset the package-level state so prior tests don't leak.
-	installedRegistryMu.Lock()
-	installedByTool = map[string]installedRecord{}
-	installedRegistryMu.Unlock()
-
-	if _, _, ok := LookupInstalledModule("nope__missing"); ok {
-		t.Error("LookupInstalledModule for unknown tool should be ok=false")
+func TestInstalledModuleForToolRejectsNameOnlyStandIn(t *testing.T) {
+	if _, _, _, ok := InstalledModuleForTool(namedStubTool("nope__missing")); ok {
+		t.Error("name-only stand-in resolved as an installed module")
 	}
 }
 
-// TestResolveInstalledPluginDir_BareName: bare-name input resolves
-// to the active version's install dir.
-func TestResolveInstalledPluginDir_BareName(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", dataDir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	pluginsDir := filepath.Join(dataDir, "stado", "plugins")
-	if err := os.MkdirAll(filepath.Join(pluginsDir, "gtfobins-0.1.0"), 0o755); err != nil {
-		t.Fatal(err)
+func TestInstalledModuleForToolIsPerSelectedAdapterUnderConcurrency(t *testing.T) {
+	const name = "same__name"
+	definition := plugins.ToolDef{Name: name, Capabilities: plugins.CapabilitySubset()}
+	makeRegistry := func(canonical, namespace, path string) *tools.Registry {
+		reg := tools.NewRegistry()
+		manifest := plugins.Manifest{Name: namespace, Tools: []plugins.ToolDef{definition}}
+		identity := plugins.RuntimeIdentity{Canonical: canonical, Namespace: namespace}
+		reg.Register(newInstalledPluginTool(manifest, identity, definition, path, "", tool.ClassNonMutating, nil, reg))
+		return reg
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+	regA := makeRegistry("github.com/acme/a@v1", "github.com/acme/a", "/isolated/a.wasm")
+	regB := makeRegistry("github.com/acme/b@v1", "github.com/acme/b", "/isolated/b.wasm")
+
+	const callers = 64
+	var wg sync.WaitGroup
+	errs := make(chan string, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(useA bool) {
+			defer wg.Done()
+			reg, wantNamespace, wantPath := regB, "github.com/acme/b", "/isolated/b.wasm"
+			if useA {
+				reg, wantNamespace, wantPath = regA, "github.com/acme/a", "/isolated/a.wasm"
+			}
+			selected, ok := reg.Get(name)
+			if !ok {
+				errs <- "selected tool disappeared"
+				return
+			}
+			_, identity, path, ok := InstalledModuleForTool(selected)
+			if !ok || identity.Namespace != wantNamespace || path != wantPath {
+				errs <- fmt.Sprintf("resolved namespace=%q path=%q ok=%t", identity.Namespace, path, ok)
+			}
+		}(i%2 == 0)
 	}
-	dir, ok := ResolveInstalledPluginDir(cfg, "gtfobins")
-	if !ok {
-		t.Fatalf("ResolveInstalledPluginDir returned ok=false; want true")
-	}
-	if dir != filepath.Join(pluginsDir, "gtfobins-0.1.0") {
-		t.Errorf("dir = %q, want gtfobins-0.1.0 install path", dir)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 
-// TestResolveInstalledPluginDir_PrefersMarker: when an active-version
-// marker is set, the resolver returns that version's dir even if a
-// higher version is installed.
-func TestResolveInstalledPluginDir_PrefersMarker(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", dataDir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	pluginsDir := filepath.Join(dataDir, "stado", "plugins")
-	for _, sub := range []string{"foo-0.1.0", "foo-0.2.0"} {
-		_ = os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755)
+func TestInstalledToolCollisionRejectsEveryAuthenticatedSourceIndependentOfOrder(t *testing.T) {
+	packages := []admittedInstalledPackage{
+		{
+			packageInfo: plugins.InstalledPackage{Manifest: plugins.Manifest{Name: "one", Tools: []plugins.ToolDef{{Name: "shared__tool", Capabilities: plugins.CapabilitySubset()}}}},
+			identity:    plugins.RuntimeIdentity{Canonical: "github.com/acme/one@v1.0.0", Namespace: "github.com/acme/one"},
+			wasmPath:    "/unused/one.wasm",
+		},
+		{
+			packageInfo: plugins.InstalledPackage{Manifest: plugins.Manifest{Name: "two", Tools: []plugins.ToolDef{{Name: "shared__tool", Capabilities: plugins.CapabilitySubset()}}}},
+			identity:    plugins.RuntimeIdentity{Canonical: "github.com/acme/two@v1.0.0", Namespace: "github.com/acme/two"},
+			wasmPath:    "/unused/two.wasm",
+		},
 	}
-	activeDir := filepath.Join(pluginsDir, "active")
-	_ = os.MkdirAll(activeDir, 0o755)
-	_ = os.WriteFile(filepath.Join(activeDir, "foo"), []byte("0.1.0"), 0o644)
-
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	dir, ok := ResolveInstalledPluginDir(cfg, "foo")
-	if !ok {
-		t.Fatal("ResolveInstalledPluginDir returned ok=false")
-	}
-	if dir != filepath.Join(pluginsDir, "foo-0.1.0") {
-		t.Errorf("dir = %q, want foo-0.1.0 (marker pin)", dir)
-	}
-}
-
-func TestResolveInstalledPluginDir_UsesProjectLocalMarker(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	project := filepath.Join(root, "project")
-	pluginsDir := filepath.Join(project, ".stado", "plugins")
-	for _, sub := range []string{"foo-0.1.0", "foo-0.2.0"} {
-		if err := os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755); err != nil {
-			t.Fatal(err)
+	for _, order := range [][]admittedInstalledPackage{packages, {packages[1], packages[0]}} {
+		reg := tools.NewRegistry()
+		registerAdmittedInstalledTools(reg, &config.Config{}, order)
+		if _, ok := reg.Get("shared__tool"); ok {
+			t.Fatal("cross-source collision acquired registry authority")
 		}
 	}
-	activeDir := filepath.Join(pluginsDir, "active")
-	if err := os.MkdirAll(activeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(activeDir, "foo"), []byte("0.1.0"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(project)
+}
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
+func TestInstalledToolCollisionWithExistingOwnerRejectsWholePackageIndependentOfOrder(t *testing.T) {
+	packages := []admittedInstalledPackage{
+		{
+			packageInfo: plugins.InstalledPackage{Manifest: plugins.Manifest{Name: "collision", Tools: []plugins.ToolDef{
+				{Name: "existing__tool", Capabilities: plugins.CapabilitySubset()},
+				{Name: "must__not_partially_register", Capabilities: plugins.CapabilitySubset()},
+			}}},
+			identity: plugins.RuntimeIdentity{Canonical: "github.com/acme/collision@v1.0.0", Namespace: "github.com/acme/collision"},
+			wasmPath: "/unused/collision.wasm",
+		},
+		{
+			packageInfo: plugins.InstalledPackage{Manifest: plugins.Manifest{Name: "clean", Tools: []plugins.ToolDef{{Name: "clean__tool", Capabilities: plugins.CapabilitySubset()}}}},
+			identity:    plugins.RuntimeIdentity{Canonical: "github.com/acme/clean@v1.0.0", Namespace: "github.com/acme/clean"},
+			wasmPath:    "/unused/clean.wasm",
+		},
 	}
-	dir, ok := ResolveInstalledPluginDir(cfg, "foo")
-	if !ok || dir != filepath.Join(pluginsDir, "foo-0.1.0") {
-		t.Fatalf("project-local resolution = (%q, %t), want pinned v0.1.0", dir, ok)
+	for _, order := range [][]admittedInstalledPackage{packages, {packages[1], packages[0]}} {
+		reg := tools.NewRegistry()
+		existing := namedStubTool("existing__tool")
+		reg.Register(existing)
+		registerAdmittedInstalledTools(reg, &config.Config{}, order)
+		got, ok := reg.Get("existing__tool")
+		if !ok || got != existing {
+			t.Fatalf("existing registry owner was replaced: got=%T/%v present=%t", got, got, ok)
+		}
+		if _, ok := reg.Get("must__not_partially_register"); ok {
+			t.Fatal("a package with an existing-owner collision registered a partial tool surface")
+		}
+		if _, ok := reg.Get("clean__tool"); !ok {
+			t.Fatal("unrelated collision-free package was not registered")
+		}
 	}
 }
 
-// TestResolveInstalledPluginDir_NotInstalled: a bare name with no
-// matching directory on disk returns ok=false.
-func TestResolveInstalledPluginDir_NotInstalled(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", dataDir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+func TestInstalledToolsClassifyWithSelectedCapabilitySubset(t *testing.T) {
+	manifest := plugins.Manifest{
+		Name:         "tool-registry",
+		Capabilities: []string{"registry:catalog", "session:tool-surface"},
+		Tools: []plugins.ToolDef{
+			{Name: "tools__search", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("registry:catalog")},
+			{Name: "tools__activate", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("registry:catalog", "session:tool-surface")},
+		},
 	}
-	if _, ok := ResolveInstalledPluginDir(cfg, "nope"); ok {
-		t.Error("ResolveInstalledPluginDir for missing plugin should be ok=false")
+	reg := tools.NewRegistry()
+	registerAdmittedInstalledTools(reg, &config.Config{}, []admittedInstalledPackage{{
+		packageInfo: plugins.InstalledPackage{Manifest: manifest},
+		identity:    plugins.RuntimeIdentity{Canonical: "github.com/foobarto/tool-registry@v0.1.0", Namespace: "github.com/foobarto/tool-registry"},
+		wasmPath:    "/unused/tool-registry.wasm",
+	}})
+	if got := reg.ClassOf("tools__search"); got != tool.ClassNonMutating {
+		t.Fatalf("search class = %v, want non-mutating", got)
+	}
+	if got := reg.ClassOf("tools__activate"); got != tool.ClassStateMutating {
+		t.Fatalf("activate class = %v, want state-mutating", got)
 	}
 }
 
-// TestResolveInstalledPluginDir_NilCfg: nil cfg returns ok=false
-// (mirrors BuildDefaultRegistry's nil-cfg contract).
-func TestResolveInstalledPluginDir_NilCfg(t *testing.T) {
-	if _, ok := ResolveInstalledPluginDir(nil, "fs"); ok {
-		t.Error("ResolveInstalledPluginDir(nil, _) should be ok=false")
+func TestAgentChildOnlyToolsRequireExactNarrowProjection(t *testing.T) {
+	const researchNamespace = "github.com/foobarto/stado-plugins/research"
+	manifest := plugins.Manifest{Name: "research", Tools: []plugins.ToolDef{
+		{Name: "research__catalog", Class: "NonMutating", Capabilities: plugins.CapabilitySubset(), AgentChildOnly: true},
+		{Name: "memory__research", Class: "StateMutating", Capabilities: plugins.CapabilitySubset()},
+	}}
+	admitted := []admittedInstalledPackage{{
+		packageInfo: plugins.InstalledPackage{Manifest: manifest},
+		identity:    plugins.RuntimeIdentity{Canonical: researchNamespace + "@v1.0.0", Namespace: researchNamespace},
+		wasmPath:    "/unused/research.wasm",
+	}}
+	for _, tc := range []struct {
+		name     string
+		exact    map[string]bool
+		owner    string
+		wantOpen bool
+	}{
+		{name: "ordinary parent"},
+		{name: "child without narrow tools", exact: map[string]bool{}, owner: researchNamespace},
+		{name: "unrelated exact narrow list", exact: map[string]bool{"research__search": true}, owner: researchNamespace},
+		{name: "direct spawn guessing helper", exact: map[string]bool{"research__catalog": true}},
+		{name: "bundled agent guessing helper", exact: map[string]bool{"research__catalog": true}, owner: "stado.dev/bundled/agent"},
+		{name: "unrelated plugin guessing helper", exact: map[string]bool{"research__catalog": true}, owner: "github.com/other/plugin"},
+		{name: "research outer exact helper", exact: map[string]bool{"research__catalog": true}, owner: researchNamespace, wantOpen: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := tools.NewRegistry()
+			registerAdmittedInstalledToolsForSurface(reg, &config.Config{}, admitted, tc.exact, tc.owner)
+			_, got := reg.Get("research__catalog")
+			if got != tc.wantOpen {
+				t.Fatalf("child-only registration=%t, want %t", got, tc.wantOpen)
+			}
+			if _, ok := reg.Get("memory__research"); !ok {
+				t.Fatal("ordinary outer tool disappeared with child-only projection")
+			}
+		})
+	}
+
+	reg := tools.NewRegistry()
+	registerAdmittedInstalledToolsForSurface(reg, &config.Config{}, admitted, map[string]bool{"research__catalog": true}, researchNamespace)
+	exec := &tools.Executor{Registry: reg}
+	if _, _, err := configureSubagentTools(subagent.Request{Mode: subagent.DefaultMode, Role: subagent.DefaultRole, ToolProfile: "read_only", NarrowTools: []string{"research__catalog"}}, exec, nil); err != nil {
+		t.Fatalf("matching read_only child projection: %v", err)
+	}
+	if _, ok := reg.Get("research__catalog"); !ok {
+		t.Fatal("read_only projection removed exact non-mutating child tool")
+	}
+	childSelected, _ := reg.Get("research__catalog")
+	_, childIdentity, childPath, ok := InstalledModuleForTool(childSelected)
+	if !ok || childIdentity.Namespace != researchNamespace || childPath != "/unused/research.wasm" {
+		t.Fatalf("exact child adapter resolution identity=%+v path=%q ok=%t", childIdentity, childPath, ok)
+	}
+	if _, _, _, ok := InstalledModuleForTool(namedStubTool("research__catalog")); ok {
+		t.Fatal("name-only parent stand-in resolved the child-only module")
+	}
+
+	missing := &tools.Executor{Registry: tools.NewRegistry()}
+	if _, _, err := configureSubagentTools(subagent.Request{Mode: subagent.DefaultMode, Role: subagent.DefaultRole, ToolProfile: "read_only", NarrowTools: []string{"research__catalog"}}, missing, nil); err == nil || !strings.Contains(err.Error(), "unavailable in the authenticated child registry") {
+		t.Fatalf("missing exact child tool did not fail closed: %v", err)
 	}
 }
 
@@ -411,11 +345,8 @@ func TestBundledPluginTool_PerBuildRuntimeIsolation(t *testing.T) {
 		t.Fatalf("fs__read missing: A=%v B=%v", okA, okB)
 	}
 
-	// Bundled tools are wrapped in renamedTool to expose the wire-
-	// form name (fs__read instead of the inner bundledPluginTool's
-	// own Name()). Unwrap to compare cfg/invokeReg pointers — the
-	// per-build isolation has to hold on the inner instance since
-	// that's what's wired by BuildDefaultRegistry's setRuntime loop.
+	// Bundled tools expose the manifest-owned wire name directly. Compare
+	// the per-build adapter state to make sure registry ownership is local.
 	bA := unwrapBundled(t, tA)
 	bB := unwrapBundled(t, tB)
 
@@ -443,17 +374,9 @@ func TestBundledPluginTool_PerBuildRuntimeIsolation(t *testing.T) {
 	}
 }
 
-// unwrapBundled walks past renamedTool wrappers to reach the underlying
-// *bundledPluginTool. Bundled tools registered under wire names go
-// through newBundledWasmTool → renamedTool{inner: bundledPluginTool},
-// so a direct .(*bundledPluginTool) assertion on a registry lookup
-// always misses. Fails the test fatally when the inner isn't bundled
-// (caller's intent: it must be, for the assertion to be meaningful).
+// unwrapBundled asserts that a core registry entry is the generic adapter.
 func unwrapBundled(t *testing.T, tl tool.Tool) *bundledPluginTool {
 	t.Helper()
-	if rt, ok := tl.(*renamedTool); ok {
-		tl = rt.inner
-	}
 	b, ok := tl.(*bundledPluginTool)
 	if !ok {
 		t.Fatalf("expected *bundledPluginTool after unwrap, got %T", tl)

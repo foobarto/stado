@@ -2,12 +2,9 @@ package plugins
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -41,111 +38,12 @@ func FetchAnchorPubkey(ctx context.Context, url string) (string, error) {
 	default:
 		return "", fmt.Errorf("anchor fetch %s: HTTP %d", url, resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAnchorPubkeyBytes))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAnchorPubkeyBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("anchor read %s: %w", url, err)
 	}
+	if len(data) > maxAnchorPubkeyBytes {
+		return "", fmt.Errorf("anchor read %s: response exceeds %d bytes", url, maxAnchorPubkeyBytes)
+	}
 	return strings.TrimSpace(string(data)), nil
-}
-
-// AnchorTrustScope controls how broadly a trusted fingerprint applies.
-type AnchorTrustScope string
-
-const (
-	// AnchorTrustOwner trusts all repos by this owner (most common).
-	AnchorTrustOwner AnchorTrustScope = "owner"
-	// AnchorTrustRepo trusts only the specific repo.
-	AnchorTrustRepo AnchorTrustScope = "repo"
-)
-
-// AnchorTrustEntry is one owner-scoped trust record. Keyed by OwnerKey
-// (host/owner), not per-fingerprint like the existing TrustStore.
-type AnchorTrustEntry struct {
-	OwnerKey    string           `json:"owner_key"`
-	Fingerprint string           `json:"fingerprint"`
-	Scope       AnchorTrustScope `json:"scope"`
-	TrustedAt   string           `json:"trusted_at"`
-}
-
-// AnchorTrustStore is a persistent per-user store of owner anchor trust.
-// Stored as one JSON file per owner under dir/<safe-owner-key>.json.
-// Separate from the existing per-key TrustStore.
-type AnchorTrustStore struct {
-	dir string
-}
-
-// NewAnchorTrustStore returns a store rooted at dir/anchor-trust/.
-func NewAnchorTrustStore(stateDir string) *AnchorTrustStore {
-	return &AnchorTrustStore{dir: filepath.Join(stateDir, "plugins", "anchor-trust")}
-}
-
-// IsTrusted returns true when the given owner+fingerprint combination is
-// in the trust store.
-func (s *AnchorTrustStore) IsTrusted(ownerKey, fingerprint string) (bool, error) {
-	entry, err := s.load(ownerKey)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return entry.Fingerprint == fingerprint, nil
-}
-
-// Trust stores a new entry for ownerKey+fingerprint (TOFU — first caller wins).
-func (s *AnchorTrustStore) Trust(ownerKey, fingerprint string, scope AnchorTrustScope) error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return err
-	}
-	entry := AnchorTrustEntry{
-		OwnerKey:    ownerKey,
-		Fingerprint: fingerprint,
-		Scope:       scope,
-		TrustedAt:   time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.MarshalIndent(entry, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.entryPath(ownerKey), data, 0o600)
-}
-
-// Fingerprint returns the stored fingerprint for ownerKey, or "" if not found.
-func (s *AnchorTrustStore) Fingerprint(ownerKey string) (string, error) {
-	entry, err := s.load(ownerKey)
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return entry.Fingerprint, nil
-}
-
-// Remove deletes the trust entry for ownerKey. Idempotent — a missing entry is
-// not an error. Used to clear a stale pin after a legitimate key rotation so
-// the next install re-runs trust-on-first-use against the new anchor.
-func (s *AnchorTrustStore) Remove(ownerKey string) error {
-	err := os.Remove(s.entryPath(ownerKey))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-func (s *AnchorTrustStore) load(ownerKey string) (*AnchorTrustEntry, error) {
-	data, err := os.ReadFile(s.entryPath(ownerKey))
-	if err != nil {
-		return nil, err
-	}
-	var e AnchorTrustEntry
-	if err := json.Unmarshal(data, &e); err != nil {
-		return nil, err
-	}
-	return &e, nil
-}
-
-func (s *AnchorTrustStore) entryPath(ownerKey string) string {
-	safe := strings.NewReplacer("/", "_", ":", "_").Replace(ownerKey)
-	return filepath.Join(s.dir, safe+".json")
 }

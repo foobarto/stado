@@ -2,11 +2,13 @@
 ep: 0030
 title: Security-research default harness — agent / subagent / skills / plugins
 author: Bartosz Ptaszynski
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-05-04
-implemented-in: v0.33.0
 history:
+  - date: 2026-08-14
+    status: Partial
+    note: Corrected stale status. The security mode, prompt injection, and engagement layout shipped, but the proposed bundled subagents, skills, plugins, and worked design remain incomplete.
   - date: 2026-05-04
     status: Placeholder
     note: Idea capture per EP-0001 §"Placeholders". Not yet a worked design.
@@ -39,13 +41,14 @@ see-also: ["EP-0002", "EP-0008", "EP-0013", "EP-0017"]
 
 # EP-0030: Security-research default harness — agent / subagent / skills / plugins
 
-> **Status: Implemented (v0.33.0; harness injection extended to all surfaces in
-> v0.68.0).** This EP began as a placeholder (problem statement + scope) and was
+> **Status: Partially implemented (v0.33.0; harness injection extended to all
+> surfaces in v0.68.0).** This EP began as a placeholder (problem statement + scope) and was
 > implemented without the worked-design body being filled in. The shipped
 > mechanism is the `[harness]` config knob plus `internal/harness` (`Prepend` /
 > `LoadSecurity`), which prepends the security-research harness to the system
 > prompt in security mode across `stado run`, the TUI, ACP, and headless. The
-> sections below preserve the original problem framing.
+> sections below preserve the original problem framing. The bundled subagent,
+> skills, plugin, and conventions-document goals remain open.
 
 ## Problem
 

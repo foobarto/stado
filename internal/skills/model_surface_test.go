@@ -1,12 +1,10 @@
 package skills
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 func TestLoad_DirectorySKILLmd(t *testing.T) {
@@ -96,65 +94,12 @@ body`)
 	}
 }
 
-func TestModelVisible_and_FormatModelListing(t *testing.T) {
-	sks := []Skill{
-		{Name: "public", Description: "visible"},
-		{Name: "secret", Description: "hidden", DisableModelInvocation: true},
-	}
-	vis := ModelVisible(sks)
-	if len(vis) != 1 || vis[0].Name != "public" {
-		t.Fatalf("ModelVisible: %+v", vis)
-	}
-	listing := FormatModelListing(sks)
-	if !strings.Contains(listing, "public") || strings.Contains(listing, "secret") {
-		t.Fatalf("listing: %q", listing)
-	}
-	if !strings.Contains(listing, "skills__load") {
-		t.Error("listing should mention skills__load")
-	}
-}
-
-func TestFormatModelListing_LargeCatalogStaysWithinBudget(t *testing.T) {
-	sks := make([]Skill, 100)
-	for i := range sks {
-		sks[i] = Skill{
-			Name:        fmt.Sprintf("skill-%03d-%s", i, strings.Repeat("n", 32)),
-			Description: strings.Repeat("description ", 20),
-		}
-	}
-
-	listing := FormatModelListing(sks)
-	if len(listing) > maxModelListingBytes {
-		t.Fatalf("listing size = %d, want <= %d", len(listing), maxModelListingBytes)
-	}
-	if !strings.Contains(listing, "skill-000") {
-		t.Fatal("budgeted listing lost the catalog prefix")
-	}
-}
-
-func TestFormatModelListing_MaxCatalogStaysWithinBudget(t *testing.T) {
-	sks := make([]Skill, 4096)
-	for i := range sks {
-		sks[i] = Skill{
-			Name:        fmt.Sprintf("skill-%04d", i),
-			Description: strings.Repeat("d", 256),
-		}
-	}
-	got := FormatModelListing(sks)
-	if len(got) > maxModelListingBytes {
-		t.Fatalf("listing length = %d, want <= %d", len(got), maxModelListingBytes)
-	}
-	if !utf8.ValidString(got) {
-		t.Fatal("large listing is not valid UTF-8")
-	}
-}
-
 // TestEffective_PreservesPartialOnLoadError: Load returns successfully-parsed
 // skills alongside a per-file error for one bad entry; Effective must keep that
 // partial catalog (and still merge persona skills) rather than black-holing
 // every valid skill on a single bad file. Regression for the Codex P2 where
-// Effective returned (nil, err), wiping the model listing + skills__load for
-// run/ACP/headless/subagent whenever any skill file was oversized/unreadable.
+// Effective returned (nil, err), wiping operator and context-resource skill
+// surfaces whenever any skill file was oversized/unreadable.
 func TestEffective_PreservesPartialOnLoadError(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, ".stado", "skills")

@@ -29,8 +29,12 @@ package hooks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 )
+
+const maxLifecycleCurrentInputBytes = 16 << 10
 
 // Point identifies a lifecycle interception site. The string values are
 // the stable `event` field carried in every payload and matched against
@@ -143,10 +147,30 @@ func (p *PostToolPayload) HookPoint() Point { return PointPostTool }
 // invariant; scoped to system+model knobs for now.
 type PreLLMPayload struct {
 	Common
-	Model    string `json:"model"`
-	System   string `json:"system"`
-	NumMsgs  int    `json:"num_msgs"`
-	NumTools int    `json:"num_tools"`
+	Model        string              `json:"model"`
+	System       string              `json:"system"`
+	NumMsgs      int                 `json:"num_msgs"`
+	NumTools     int                 `json:"num_tools"`
+	QualityFacts *PreLLMQualityFacts `json:"quality_facts,omitempty"`
+}
+
+// PreLLMQualityFacts are volatile TUI-only observations for append-only WASM
+// context contributors (EP-0060/0064). CurrentInput and retrieved context are
+// untrusted content facts: neither proves operator origin nor grants authority.
+type PreLLMQualityFacts struct {
+	CurrentInput UntrustedContentFact `json:"current_input"`
+	FastContext  ContextPresenceFact  `json:"fast_context"`
+}
+
+type UntrustedContentFact struct {
+	Text      string `json:"text"`
+	Digest    string `json:"digest"`
+	Truncated bool   `json:"truncated"`
+}
+
+type ContextPresenceFact struct {
+	Present bool   `json:"present"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 func (p *PreLLMPayload) HookPoint() Point { return PointPreLLM }
@@ -205,6 +229,30 @@ func PostTool(turnIndex int, toolName, class, args, result, errStr string) *Post
 // PreLLM builds a PreLLMPayload with a freshly stamped Common.
 func PreLLM(turnIndex int, model, system string, numMsgs, numTools int) *PreLLMPayload {
 	return &PreLLMPayload{Common: newCommon(PointPreLLM, turnIndex), Model: model, System: system, NumMsgs: numMsgs, NumTools: numTools}
+}
+
+// PreLLMWithQualityFacts is used only by a surface that owns the complete
+// lifecycle-application contract. The current v1 caller is the interactive
+// TUI; generic AgentLoop surfaces deliberately continue using PreLLM.
+func PreLLMWithQualityFacts(turnIndex int, model, system string, numMsgs, numTools int, currentInput, fastContext string) *PreLLMPayload {
+	payload := PreLLM(turnIndex, model, system, numMsgs, numTools)
+	inputDigest := sha256.Sum256([]byte(currentInput))
+	input := currentInput
+	truncated := false
+	if len(input) > maxLifecycleCurrentInputBytes {
+		input = input[:maxLifecycleCurrentInputBytes]
+		truncated = true
+	}
+	facts := &PreLLMQualityFacts{
+		CurrentInput: UntrustedContentFact{Text: input, Digest: hex.EncodeToString(inputDigest[:]), Truncated: truncated},
+		FastContext:  ContextPresenceFact{Present: fastContext != ""},
+	}
+	if fastContext != "" {
+		digest := sha256.Sum256([]byte(fastContext))
+		facts.FastContext.Digest = hex.EncodeToString(digest[:])
+	}
+	payload.QualityFacts = facts
+	return payload
 }
 
 // PostLLM builds a PostLLMPayload with a freshly stamped Common.

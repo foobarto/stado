@@ -5,9 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"sync"
 
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -159,7 +163,64 @@ type autoApproveHost struct {
 	// AgentLoopOptions.DefaultSandboxPolicy; explicit sandbox opt-out leaves it
 	// nil. Model A (decision 2026-06-13).
 	defaultSandboxPolicy any
-	research             func(context.Context, string, string) (any, error)
+	provider             agent.Provider
+	defaultModel         string
+	broker               BrokerController
+}
+
+// sessionToolSurface is the workflow-neutral per-loop implementation behind
+// the digest-fenced WASM surface-edit primitive.
+type sessionToolSurface struct {
+	mu        sync.RWMutex
+	activated map[string]bool
+	ceiling   map[string]bool
+}
+
+func (s *sessionToolSurface) AllowsToolSurface(name string) bool {
+	return s != nil && s.ceiling[name]
+}
+
+func (s *sessionToolSurface) ApplyToolSurface(edit tool.ToolSurfaceEdit) error {
+	if s == nil {
+		return errors.New("session tool surface unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]string, len(edit.Activate)+len(edit.Deactivate))
+	for _, group := range []struct {
+		label string
+		names []string
+	}{{"activate", edit.Activate}, {"deactivate", edit.Deactivate}} {
+		for _, name := range group.names {
+			if !s.AllowsToolSurface(name) {
+				return fmt.Errorf("tool %q is outside the session ceiling", name)
+			}
+			if prior := seen[name]; prior != "" {
+				return fmt.Errorf("tool %q occurs more than once (%s, %s)", name, prior, group.label)
+			}
+			seen[name] = group.label
+		}
+	}
+	if s.activated == nil {
+		s.activated = make(map[string]bool)
+	}
+	for _, name := range edit.Activate {
+		s.activated[name] = true
+	}
+	for _, name := range edit.Deactivate {
+		delete(s.activated, name)
+	}
+	return nil
+}
+
+func (s *sessionToolSurface) names() map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]bool, len(s.activated))
+	for name, active := range s.activated {
+		out[name] = active
+	}
+	return out
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -168,6 +229,21 @@ func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.De
 
 func (h autoApproveHost) Workdir() string        { return h.workdir }
 func (h autoApproveHost) Runner() sandbox.Runner { return h.runner }
+
+func (h autoApproveHost) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" || h.provider == nil {
+		return nil, errors.New("agent-loop provider bridge unavailable")
+	}
+	return &pluginRuntime.NativeProviderBridge{Provider: h.provider, DefaultModel: h.defaultModel}, nil
+}
+
+func (h autoApproveHost) EvidenceBrokerBinding(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginRuntime.EvidenceBridgeBinding, error) {
+	controller, ok := h.broker.(EvidenceBrokerController)
+	if !ok || controller == nil {
+		return pluginRuntime.EvidenceBridgeBinding{}, errors.New("evidence broker binding unavailable")
+	}
+	return controller.BindEvidence(ctx, identity, manifest, toolName)
+}
 
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider. The caller owns
 // the policy decision; a nil value means explicit or legacy direct execution.
@@ -180,16 +256,13 @@ func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request
 	}
 	return h.spawn(ctx, req)
 }
-func (h autoApproveHost) Research(ctx context.Context, kind, query string) (any, error) {
-	if h.research == nil {
-		return nil, errors.New("research agent unavailable")
-	}
-	return h.research(ctx, kind, query)
-}
 
 // AgentFleetBridge implements tool.AgentFleetProvider so the wasm agent.*
 // tools can reach the FleetBridgeAdapter when the loop auto-constructs a host.
 func (h autoApproveHost) AgentFleetBridge() any {
+	if h.fleetBridge == nil {
+		return nil
+	}
 	return h.fleetBridge
 }
 

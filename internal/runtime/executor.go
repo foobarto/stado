@@ -9,11 +9,8 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
-	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/researchtool"
-	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/agent"
 	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
@@ -24,15 +21,8 @@ import (
 // dotted form, so the mixed shapes below are deliberate and reflect
 // what the registry actually contains.
 //
-// Legacy native fs/bash tools register under bare names (read, write,
-// edit, glob, grep, bash) per their Tool.Name() implementations in
-// internal/tools/fs and internal/tools/bash. They're wrapped at
-// registration time by newBundledPluginTool, which preserves the bare
-// name — there's no fs__read alias in the registry today, so switching
-// these entries to wire form would silently break autoload.
-//
-// EP-0038-migrated tools (only fs__ls today) register under wire form;
-// they appear here in wire form for the same reason.
+// Bundled tool names are the exact model-facing names authenticated by each
+// source-adjacent embedded manifest.
 //
 // agent__spawn is the wasm-backed canonical surface for sub-agent spawning;
 // it routes through SubagentRunner.SpawnSubagent and emits SubagentEvent
@@ -45,7 +35,6 @@ var defaultAutoloadNames = []string{
 	"fs__read", "fs__write", "fs__edit", "fs__glob", "fs__grep", "shell__bash",
 	"fs__ls",
 	"agent__spawn",
-	"tasks",
 }
 
 // DefaultAutoloadNames returns a copy of the runtime's built-in
@@ -74,22 +63,22 @@ func CanonicalToolName(name string) string {
 	return name
 }
 
-// BuildDefaultRegistry returns a Registry preloaded with stado's
-// bundled tools (fs, shell, web, dns, agent, etc.), the meta-tools
-// (tools__search/describe/categories/in_category), and — when cfg
-// is non-nil — the operator's installed plugins from cfg.StateDir()/
-// plugins/. Bundled registers first; installed registers last and
-// overwrites bundled on tool-name collision (Q4 — installed wins).
+// BuildDefaultRegistry returns a Registry preloaded with stado's bundled WASM
+// tools and—when cfg is non-nil—the operator's admitted installed plugins.
+// Installed packages are
+// collected and collision-preflighted before any of their tools register; a
+// map iteration or display alias never selects a winner.
 //
 // cfg may be nil for test code that wants the bundled-only set;
 // production callers should pass the loaded config.
 func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
+	return buildDefaultRegistryForSurface(cfg, nil, "")
+}
+
+func buildDefaultRegistryForSurface(cfg *config.Config, exactAgentChildTools map[string]bool, childToolOwner string) *tools.Registry {
 	reg := buildBundledPluginRegistry()
-	registerMetaTools(reg)
-	reg.Register(researchtool.Tool{Kind: "memory"})
-	reg.Register(researchtool.Tool{Kind: "session"})
 	if cfg != nil {
-		registerInstalledPluginTools(reg, cfg)
+		registerInstalledPluginToolsForSurface(reg, cfg, exactAgentChildTools, childToolOwner)
 	}
 	// Codex C4/Q P2: bind cfg + the final composed registry onto every
 	// bundled tool that was registered above. Pre-fix the bundled
@@ -100,16 +89,8 @@ func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 	// dispatch surface, silently widening it past [tools].enabled. Now
 	// each build's bundled tools are anchored to their own build's
 	// registry pointer + cfg, so independent builds don't interfere.
-	// Unwrap renamedTool wrappers — bundled wasm tools registered via
-	// newBundledWasmTool are wrapped in *renamedTool{inner: *bundledPluginTool}
-	// to expose the wire-form name. A direct type-assert misses those
-	// and leaves the inner fields nil; walk past the wrapper.
 	for _, t := range reg.All() {
-		inner := t
-		if rt, ok := inner.(*renamedTool); ok {
-			inner = rt.inner
-		}
-		if b, ok := inner.(*bundledPluginTool); ok {
+		if b, ok := t.(*bundledPluginTool); ok {
 			b.setRuntime(cfg, reg)
 		}
 	}
@@ -136,11 +117,7 @@ func PinInvokeExecutor(reg *tools.Registry, exec *tools.Executor) {
 		return
 	}
 	for _, t := range reg.All() {
-		inner := t
-		if rt, ok := inner.(*renamedTool); ok {
-			inner = rt.inner
-		}
-		switch v := inner.(type) {
+		switch v := t.(type) {
 		case *bundledPluginTool:
 			v.invokeExec = exec
 		case *installedPluginTool:
@@ -193,14 +170,6 @@ func ToolMatchesGlob(toolName, pattern string) bool {
 		dotPrefix := rest + "."
 		return strings.HasPrefix(toolName, wirePrefix) || strings.HasPrefix(toolName, dotPrefix)
 	}
-	// Legacy bare-name pattern (pre-EP-0038): translate the operator's old
-	// name to its canonical and re-match, so [tools].disabled=["webfetch"]
-	// (etc.) still hides the wasm tool that replaced it instead of being a
-	// silent no-op. The canonical is never itself a legacy bare name, so this
-	// recurses at most once.
-	if canonical, ok := legacyFilterCanonical(pattern); ok {
-		return ToolMatchesGlob(toolName, canonical)
-	}
 	return false
 }
 
@@ -214,10 +183,24 @@ func toolMatchesAny(toolName string, patterns []string) bool {
 	return false
 }
 
-// AutoloadedTools returns the subset of tools in reg that should have their
-// schemas sent to the model on every turn (EP-0037 §E). The four meta-tools
-// are always included regardless of config. If cfg.Tools.Autoload is empty,
-// defaultAutoloadNames is used.
+// ToolPermittedByConfig reports whether one non-kernel tool survives the
+// operator's global enabled/disabled ceiling. It is intentionally narrower
+// than ApplyToolFilter: callers use it when a verified lifecycle application
+// is admitted after the base registry has already been filtered, so late
+// registration cannot bypass that earlier decision. Disabled always wins.
+func ToolPermittedByConfig(toolName string, cfg *config.Config) bool {
+	if cfg == nil {
+		return true
+	}
+	if len(cfg.Tools.Enabled) > 0 && !toolMatchesAny(toolName, cfg.Tools.Enabled) {
+		return false
+	}
+	return !toolMatchesAny(toolName, cfg.Tools.Disabled)
+}
+
+// AutoloadedTools returns the subset of tools in reg whose schemas are sent to
+// the model on every turn (EP-0037 §E). There is no non-disableable kernel. If
+// cfg.Tools.Autoload is empty, defaultAutoloadNames is used.
 func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 	return AutoloadedToolsWithExtra(reg, cfg, nil)
 }
@@ -255,13 +238,6 @@ func AutoloadedToolsWithExtra(reg *tools.Registry, cfg *config.Config, extra []s
 	seen := map[string]bool{}
 	var out []pkgtool.Tool
 	for _, t := range reg.All() {
-		if IsMetaTool(t.Name()) {
-			if !seen[t.Name()] {
-				out = append(out, t)
-				seen[t.Name()] = true
-			}
-			continue
-		}
 		if toolMatchesAny(t.Name(), autoloadPatterns) {
 			if !seen[t.Name()] {
 				out = append(out, t)
@@ -270,13 +246,11 @@ func AutoloadedToolsWithExtra(reg *tools.Registry, cfg *config.Config, extra []s
 			continue
 		}
 		// Category-based autoload (Tester #7). Tools whose category
-		// metadata overlaps with cfg.Tools.AutoloadCategories join the
-		// per-turn surface. Empty AutoloadCategories = no category-based
-		// expansion. Categories live in tool_metadata.go (per EP-0037 §C
-		// the manifest is authoritative; bundled tools mirror their
-		// declarations there).
+		// manifest metadata overlaps with cfg.Tools.AutoloadCategories join
+		// the per-turn surface. Empty AutoloadCategories means no
+		// category-based expansion.
 		if len(categorySet) > 0 {
-			for _, c := range LookupToolMetadata(t.Name()).Categories {
+			for _, c := range ToolMetadataFor(t).Categories {
 				if categorySet[c] {
 					if !seen[t.Name()] {
 						out = append(out, t)
@@ -288,25 +262,6 @@ func AutoloadedToolsWithExtra(reg *tools.Registry, cfg *config.Config, extra []s
 		}
 	}
 	return out
-}
-
-// IsMetaTool reports whether name is one of the dispatch kernel tools.
-// All meta-tools are unconditionally autoloaded — they're how the model
-// discovers and activates the rest of the surface. Exported so the CLI
-// `tool run` path can natively dispatch meta-tools (no WASM backing).
-func IsMetaTool(name string) bool {
-	switch name {
-	case "tools__search", "tools__describe", "tools__categories", "tools__in_category",
-		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload":
-		// NB: skills__load is deliberately NOT here. EP-0045 trust rule 3
-		// requires denying it (via [tools].disabled) to disable model
-		// invocation; a non-disableable kernel tool can't honor that. It is
-		// surfaced on demand via the autoload-extra path instead (see
-		// SkillModelInvocationEnabled), so it's discoverable when skills
-		// exist yet stays fully deniable.
-		return true
-	}
-	return false
 }
 
 // ApplyToolFilter trims a registry per cfg.Tools. All tools are on by default;
@@ -359,53 +314,25 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	warnUnknownExact(cfg.Tools.Enabled, "enabled")
 	warnUnknownExact(cfg.Tools.Disabled, "disabled")
 
-	// EP-0037 §E: the meta-tool dispatch kernel (tools.search/describe/
-	// categories/in_category + tools.activate/deactivate + plugin.load/unload)
-	// is NON-DISABLEABLE. Unregistering it would leave the model unable to
-	// discover or activate any non-autoloaded tool — a silent footgun. We never
-	// unregister a meta-tool below, and warn loudly when the operator's
-	// enabled/disabled lists would have removed one.
-	for name := range known {
-		if !IsMetaTool(name) {
-			continue
-		}
-		disabledHit := toolMatchesAny(name, cfg.Tools.Disabled)
-		allowMiss := len(cfg.Tools.Enabled) > 0 && !toolMatchesAny(name, cfg.Tools.Enabled)
-		if disabledHit || allowMiss {
-			emitRegistryDiagnostic(
-				"stado: [tools] would remove meta-tool %q, but the dispatch kernel is non-disableable (EP-0037) — keeping it.\n",
-				name)
-		}
-	}
-
 	if len(cfg.Tools.Enabled) > 0 {
 		allow := map[string]bool{}
-		nonMetaMatches := 0
+		matches := 0
 		for name := range known {
-			if IsMetaTool(name) {
-				allow[name] = true // kernel always allowed
-				continue
-			}
 			if toolMatchesAny(name, cfg.Tools.Enabled) {
 				allow[name] = true
-				nonMetaMatches++
+				matches++
 			}
 		}
-		// Fail closed when the operator's allowlist matches no real (non-meta)
-		// tool. The previous fall-open ("return without filtering") defeated the
+		// Fail closed when the operator's allowlist matches no tool. The previous
+		// fall-open ("return without filtering") defeated the
 		// allowlist: typos / uninstalled references silently re-exposed the
 		// whole surface. An empty match is more likely operator error than
-		// intent — surface it loudly and remove every non-kernel tool so the
-		// next run fails fast with "no tools available" rather than
-		// "everything enabled". The kernel is retained either way.
-		if nonMetaMatches == 0 {
+		// intent — surface it loudly and remove the complete registry.
+		if matches == 0 {
 			emitRegistryDiagnostic(
-				"stado: [tools].enabled = %v matched no registered tools — registry reduced to the meta-tool kernel (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
+				"stado: [tools].enabled = %v matched no registered tools — registry emptied (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
 				cfg.Tools.Enabled)
 			for name := range known {
-				if IsMetaTool(name) {
-					continue
-				}
 				reg.Unregister(name)
 			}
 			return
@@ -420,10 +347,9 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		// allowlist of [`*`] + disable of `bash` left bash registered
 		// (allow matched everything; Disabled was unreachable). Same
 		// pattern for ["fs.*"] + disable ["fs.write"]: now fs.write
-		// is correctly removed even though fs.* allowed it. Meta-tools
-		// are exempt (kernel is non-disableable).
+		// is correctly removed even though fs.* allowed it.
 		for name := range known {
-			if !allow[name] || IsMetaTool(name) {
+			if !allow[name] {
 				continue
 			}
 			if toolMatchesAny(name, cfg.Tools.Disabled) {
@@ -432,11 +358,8 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		}
 		return
 	}
-	// Disabled-only path. Meta-tools are exempt (kernel is non-disableable).
+	// Disabled-only path.
 	for name := range known {
-		if IsMetaTool(name) {
-			continue
-		}
 		if toolMatchesAny(name, cfg.Tools.Disabled) {
 			reg.Unregister(name)
 		}
@@ -455,34 +378,25 @@ func ApplyToolFilterQuiet(reg *tools.Registry, cfg *config.Config) {
 // MCP server, and any other tool-dispatching surface should share.
 // Composes:
 //
-//  1. BuildDefaultRegistry — bundled + installed plugin tools + meta-tools
-//  2. tasks tool (the bootstrapping carve-out; migrating to a wasm
-//     plugin in Step 8 of EP-no-internal-tools)
-//  3. external MCP-attached tools (when cfg.MCP.Servers non-empty)
-//  4. ApplyWasmMigration (legacy native↔wasm flip; deletes in Step 9)
-//  5. ApplyToolOverrides (cfg.Tools.Overrides → pluginOverrideTool)
-//  6. ApplyToolFilter (cfg.Tools.Enabled / Disabled allowlist)
+//  1. BuildDefaultRegistry — bundled + installed plugin tools
+//  2. external MCP-attached tools (when cfg.MCP.Servers non-empty)
+//  3. ApplyToolOverrides (cfg.Tools.Overrides → pluginOverrideTool)
+//  4. ApplyToolFilter (cfg.Tools.Enabled / Disabled allowlist)
 //
-// EXCLUDES the MCP-server-only `llm.invoke` tool — mcp_server.go
-// registers that on top of the returned registry. The agent and CLI
-// surfaces deliberately don't expose llm.invoke (model uses
-// stado_agent_* for sub-LLM delegation).
-//
-// Pre-Step-0.5 the MCP server bypassed this composition, building
-// only `BuildDefaultRegistry + tasks + llm.invoke + ApplyToolFilter`
-// — missing MCP attach + wasm migration + tool overrides. After this
-// helper exists, both BuildExecutor and the MCP server call it for
-// uniform tool surface across paths.
+// Every tool-dispatching surface uses this composition so MCP attachment,
+// overrides, and config ceilings cannot drift between the agent/CLI/MCP paths.
 func BuildRegistryWithPlugins(cfg *config.Config) (*tools.Registry, error) {
-	reg := BuildDefaultRegistry(cfg)
-	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
+	return buildRegistryWithPluginsForSurface(cfg, nil, "")
+}
+
+func buildRegistryWithPluginsForSurface(cfg *config.Config, exactAgentChildTools map[string]bool, childToolOwner string) (*tools.Registry, error) {
+	reg := buildDefaultRegistryForSurface(cfg, exactAgentChildTools, childToolOwner)
 
 	if len(cfg.MCP.Servers) > 0 {
 		if err := attachMCP(reg, cfg.MCP.Servers); err != nil {
 			emitRegistryDiagnostic("stado: MCP setup: %v\n", err)
 		}
 	}
-	ApplyWasmMigration(reg, cfg)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		return nil, err
 	}
@@ -506,7 +420,11 @@ func BuildRegistryWithPluginsQuiet(cfg *config.Config) (*tools.Registry, error) 
 // Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
 // blocklist is applied via BuildRegistryWithPlugins.
 func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string, metrics telemetry.Metrics) (*tools.Executor, error) {
-	reg, err := BuildRegistryWithPlugins(cfg)
+	return buildExecutorForSurface(sess, cfg, agentName, metrics, nil, "")
+}
+
+func buildExecutorForSurface(sess *stadogit.Session, cfg *config.Config, agentName string, metrics telemetry.Metrics, exactAgentChildTools map[string]bool, childToolOwner string) (*tools.Executor, error) {
+	reg, err := buildRegistryWithPluginsForSurface(cfg, exactAgentChildTools, childToolOwner)
 	if err != nil {
 		return nil, err
 	}
@@ -613,31 +531,4 @@ func dedupeTools(ts []pkgtool.Tool) []pkgtool.Tool {
 		}
 	}
 	return out
-}
-
-// extractActivated parses a tools.describe result JSON and adds the names of
-// successfully described tools to the activated set.
-func extractActivated(content string, activated map[string]bool) {
-	AbsorbActivatedFromDescribe(content, activated)
-}
-
-// AbsorbActivatedFromDescribe is the exported form of extractActivated.
-// Used by the TUI's per-session activation tracking (model_stream.go's
-// absorbToolActivations) so the lazy-load surface flips on after the
-// model calls tools.describe — matching the headless agentloop's
-// behaviour at internal/runtime/agentloop.go's activatedNames tracking.
-func AbsorbActivatedFromDescribe(content string, activated map[string]bool) {
-	var items []map[string]any
-	if err := json.Unmarshal([]byte(content), &items); err != nil {
-		return
-	}
-	for _, item := range items {
-		name, ok := item["name"].(string)
-		if !ok {
-			continue
-		}
-		if _, hasErr := item["error"]; !hasErr {
-			activated[name] = true
-		}
-	}
 }

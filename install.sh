@@ -82,13 +82,8 @@ need awk
 need grep
 
 detect_os() {
-  case "$(uname -s)" in
-    Linux) printf 'linux\n' ;;
-    Darwin) printf 'darwin\n' ;;
-    *)
-      die "install.sh currently supports Linux and macOS only"
-      ;;
-  esac
+  [[ "$(uname -s)" == "Linux" ]] || die "install.sh supports Linux only"
+  printf 'linux\n'
 }
 
 detect_arch() {

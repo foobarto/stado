@@ -14,10 +14,6 @@ import (
 )
 
 func TestInstallScript_InstallsVerifiedArchiveFromFixture(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("install.sh targets Linux and macOS")
-	}
-
 	root := t.TempDir()
 	assetsDir := filepath.Join(root, "assets")
 	binDir := filepath.Join(root, "bin")
@@ -29,7 +25,7 @@ func TestInstallScript_InstallsVerifiedArchiveFromFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assetName := fmt.Sprintf("stado_0.0.0_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	assetName := fmt.Sprintf("stado_0.0.0_linux_%s.tar.gz", runtime.GOARCH)
 	archivePath := filepath.Join(assetsDir, assetName)
 	binaryBody := []byte("#!/bin/sh\necho fixture-stado\n")
 	if err := writeTarGz(archivePath, "stado", binaryBody, 0o755); err != nil {

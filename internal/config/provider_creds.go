@@ -95,8 +95,8 @@ const keyringService = "stado"
 const keyringProbeAccount = "__stado_probe__"
 
 // osKeyringStore persists provider secrets in the OS-native secret store
-// via github.com/zalando/go-keyring (cgo-free): macOS Keychain, freedesktop
-// Secret Service / libsecret on Linux, Windows Credential Manager. Secrets
+// via github.com/zalando/go-keyring (cgo-free) and the Linux Secret Service.
+// Secrets
 // are keyed by env-var NAME within the "stado" service so the keyring slot
 // and the env fallback line up.
 //

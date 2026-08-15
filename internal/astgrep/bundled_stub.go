@@ -9,9 +9,5 @@
 
 package astgrep
 
-import "runtime"
-
 var bundledBytes []byte
 var bundledSHA256 string
-
-func isWindows() bool { return runtime.GOOS == "windows" }

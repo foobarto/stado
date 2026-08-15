@@ -34,7 +34,6 @@ const (
 	SessionSwitch           Action = "session_switch"
 	SessionNew              Action = "session_new"
 	TreeView                Action = "tree_view"
-	TaskView                Action = "task_view"
 	ThemeSwitch             Action = "theme_switch"
 	StatusView              Action = "status_view"
 	ThinkingToggle          Action = "thinking_toggle"
@@ -99,7 +98,6 @@ var ActionDescriptions = map[Action]string{
 	SessionSwitch:           "Session manager",
 	SessionNew:              "New session",
 	TreeView:                "Session tree",
-	TaskView:                "Task manager",
 	ThemeSwitch:             "Switch theme",
 	StatusView:              "Status modal",
 	ThinkingToggle:          "Cycle thinking display",

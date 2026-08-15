@@ -1,0 +1,80 @@
+# stado development environment for https://github.com/foobarto/devbox.
+#
+# Tooling is baked into a project-specific golden so disposable boxes do not
+# reinstall the Go, CI, release, sandbox, and browser-test toolchains. Use
+# `devbox -a` when agent config, the credential proxy, and SSH-agent forwarding
+# are wanted; add `--keep` to retain Go build/module caches between sessions.
+
+# Prefetch the root and isolated PTY-harness module graphs. Building remains an
+# explicit action (`make`, `make check`, or the commands in CONTRIBUTING.md), so
+# entering a box never changes generated files in the mounted checkout.
+start = '''
+set -e
+go mod download
+(
+  cd hack/pty-bridge
+  go mod download
+)
+'''
+
+[image]
+# Debian ships Chromium as a normal package. Ubuntu's Chromium package is a
+# Snap transition, which is a poor fit for a disposable Lima guest.
+location = "debian-12"
+
+# Native build/race support is already part of Devbox's base golden. These are
+# stado-specific runtime and validation dependencies: Linux sandbox helpers,
+# the real-PTY harnesses, release/archive inspection, and state debugging.
+provision = '''
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  bubblewrap \
+  chromium \
+  openssh-client \
+  passt \
+  pkg-config \
+  sqlite3 \
+  tmux \
+  xz-utils \
+  zip \
+  zstd
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+'''
+
+# Devbox runs this as the project user after Homebrew and the bundled agent
+# CLIs are installed. Keep developer tools here so they are baked once rather
+# than installed into every cloned box by the top-level `packages` field.
+provision_user = '''
+brew install \
+  actionlint \
+  ast-grep \
+  cosign \
+  gitleaks \
+  go \
+  golangci-lint \
+  goreleaser \
+  minisign \
+  pre-commit \
+  shellcheck \
+  shfmt \
+  staticcheck \
+  syft
+
+mkdir -p "$HOME/.local/bin"
+
+# Match the version used by CI. gopls is optional at runtime, but installing it
+# makes `stado doctor` and LSP-tool development useful in a fresh box.
+GOBIN="$HOME/.local/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+GOBIN="$HOME/.local/bin" go install golang.org/x/tools/gopls@latest
+
+# The chromedp harness deliberately looks here before starting its E2E suite.
+ln -sfn "$(command -v chromium)" "$HOME/.local/bin/chrome"
+'''
+
+[resources]
+# Race tests, parallel Go compilation, and headless Chromium benefit materially
+# from more than Devbox's built-in 4 CPU / 6 GiB defaults.
+cpus = 8
+memory = "12GiB"
+disk = "120GiB"

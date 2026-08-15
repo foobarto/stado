@@ -20,7 +20,7 @@ const maxSystemPromptTemplateBytes int64 = 1 << 20
 // Config is the top-level stado configuration.
 //
 // The schema covers provider selection, sandboxing, git/audit behavior,
-// telemetry, interop, plugins, memory/context, agent/session behavior, the TUI,
+// telemetry, interop, plugins, context, agent/session behavior, the TUI,
 // tool policy, budgets, hooks, supervision, harness mode, LSP, and completion
 // verification. Security-sensitive sections are filtered when a project-local
 // overlay is merged; see project_config.go and docs/commands/config.md.
@@ -41,7 +41,6 @@ type Config struct {
 	OTel       OTel       `koanf:"otel"`
 	ACP        ACP        `koanf:"acp"`
 	Plugins    Plugins    `koanf:"plugins"`
-	Memory     Memory     `koanf:"memory"`
 	Context    Context    `koanf:"context"`
 	Agent      Agent      `koanf:"agent"`
 	Sampling   Sampling   `koanf:"sampling"`
@@ -52,7 +51,6 @@ type Config struct {
 	Aliases    Aliases    `koanf:"aliases"`
 	Budget     Budget     `koanf:"budget"`
 	Hooks      Hooks      `koanf:"hooks"`
-	Runtime    Runtime    `koanf:"runtime"`
 	Supervisor Supervisor `koanf:"supervisor"`
 	Harness    Harness    `koanf:"harness"`
 	LSP        LSP        `koanf:"lsp"`
@@ -177,22 +175,11 @@ type Sessions struct {
 	AutoPruneAfter string `koanf:"auto_prune_after"`
 }
 
-// Budget is the [budget] config section — per-session guardrails on
-// cost (USD) and/or token usage. Stado already tracks both on every
-// provider turn; this adds thresholds to surface a warning and
-// (optionally) hard-block new turns. All fields default to 0, meaning
-// "no limit" — the guardrails are opt-in so cost-insensitive
-// local-runner users don't see pills for nothing.
-//
-// Cost (USD) guards apply when the provider reports a per-turn cost
-// (Anthropic, OpenAI, Google, paid OAI-compat presets). Token guards
-// apply universally, including local runners where USD is always 0;
-// useful when running on Ollama / LM Studio / vLLM where the meaningful
-// budget is throughput, not dollars.
+// Budget is the [budget] config section — per-session token guardrails.
+// Provider-reported currency remains observational telemetry; it is not an
+// enforcement input. All fields default to 0, meaning no limit.
 //
 //	[budget]
-//	warn_usd           = 1.00    # status-bar pill + one-time system block when crossed
-//	hard_usd           = 5.00    # block further turns pending user ack
 //	warn_tokens        = 100000  # combined input+output cumulative cap (warn)
 //	hard_tokens        = 500000  # combined input+output cumulative cap (hard)
 //	warn_input_tokens  = 0       # power-user: separate input-only cap (warn)
@@ -200,8 +187,7 @@ type Sessions struct {
 //	warn_output_tokens = 0       # power-user: separate output-only cap (warn)
 //	hard_output_tokens = 0       # ... (hard)
 //
-// Fractional dollars allowed; tokens are integers. Every cap is
-// independent and any one firing aborts the loop / triggers the gate.
+// Every cap is independent and any one firing aborts the loop / triggers the gate.
 // Most users want the combined `*_tokens` (covers context-window
 // growth + generation length together); the per-direction caps are
 // for power users who want to bound output length without capping
@@ -214,42 +200,12 @@ type Sessions struct {
 // config error — the guard would never warn before blocking — and
 // is ignored with a stderr warning at config-load time.
 type Budget struct {
-	WarnUSD          float64 `koanf:"warn_usd"`
-	HardUSD          float64 `koanf:"hard_usd"`
-	WarnTokens       int     `koanf:"warn_tokens"`
-	HardTokens       int     `koanf:"hard_tokens"`
-	WarnInputTokens  int     `koanf:"warn_input_tokens"`
-	HardInputTokens  int     `koanf:"hard_input_tokens"`
-	WarnOutputTokens int     `koanf:"warn_output_tokens"`
-	HardOutputTokens int     `koanf:"hard_output_tokens"`
-}
-
-type Memory struct {
-	// Enabled injects approved, scoped, non-secret memory snippets into
-	// provider system prompts. On by default; set `enabled = false` under
-	// [memory] to opt out (the unset-vs-explicit-false distinction is
-	// resolved in Load via k.Exists). Only user-approved memories are ever
-	// injected, so the default-on surface is reviewed context, not silent
-	// capture.
-	Enabled bool `koanf:"enabled"`
-	// MaxItems caps prompt snippets retrieved per turn.
-	MaxItems int `koanf:"max_items"`
-	// BudgetTokens caps rough prompt-token spend for retrieved memories.
-	BudgetTokens int `koanf:"budget_tokens"`
-}
-
-func (m Memory) EffectiveMaxItems() int {
-	if m.MaxItems <= 0 {
-		return 8
-	}
-	return m.MaxItems
-}
-
-func (m Memory) EffectiveBudgetTokens() int {
-	if m.BudgetTokens <= 0 {
-		return 800
-	}
-	return m.BudgetTokens
+	WarnTokens       int `koanf:"warn_tokens"`
+	HardTokens       int `koanf:"hard_tokens"`
+	WarnInputTokens  int `koanf:"warn_input_tokens"`
+	HardInputTokens  int `koanf:"hard_input_tokens"`
+	WarnOutputTokens int `koanf:"warn_output_tokens"`
+	HardOutputTokens int `koanf:"hard_output_tokens"`
 }
 
 // Tools is the [tools] config section — user-level control over
@@ -281,10 +237,11 @@ type Tools struct {
 	// run lean and pull, e.g., `recon` tools always while `exploit`
 	// tools stay lazy-loaded behind tools.activate.
 	AutoloadCategories []string `koanf:"autoload_categories"`
-	// Overrides maps a registry tool name to an installed plugin ID
-	// (`<name>-<version>` or `<name>@<version>`). When set, the plugin's
-	// matching tool declaration replaces the native/MCP tool under the
-	// same registry name.
+	// Overrides maps a registry tool name to an exact installed store key or
+	// an unambiguous friendly alias. Store keys are authoritative; aliases
+	// fail closed when more than one installed source has the same display
+	// name or version. The plugin's matching tool declaration replaces the
+	// native/MCP tool under the same registry name.
 	Overrides map[string]string `koanf:"overrides"`
 }
 
@@ -575,26 +532,6 @@ type Supervisor struct {
 	Model string `koanf:"model"`
 }
 
-// Runtime is the [runtime] config section — internal migration flags.
-// These are not operator-facing in the normal sense; they gate per-tool
-// wasm parity migrations during EP-0038 rollout. All default false (use
-// native Go implementations) until the golden parity test for each tool
-// passes.
-//
-//	[runtime.use_wasm]
-//	fs     = true    # flip after fs parity test passes
-//	shell  = true
-//	rg     = true
-type Runtime struct {
-	// UseWasm maps short tool-family names to booleans. When true, the
-	// wasm plugin for that family is registered instead of (and with the
-	// wire names replacing) the native implementation.
-	// Families: "fs", "shell", "rg", "astgrep", "readctx", "lsp",
-	//           "web", "http", "agent", "mcp", "image", "dns",
-	//           "secrets", "task", "tools".
-	UseWasm map[string]bool `koanf:"use_wasm"`
-}
-
 // Sandbox is the [sandbox] config section. EP-0037 reserves the schema;
 // EP-0038 implements the wrap-mode enforcement.
 //
@@ -624,7 +561,7 @@ type Sandbox struct {
 // SandboxWrap is the [sandbox.wrap] sub-section. EP-0038d.
 type SandboxWrap struct {
 	// Runner selects the wrapper binary: "auto" (default), "bwrap",
-	// "firejail", or "sandbox-exec".
+	// "firejail".
 	Runner string `koanf:"runner"`
 	// BindRO is a list of paths to mount read-only inside the sandbox.
 	// Additive on top of the default contract (stado XDG dirs, /usr, resolv.conf).
@@ -825,8 +762,9 @@ type Plugins struct {
 	// only, no Rekor lookup.
 	RekorURL string `koanf:"rekor_url"`
 
-	// Background lists installed plugin IDs (`<name>-<version>`) to
-	// load as persistent background plugins for each new TUI session.
+	// Background lists exact installed store keys or unambiguous friendly
+	// aliases to load as persistent background plugins for each new TUI
+	// session.
 	// The bundled `auto-compact` background plugin is loaded by
 	// default even when this list is empty; this slice is additive for
 	// extra installed plugins. A background plugin must export
@@ -921,8 +859,6 @@ func Load() (*Config, error) {
 			//                       not be able to re-enable unsandboxed LSP spawns (#12)
 			//   sandbox             a repo must never weaken the process-containment
 			//                       posture (mode/proxy/dns/allow_env) — EP-0044 phase 2
-			//   runtime             use_wasm flips native↔wasm tool impls; a repo
-			//                       swapping implementations is an operator-only call
 			//   inference           [inference.presets.x] endpoint + api_key_env is an
 			//                       API-key exfil vector — operator declares endpoints
 			// Project model/provider/tool overrides (the EP-0035 use case) stay
@@ -947,7 +883,7 @@ func Load() (*Config, error) {
 				"acp", "mcp.providers", "mcp.servers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
-				"sandbox", "runtime", "inference", "verify",
+				"sandbox", "inference", "verify",
 			}
 			warned := map[string]bool{}
 			for _, leaf := range pk.Keys() {
@@ -1021,25 +957,38 @@ func Load() (*Config, error) {
 	if !k.Exists("context.hard_threshold") {
 		cfg.Context.HardThreshold = 0.90
 	}
-	// Memory retrieval is on by default. Distinguish "unset" (apply the default)
-	// from an explicit `enabled = false` (a deliberate opt-out), exactly like
-	// the context thresholds above — a bare zero-value check could not.
-	if !k.Exists("memory.enabled") {
-		cfg.Memory.Enabled = true
-	}
-	// Budget sanity: if both thresholds are set but the hard cap is at
-	// or below the warn cap, the warning would never fire. Drop the
-	// hard cap back to zero ("no hard limit") and announce so the user
-	// can fix their config — better than silently blocking turns that
-	// the user thought would just warn.
-	if cfg.Budget.HardUSD > 0 && cfg.Budget.WarnUSD > 0 && cfg.Budget.HardUSD <= cfg.Budget.WarnUSD {
-		fmt.Fprintf(os.Stderr,
-			"stado: [budget] hard_usd=%.2f must be > warn_usd=%.2f — ignoring hard_usd\n",
-			cfg.Budget.HardUSD, cfg.Budget.WarnUSD)
-		cfg.Budget.HardUSD = 0
-	}
-
+	normalizeTokenBudget(&cfg.Budget)
 	return &cfg, nil
+}
+
+func normalizeTokenBudget(budget *Budget) {
+	if budget == nil {
+		return
+	}
+	pairs := []struct {
+		name       string
+		warn, hard *int
+	}{
+		{"tokens", &budget.WarnTokens, &budget.HardTokens},
+		{"input_tokens", &budget.WarnInputTokens, &budget.HardInputTokens},
+		{"output_tokens", &budget.WarnOutputTokens, &budget.HardOutputTokens},
+	}
+	for _, pair := range pairs {
+		if *pair.warn < 0 {
+			fmt.Fprintf(os.Stderr, "stado: [budget] warn_%s must be >= 0 — ignoring warn_%s\n", pair.name, pair.name)
+			*pair.warn = 0
+		}
+		if *pair.hard < 0 {
+			fmt.Fprintf(os.Stderr, "stado: [budget] hard_%s must be >= 0 — ignoring hard_%s\n", pair.name, pair.name)
+			*pair.hard = 0
+		}
+		if *pair.hard > 0 && *pair.warn > 0 && *pair.hard <= *pair.warn {
+			fmt.Fprintf(os.Stderr,
+				"stado: [budget] hard_%s=%d must be > warn_%s=%d — ignoring hard_%s\n",
+				pair.name, *pair.hard, pair.name, *pair.warn, pair.name)
+			*pair.hard = 0
+		}
+	}
 }
 
 type staticBytesProvider []byte

@@ -1,8 +1,8 @@
 name: Release
 
 # Triggered by vX.Y.Z tags. Produces:
-#   1. Cross-platform binaries (linux/darwin/windows × amd64/arm64) via
-#      goreleaser, with checksums.txt and SBOM per-archive.
+#   1. Linux binaries (amd64/arm64) via goreleaser, with checksums.txt
+#      and SBOM per archive.
 #   2. Cosign keyless signature over checksums.txt (sig + cert uploaded
 #      alongside). Rekor transparency-log entry is implicit with cosign ≥ 2.
 #   3. SLSA-L3 build provenance attestation over every released artifact
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write      # upload release artifacts
-      packages: write      # publish to GHCR (Homebrew tap push comes later)
+      packages: write      # reserved for release package publication
       id-token: write      # OIDC for cosign keyless + provenance signing
       attestations: write  # write build-provenance attestations
     env:
@@ -55,7 +55,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache: true
 
       # Race-validate the release in the release path itself. CI moved the
@@ -87,13 +87,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Cross-repo PAT for publishing the Homebrew formula to
-          # foobarto/homebrew-tap. The default GITHUB_TOKEN only has
-          # write scope on the current repo, so the tap PR needs a
-          # PAT provisioned as HOMEBREW_TAP_TOKEN. .goreleaser.yaml
-          # templates skip_upload=true when this secret is unset, so
-          # the release still succeeds — just without the tap PR.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           # Minisign release trust root (the verify pubkey), embedded via the
           # ldflag in .goreleaser.yaml builds[].ldflags. Read with
           # `{{ if index .Env "..." }}` so an unset secret expands to "" here

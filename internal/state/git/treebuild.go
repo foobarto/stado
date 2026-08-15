@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -251,6 +252,104 @@ func (s *Session) ChangedFilesBetween(fromHash, toHash plumbing.Hash) ([]string,
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+const patchTruncatedMarker = "\n[patch truncated by host boundary]"
+
+var errPatchLimit = errors.New("patch output limit reached")
+
+type limitedPatchWriter struct {
+	builder  strings.Builder
+	maxBytes int
+}
+
+func (w *limitedPatchWriter) Write(p []byte) (int, error) {
+	remaining := w.maxBytes - w.builder.Len()
+	if remaining <= 0 {
+		return 0, errPatchLimit
+	}
+	if len(p) > remaining {
+		_, _ = w.builder.Write(p[:remaining])
+		return remaining, errPatchLimit
+	}
+	return w.builder.Write(p)
+}
+
+// PatchBetweenHeads returns a byte-bounded unified patch between two session
+// tree-ref commit heads. A zero hash represents the empty tree. The bound is
+// enforced before blob contents are loaded and while the patch is encoded, so
+// callers never materialize an unbounded diff before truncating it.
+func (s *Session) PatchBetweenHeads(fromHead, toHead plumbing.Hash, maxBytes int) (string, error) {
+	if maxBytes <= len(patchTruncatedMarker) {
+		return "", fmt.Errorf("patch byte limit %d must exceed truncation marker length %d", maxBytes, len(patchTruncatedMarker))
+	}
+	toTreeHash := plumbing.ZeroHash
+	if !toHead.IsZero() {
+		var err error
+		toTreeHash, err = s.TreeFromCommit(toHead)
+		if err != nil {
+			return "", err
+		}
+	}
+	fromTreeHash := plumbing.ZeroHash
+	if !fromHead.IsZero() {
+		var err error
+		fromTreeHash, err = s.TreeFromCommit(fromHead)
+		if err != nil {
+			return "", err
+		}
+	}
+	fromTree, err := s.treeOrEmpty(fromTreeHash)
+	if err != nil {
+		return "", err
+	}
+	toTree, err := s.treeOrEmpty(toTreeHash)
+	if err != nil {
+		return "", err
+	}
+	changes, err := fromTree.Diff(toTree)
+	if err != nil {
+		return "", err
+	}
+
+	writer := limitedPatchWriter{maxBytes: maxBytes - len(patchTruncatedMarker)}
+	var sourceBytes int64
+	truncated := false
+	for _, change := range changes {
+		fromFile, toFile, err := change.Files()
+		if err != nil {
+			return "", err
+		}
+		var changeBytes int64
+		if fromFile != nil {
+			changeBytes += fromFile.Size
+		}
+		if toFile != nil {
+			changeBytes += toFile.Size
+		}
+		if changeBytes > int64(writer.maxBytes)-sourceBytes {
+			truncated = true
+			break
+		}
+		sourceBytes += changeBytes
+
+		patch, err := change.Patch()
+		if err != nil {
+			return "", err
+		}
+		if err := patch.Encode(&writer); err != nil {
+			if errors.Is(err, errPatchLimit) {
+				truncated = true
+				break
+			}
+			return "", err
+		}
+	}
+	result := writer.builder.String()
+	if truncated {
+		result += patchTruncatedMarker
+	}
+	return result, nil
 }
 
 func (s *Session) treeOrEmpty(hash plumbing.Hash) (*object.Tree, error) {

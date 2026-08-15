@@ -7,8 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/plugins"
-	"github.com/foobarto/stado/internal/runtime"
 )
 
 // pluginReloadCmd is the whole-plugin analogue to `tool reload`.
@@ -23,7 +21,7 @@ import (
 // that the plugin exists, points at the TUI slash command for
 // in-session rebuild, and exits 0.
 var pluginReloadCmd = &cobra.Command{
-	Use:   "reload <plugin-name>",
+	Use:   "reload [project:|global:]<canonical-source|store-key>",
 	Short: "Re-read a plugin's tools and capabilities (effective inside a TUI session via /plugin reload)",
 	Long: "Confirms the plugin is installed and prints the names of\n" +
 		"tools it contributes. Tool invocations always re-read the\n" +
@@ -41,26 +39,14 @@ var pluginReloadCmd = &cobra.Command{
 		}
 		name := args[0]
 
-		// Resolve the active install dir via the same helper plugin info uses.
-		dir, ok := runtime.ResolveInstalledPluginDir(cfg, name)
-		if !ok {
-			// Fall back to the literal `<name>-<version>` form so callers
-			// who happen to pass a fully-qualified id still get a sensible
-			// answer (mirrors plugin info).
-			d, derr := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name)
-			if derr != nil {
-				return derr
-			}
-			if _, err := os.Stat(d); err != nil {
+		pkg, _, err := resolveManagedInstalledPackage(cfg, name)
+		if err != nil {
+			if os.IsNotExist(err) {
 				return fmt.Errorf("plugin %q not installed — run `stado plugin list`", name)
 			}
-			dir = d
+			return err
 		}
-
-		mf, _, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			return fmt.Errorf("read manifest: %w", err)
-		}
+		mf := &pkg.Manifest
 
 		fmt.Fprintf(cmd.OutOrStdout(), "%s v%s\n", mf.Name, mf.Version)
 		if len(mf.Tools) == 0 {

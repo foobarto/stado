@@ -163,3 +163,25 @@ func TestInlinePopup_OffersExactCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestMatch_ArgumentsFilterByCommandToken(t *testing.T) {
+	RegisterDynamicCommands([]Command{{Name: "/supervise", Desc: "quality gate", Group: "Applications"}})
+	t.Cleanup(func() { RegisterDynamicCommands(nil) })
+
+	for _, test := range []struct {
+		query string
+		want  string
+	}{
+		{query: "monitor stop", want: "/monitor"},
+		{query: "supervise status", want: "/supervise"},
+		{query: "/supervise start finish the work", want: "/supervise"},
+	} {
+		m := typeQuery(t, test.query)
+		if !matchNames(m)[test.want] {
+			t.Fatalf("query %q did not retain %s in matches: %v", test.query, test.want, names(m.Matches))
+		}
+		if m.Query != test.query {
+			t.Fatalf("query was rewritten to %q, want full dispatch text %q", m.Query, test.query)
+		}
+	}
+}

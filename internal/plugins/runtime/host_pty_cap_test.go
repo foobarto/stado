@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -9,7 +10,7 @@ import (
 // Security regression: the PTY spawn path (stado_pty_create) skipped the
 // glob-enforcement layer that exec:proc has, so exec:pty alone (or a narrow
 // exec:pty:<glob>) could run ANY binary — and opts.Cmd expands to "/bin/sh -c".
-// ptyAllowed + ExecPTYGlobs (parsed from terminal:open:<glob> / exec:pty:<glob>)
+// ptyAllowed + ExecPTYGlobs (parsed from exec:pty:<glob>)
 // close that; registerPTYCreate now calls ptyAllowed on the effective binary.
 
 func TestPtyAllowed_GlobEnforcement(t *testing.T) {
@@ -46,9 +47,10 @@ func TestPtyAllowed_GlobEnforcement(t *testing.T) {
 	}
 }
 
-// TestExecPTYGlobParsing: both terminal:open:<glob> and exec:pty:<glob> populate
-// ExecPTYGlobs (and broad forms leave it empty = broad); a mixed relative-path
-// glob is rejected (silent-deny footgun guard, same as exec:proc).
+// TestExecPTYGlobParsing: exec:pty:<glob> populates ExecPTYGlobs (and the broad
+// form leaves it empty = broad); a mixed relative-path glob is rejected
+// (silent-deny footgun guard, same as exec:proc). Removed terminal:open forms
+// must not grant PTY authority.
 func TestExecPTYGlobParsing(t *testing.T) {
 	cases := []struct {
 		cap       string
@@ -56,9 +58,9 @@ func TestExecPTYGlobParsing(t *testing.T) {
 		wantGlobs []string
 	}{
 		{"exec:pty", true, nil},
-		{"terminal:open", true, nil},
+		{"terminal:open", false, nil},
 		{"exec:pty:git", true, []string{"git"}},
-		{"terminal:open:git", true, []string{"git"}},
+		{"terminal:open:git", false, nil},
 		{"exec:pty:/usr/bin/git", true, []string{"/usr/bin/git"}},
 		// mixed relative-path glob -> rejected -> fail-closed deny sentinel
 		// (NOT empty, which would mean broad).
@@ -79,6 +81,38 @@ func TestExecPTYGlobParsing(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRemovedTerminalImportsAreNotExported(t *testing.T) {
+	ctx := context.Background()
+	rt, err := New(ctx)
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close(ctx) })
+	h := NewHost(plugins.Manifest{Name: "p", Capabilities: []string{"exec:pty"}}, t.TempDir(), nil)
+	if err := InstallHostImports(ctx, rt, h); err != nil {
+		t.Fatalf("InstallHostImports: %v", err)
+	}
+	exports := rt.rt.Module(NamespaceStado).ExportedFunctionDefinitions()
+	for _, name := range []string{
+		"stado_pty_create", "stado_pty_list", "stado_pty_write",
+		"stado_pty_read", "stado_pty_signal", "stado_pty_resize",
+		"stado_pty_destroy", "stado_pty_snapshot", "stado_pty_expect",
+	} {
+		if _, ok := exports[name]; !ok {
+			t.Errorf("canonical import %s is not exported", name)
+		}
+	}
+	for _, name := range []string{
+		"stado_terminal_open", "stado_terminal_list", "stado_terminal_write",
+		"stado_terminal_read", "stado_terminal_signal", "stado_terminal_resize",
+		"stado_terminal_close", "stado_terminal_snapshot", "stado_terminal_expect",
+	} {
+		if _, ok := exports[name]; ok {
+			t.Errorf("removed compatibility import %s is still exported", name)
+		}
 	}
 }
 

@@ -5,15 +5,16 @@
   "author_pubkey_fpr": "",
   "wasm_sha256": "",
   "capabilities": [
-    "session:observe",
-    "session:read",
+    "provider:invoke:30000",
     "session:fork",
-    "llm:invoke:30000"
+    "session:observe",
+    "session:read"
   ],
   "tools": [
     {
       "name": "compact",
       "description": "Summarise the current session and fork into a fresh session seeded with the summary. Skips when token_count is below threshold_tokens unless invoked as hard-threshold recovery.",
+      "capabilities": ["provider:invoke:30000", "session:fork", "session:observe", "session:read"],
       "schema": "{\"type\":\"object\",\"properties\":{\"threshold_tokens\":{\"type\":\"integer\",\"description\":\"Skip compaction if session token count is below this; default 10000.\"}}}"
     }
   ],

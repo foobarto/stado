@@ -69,7 +69,6 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 	m.streamBufMu.Lock()
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
-
 	// #19: context-overflow errors that arrive synchronously (oaicompat /
 	// minimax) auto-recover here; the EvError-event path (Anthropic family)
 	// recovers in onStreamDone. See tryContextOverflowRecovery.
@@ -97,7 +96,7 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		// linger. Without this the loop stayed non-nil (status bar shows a
 		// dead "↻ loop" forever) but never re-iterated — and blindly
 		// re-firing an immediate loop on error would be a no-delay runaway.
-		m.stopLoopOnError()
+		loopStop := m.stopLoopOnError()
 		// The turn is dead — finalize any in-flight thinking/tool block so
 		// `auto` mode collapses them. This branch returns before
 		// onTurnComplete (the normal finalize site), so without this an
@@ -107,7 +106,7 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		// about to execute), and the no-tool path finalizes in onTurnComplete.
 		m.finalizeStreamingBlocks()
 		m.renderBlocks()
-		return m, nil
+		return m, loopStop
 	}
 	m.maybeEmitBudgetWarning()
 	// post_llm fires first (it can rewrite m.turnText), then post_turn sees
@@ -117,6 +116,9 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.firePostLLMHook()
 	m.firePostTurnHook()
 	var cmds []tea.Cmd
+	// Observe the completed worker turn before onTurnComplete can start an
+	// inbox review. Otherwise the classifier captures the previous anchor and
+	// its otherwise-current verdict is guaranteed to be discarded as stale.
 	cmds = append(cmds, m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))
 	// EP-0036: after each turn, check if the loop agent signalled
 	// done; if not and loop is active, queue the next iteration or

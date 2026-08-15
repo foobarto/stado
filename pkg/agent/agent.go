@@ -23,6 +23,21 @@ type Provider interface {
 	StreamTurn(ctx context.Context, req TurnRequest) (<-chan Event, error)
 }
 
+// ModelCapabilityProvider lets providers narrow capabilities that are not
+// uniformly supported by every model exposed through the same API.
+type ModelCapabilityProvider interface {
+	CapabilitiesForModel(model string) Capabilities
+}
+
+// CapabilitiesForModel returns model-specific capabilities when the provider
+// exposes them, and otherwise preserves the provider-wide capability contract.
+func CapabilitiesForModel(provider Provider, model string) Capabilities {
+	if modelProvider, ok := provider.(ModelCapabilityProvider); ok {
+		return modelProvider.CapabilitiesForModel(model)
+	}
+	return provider.Capabilities()
+}
+
 // TokenCounter is an optional interface providers implement when they can
 // pre-flight count tokens for a TurnRequest. Detection is via type
 // assertion so adding the interface doesn't break existing Provider impls.
@@ -43,11 +58,16 @@ type TokenCounter interface {
 // Populated either statically (known provider) or via runtime probing
 // (oaicompat /v1/models + first-call heuristics).
 type Capabilities struct {
-	SupportsPromptCache  bool
-	SupportsThinking     bool
-	MaxParallelToolCalls int
-	SupportsVision       bool
-	MaxContextTokens     int
+	SupportsPromptCache     bool
+	SupportsThinking        bool
+	SupportsReasoningEffort bool
+	// ThinkingOutputReserveTokens is the provider-native output headroom
+	// included in max_tokens in addition to a configured thinking budget.
+	// Hard-budget callers must reserve it before dispatch.
+	ThinkingOutputReserveTokens int
+	MaxParallelToolCalls        int
+	SupportsVision              bool
+	MaxContextTokens            int
 }
 
 // TurnRequest is one agent turn: model, messages, available tools, and
@@ -65,6 +85,12 @@ type TurnRequest struct {
 
 	// Thinking is non-nil to enable extended thinking where supported.
 	Thinking *ThinkingConfig
+
+	// ReasoningEffort carries the provider-native effort vocabulary. Stado
+	// keeps this independent from Thinking: a provider may expose an effort
+	// knob without returning visible thinking, or support thinking budgets
+	// without accepting effort. Empty leaves the provider default untouched.
+	ReasoningEffort string
 
 	// CacheHints are breakpoints for Anthropic-style prompt caching. Indexes
 	// refer to Messages. Ignored by providers that don't support caching.

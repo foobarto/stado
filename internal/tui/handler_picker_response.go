@@ -325,18 +325,6 @@ func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	if m.taskPick.Visible {
-		cmd, handled := m.taskPick.Update(msg)
-		if handled {
-			if err := m.applyTaskCommand(cmd); err != nil {
-				m.taskPick.SetNotice(err.Error())
-			}
-			m.layout()
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-
 	if m.providerPick != nil && m.providerPick.Visible {
 		cmd, handled := m.providerPick.Update(msg)
 		if handled {

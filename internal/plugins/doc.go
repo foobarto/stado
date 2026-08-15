@@ -9,16 +9,12 @@
 // (devmode.go, online_limit.go). Together these implement the rule that
 // nothing tampered or unsigned can reach the wasm runtime.
 //
-// Three subpackages handle origin-flavored concerns:
+// Two subpackages handle origin-flavored concerns:
 //
 //   - bundled — the embedded asset store and inventory for wasm
 //     compiled into the stado binary at build time. No install path,
 //     no per-plugin signature check; trust rides the binary's release
 //     signature.
-//   - userbundled — wasm appended to the binary via `stado plugin
-//     bundle`. Loaded eagerly at process startup and registered against
-//     the bundled package's registry. Verified by the bundle-level
-//     Ed25519 signature, not per-plugin manifests.
 //   - runtime — the wasm host machinery (Module, Host, host imports,
 //     BackgroundPlugin lifecycle). Origin-agnostic: runs any wasm
 //     regardless of where it came from.

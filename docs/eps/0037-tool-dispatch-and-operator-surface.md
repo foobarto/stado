@@ -7,9 +7,30 @@ type: Standards
 created: 2026-05-05
 implemented-in: v0.33.0
 extends: ["EP-0017", "EP-0035"]
-extended-by: []
-see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035"]
+extended-by: ["EP-0050", "EP-0065", "EP-0066"]
+see-also: ["EP-0002", "EP-0005", "EP-0006", "EP-0017", "EP-0028", "EP-0029", "EP-0031", "EP-0035", "EP-0050"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      EP-0066 and cleanup C57 replace the historical native,
+      non-disableable meta-tool kernel. The eight registry discovery and
+      activation tools now live in an explicit-opt-in official WASM package.
+      Native stado provides only a bounded loader-bound catalog and atomic
+      digest-fenced session-surface edit. The naming, category, config-ceiling,
+      and operator-control decisions remain implemented.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      EP-0065 replaces this EP's historical macOS/degraded-platform containment
+      claims with Linux-only current and v1 support. The dispatch, capability,
+      and operator-policy boundary remains in force.
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      EP-0050 explicitly replaces this EP's permissive-by-default containment
+      posture with broker/sandbox-first admission. The plugin-policy and tool
+      dispatch boundary remains in force.
   - date: 2026-05-05
     status: Draft
     note: Initial draft. Companion to EP-0038 (ABI v2 + bundled wasm) and EP-0039 (plugin distribution and trust). Captures the philosophy + dispatch model decided across the EP-0037/0038/0039 design conversation.
@@ -57,7 +78,7 @@ history:
       unless --force, and resolves bundled + installed uniformly.
 ---
 
-> **Relationships:** **Extends:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0035](./0035-project-local-stado-dir.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md)
+> **Relationships:** **Extends:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0035](./0035-project-local-stado-dir.md) · **Extended by:** [EP-0050](./0050-broker.md), [EP-0065](./0065-linux-only-platform-scope.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0028](./0028-plugin-run-tool-host.md), [EP-0029](./0029-config-introspection-host-imports.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0035](./0035-project-local-stado-dir.md), [EP-0050](./0050-broker.md)
 
 # EP-0037: Tool dispatch, naming, and operator surface
 
@@ -110,9 +131,8 @@ describes. Stating the philosophy explicitly prevents future drift.
 - State the project's security philosophy explicitly, as a Process-level
   framing both EP-0037 and EP-0038 cite as the rationale for default
   behaviours.
-- Move the tool registry from "every tool always visible to the model"
-  to a meta-tool dispatch model — small always-loaded core plus
-  searchable catalogue.
+- Move the tool registry from "every tool always visible to the model" to an
+  operator-selected per-turn surface with optional plugin-owned discovery.
 - Establish a single canonical naming convention (dotted in
   manifest/docs/config; underscore on wire) and a frozen category
   taxonomy.
@@ -387,18 +407,22 @@ hit canonical names); it's a coherence enforcement. Operators
 review categories at install time the same way they review
 capabilities; canonical names keep the review surface small.
 
-### §D — Meta-tool dispatch
+### §D — Plugin-owned discovery
 
-Stado stops broadcasting every tool's schema in the system prompt.
-The always-loaded core is small; everything else lives behind tool
-search. **Four meta-tools** registered in the always-loaded core:
+Stado does not broadcast every registered schema. The per-turn surface is the
+operator's autoload selection plus session activations, all below global config
+and session-disable ceilings. There is no native or non-disableable discovery
+kernel.
+
+The official, explicitly installed `tool-registry` WASM package implements the
+following policy on the generic `stado_registry_catalog` and
+`stado_session_tool_surface_apply` primitives:
 
 #### `tools.search(query?)`
 
-- No-arg form: returns all enabled tools, light-shape:
-  `[{name, summary, categories}]`. Names in canonical form
-  (`fs.read`); summary is a single sentence; categories the
-  declared list.
+- No-arg form returns capped light entries for the loader-bound catalog.
+- Entries carry exact wire `name`, deterministic dotted `canonical`, signed
+  display `plugin`, and stable unversioned `source_namespace` separately.
 - With-query form: text search across name + summary + categories.
   Matches case-insensitive, substring. Empty result returns `[]`,
   not error.
@@ -408,11 +432,8 @@ search. **Four meta-tools** registered in the always-loaded core:
 
 #### `tools.describe(names: [string])`
 
-- Required `names` argument, list of canonical-form tool names.
-- Returns full info per tool: schema (JSONSchema), long-form
-  description, categories, declared capabilities, source plugin
-  name and version. One-shot — no follow-up needed for the model
-  to decide whether to call.
+- Accepts `name` and/or `names` with at most 64 exact wire names.
+- Returns full catalog facts and atomically activates every found exact name.
 - **Batched** to avoid round-trip costs: model picks 5 candidates
   from `tools.search`, fetches all 5 schemas in one call.
 - Unknown names in the list return `{name, error: "not found"}`
@@ -447,47 +468,18 @@ search. **Four meta-tools** registered in the always-loaded core:
   model 5–20 round-trips per discovery cycle, at ~25 tokens per
   summary. Negligible in vs. avoided describe-per-name calls out.
 
-### §E — Default always-loaded core
+### §E — Default and activated surface
 
-Hardcoded in stado, overridable per-project and per-user.
-
-#### Always-loaded kernel (cannot be disabled)
-
-The four `tools.*` meta-tools form the **dispatch kernel**. The
-model cannot invoke any other tool without them — `tools.search`
-finds candidates, `tools.describe` loads schemas onto the wire so
-the model can call them. They are loaded unconditionally at every
-session start regardless of `[tools.disabled]`, `--tools`, or
-`--tools-disable` settings:
-
-```
-tools.search
-tools.describe
-tools.categories
-tools.in_category
-```
-
-Attempting to disable any of the four with `--tools-disable
-'tools.*'` or `disabled = ["tools.*"]` is rejected with:
-
-```
-Refused to disable tools.* — the meta-tool dispatcher kernel
-cannot be removed. tools.search and tools.describe are required
-to make any other tool callable.
-
-If you want a true tool-free run, omit autoload for everything:
-  --tools '<empty>' --tools-autoload '<empty>'
-The meta-tools will still be present.
-```
-
-This guarantees every `--tools` whitelist behaves predictably:
-"only these tools" always means "these tools plus the dispatch
-kernel", never an unrunnable shell.
+There is no non-disableable kernel or special filter exception. An enabled list
+that matches nothing empties the registry fail-closed. The official discovery
+package is available only after the operator installs/enables it and selects
+its desired tools for autoload; ordinary filter and session-disable rules apply
+to it exactly as to any other package.
 
 #### Convenience defaults (overridable)
 
-Beyond the kernel, the hardcoded autoload default adds the
-filesystem + shell primitives that ~every conversation uses:
+The hardcoded autoload default adds common bundled filesystem, shell, and agent
+tools. Explicit lifecycle-application tools are never native defaults:
 
 ```
 fs.read
@@ -496,24 +488,22 @@ fs.edit
 fs.glob
 fs.grep
 shell.exec
+fs.ls
+agent.spawn
 ```
 
 These are autoloaded by default but can be removed via
-`[tools.autoload]` config or `--tools-autoload`. Six convenience
-tools + four kernel meta-tools = ten always-loaded tools at
-session start.
-
-The kernel set is in stado's source as a literal; not configurable.
-The convenience set is overridable. Both ship with the binary.
+`[tools.autoload]` config or `--tools-autoload`. The convenience set is
+overridable. Discovery policy does not ship inside the binary.
 
 #### Schema availability for non-autoloaded tools
 
-`tools.describe(names: [str])` is the only mechanism the model uses
-to acquire schemas for non-autoloaded tools. Behaviour:
+When the official discovery package is present, `tools.describe` is its bundled
+describe-and-activate workflow:
 
 1. Model calls `tools.search` (or `tools.in_category`) — gets
    candidate tools with summaries.
-2. Model calls `tools.describe(["fs.read", "shell.spawn"])` — gets
+2. Model calls `tools.describe` with exact wire names from the catalog — gets
    full JSONSchema for each tool back as part of the call result.
 3. **Result of `tools.describe` injects each described tool's
    schema into the assistant's available tool surface for the
@@ -527,11 +517,12 @@ round-trip-to-call gap codex's review #1 flagged. Subsequent
 turns continue to see the schemas (no re-fetch needed unless the
 plugin reloads).
 
-A model that bypasses `tools.describe` and tries to call a
-non-autoloaded tool directly (by guessing the wire name) gets a
-structured error — the host's tool-call dispatcher refuses unless
-the schema has been activated via `describe`. This is enforced
-host-side, not via prompt instruction.
+The application cannot exceed the exact registry/config/session ceiling. The
+host digest covers the complete effective projection, rejects stale pagination,
+validates a whole activation/deactivation batch before mutation, and continues
+to catalog a permitted deactivated tool so it can be reactivated. Search,
+summaries, category grouping, and source-group workflow remain replaceable WASM
+policy.
 
 ### §F — Configuration: `.stado/config.toml` schema
 
@@ -546,7 +537,7 @@ project < env):
 [tools]
 # Wildcard globs supported. * matches one segment within a namespace.
 # fs.* matches every fs.X. Plain * matches everything.
-autoload = ["tools.*", "fs.*", "shell.exec"]
+autoload = ["fs.*", "shell.exec", "agent.spawn"]
 disabled = ["browser.*"]
 # enabled = [...]  — present means whitelist mode (lockdown)
                   — when unset, all installed tools are enabled
@@ -596,7 +587,7 @@ bind_rw = ["~/Dokumenty/htb-writeups"]
 Single `*` matches one dotted segment:
 
 - `fs.*` → `fs.read`, `fs.write`, `fs.edit`, `fs.glob`, `fs.grep`
-- `tools.*` → all four meta-tools
+- `tools.*` → every installed official registry tool, if that package is present
 - `*` (alone) → every registered tool
 - `htb-lab.*` → all tools whose plugin name is `htb-lab`
 
@@ -819,16 +810,16 @@ update the manifest, or the tool stays text-search-only.
 
 ## Migration / rollout
 
-### What ships in EP-0037
+### Initial EP-0037 shipment (historical)
 
 - Philosophy section, written into `docs/eps/0037-...` and referenced
   from EP-0038, EP-0039 as the rationale anchor.
 - Tool naming convention enforced for new plugins via wire-form
   synthesis at registration time.
 - Canonical category taxonomy; manifest validation at install time.
-- Four meta-tools (`tools.search`, `tools.describe`, `tools.categories`,
-  `tools.in_category`) implemented as native registry mechanics in
-  EP-0037 (will move to wasm in EP-0038; not blocking here).
+- Four discovery tools initially shipped as native registry mechanics. C57
+  later removed them together with the added activation/plugin tools and moved
+  all eight workflows to the official opt-in WASM package described above.
 - Default always-loaded core hardcoded; `[tools.autoload]` schema
   + per-config / CLI overrides.
 - `--tools`, `--tools-autoload`, `--tools-disable` CLI flags.
@@ -876,18 +867,14 @@ synthesis preserves automatically).
 - **Operator config sets `[tools.enabled] = ["fs.*"]` but the
   hardcoded core includes `shell.exec`.** Conflict resolved by the
   whitelist semantics: `--tools` / `[tools.enabled]` REPLACES the
-  convenience default. The dispatch kernel (§E) is unaffected —
-  the four `tools.*` meta-tools are always loaded. So
-  `--tools fs.*` results in `tools.* + fs.*` available; `shell.exec`
-  removed; convenience defaults dropped. If operator wanted shell
-  back: `--tools 'fs.*,shell.exec'`.
+  convenience default. `--tools fs.*` results in only matching `fs.*`
+  tools; `shell.exec` and an installed discovery package are both absent unless
+  separately allowed. If operator wanted shell back:
+  `--tools 'fs.*,shell.exec'`.
 
-- **Operator attempts to disable the kernel.** `[tools.disabled] =
-  ["tools.*"]` or `--tools-disable tools.*` is refused at config
-  parse time with a clear error pointing at §E's "kernel cannot be
-  disabled" rule. Stado does not silently keep the kernel after
-  the operator declared they want it gone — it refuses the
-  declaration outright.
+- **Operator disables discovery.** `[tools.disabled] = ["tools.*"]` removes
+  the installed discovery tools like any others. No native fallback or filter
+  exemption restores them.
 
 - **Plugin declares `extra_categories: ["network"]`** (overlapping a
   canonical name). Permitted; the entry duplicates the canonical
@@ -935,13 +922,9 @@ synthesis preserves automatically).
 
 ## Open questions
 
-- **Always-loaded core size.** Eight tools is the proposed default.
-  Open question whether `tools.in_category` and `tools.describe`
-  belong there too, since they're the natural follow-ups from
-  `tools.search` / `tools.categories`. Position: leave them
-  reachable-via-search rather than always-loaded; the model gets
-  them in the first search result. Revisit if usage shows
-  consistent extra round-trip.
+- **Discovery package autoload shape.** The package is explicit opt-in. The
+  operator may autoload all eight tools, only read-oriented discovery, or none;
+  stado core does not choose a non-disableable subset.
 - **`tools.search` ranking.** No-arg form returns tools in some
   order. Today: alphabetical by canonical name. Open question
   whether to bias by frequently-used or autoloaded tools first.
@@ -1055,30 +1038,20 @@ synthesis preserves automatically).
   Disabled-wins-over-enabled rule prevents silent override
   surprise across config layers.
 
-### D7. Always-loaded kernel + convenience default
+### D7. Configurable convenience default; no discovery kernel
 
-- **Decided:** four `tools.*` meta-tools (search/describe/
-  categories/in_category) form a non-disableable dispatch kernel
-  loaded at every session start. Six convenience tools (`fs.read`,
-  `fs.write`, `fs.edit`, `fs.glob`, `fs.grep`, `shell.exec`) are
-  autoloaded by default but configurable. `tools.describe`
-  activates non-autoloaded tool schemas onto the model's available
-  surface for the rest of the session — describe-then-it's-callable.
-- **Alternatives:** kernel = `tools.search` only (forces an extra
-  call before any non-autoloaded tool can run); no kernel at all
-  (operator could lock themselves out of dispatch); allow kernel
-  to be disabled (operator could ask for an unrunnable shell).
-- **Why:** codex review item #1 surfaced that the original "search
-  + categories autoloaded; describe and in_category reachable via
-  search" leaves a gap — search returns names, but the model can't
-  call a tool whose schema isn't on the wire. Making `tools.describe`
-  the schema-activation mechanism, and putting all four meta-tools
-  in a non-disableable kernel, closes that gap. The convenience
-  defaults stay configurable. The kernel-non-disableable refusal
-  prevents the operator from accidentally configuring an
-  unrunnable shell; if the operator really wants no tools, they
-  spell that explicitly via empty autoload + empty enable, and
-  the kernel still exists but does nothing useful.
+- **Decided:** common tools may remain configurable convenience defaults, but
+  discovery is an ordinary signed application. The official package is
+  installed/enabled/autoloaded explicitly, obeys every config and session
+  ceiling, and may be disabled completely. Its `tools.describe` policy performs
+  one digest-fenced atomic activation after returning exact catalog facts.
+- **Alternatives:** retain a non-disableable native kernel; silently bundle the
+  official package; preserve result-name interception in AgentLoop/TUI.
+- **Why:** a privileged kernel contradicts EP-0002 and operator tool-surface
+  authority. Generic native catalog/edit primitives provide the missing WASM
+  capability without freezing one discovery workflow into core. Exact freshness
+  and atomic ceiling validation keep enforcement native while product policy
+  remains replaceable.
 
 ### D8. Slash commands default to per-session, not persistent
 

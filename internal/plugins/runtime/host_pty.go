@@ -51,33 +51,25 @@ const (
 func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	// EP-0038b: always register PTY imports so wasm modules that link
 	// against them (e.g. the bundled shell plugin) can instantiate even
-	// when the plugin lacks terminal:open. The handlers check the capability
+	// when the plugin lacks exec:pty. The handlers check the capability
 	// at call time and return an error if not granted.
 	registerPTYCreate(builder, host, "stado_pty_create")
-	registerPTYCreate(builder, host, "stado_terminal_open")
 	registerPTYList(builder, host, "stado_pty_list")
-	registerPTYList(builder, host, "stado_terminal_list")
 	// EP-0043 D6: stado_*_attach / stado_*_detach removed — read/write
 	// work by id, no attach gate.
 	registerPTYWrite(builder, host, "stado_pty_write")
-	registerPTYWrite(builder, host, "stado_terminal_write")
 	registerPTYRead(builder, host, "stado_pty_read")
-	registerPTYRead(builder, host, "stado_terminal_read")
 	registerPTYSignal(builder, host, "stado_pty_signal")
-	registerPTYSignal(builder, host, "stado_terminal_signal")
 	registerPTYResize(builder, host, "stado_pty_resize")
-	registerPTYResize(builder, host, "stado_terminal_resize")
 	registerPTYDestroy(builder, host, "stado_pty_destroy")
-	registerPTYDestroy(builder, host, "stado_terminal_close")
 	registerPTYSnapshot(builder, host, "stado_pty_snapshot")
-	registerPTYSnapshot(builder, host, "stado_terminal_snapshot")
-	registerPTYExpect(builder, host, "stado_terminal_expect")
+	registerPTYExpect(builder, host, "stado_pty_expect")
 }
 
 // ptyDenied returns the i64-encoded error response for PTY handlers when
 // the capability is not granted or no PTY manager is wired.
 func ptyDenied(mod api.Module, resPtr, resCap uint32) int32 {
-	return encodeToolSidePayload(mod, resPtr, resCap, []byte("terminal:open capability required"))
+	return encodeToolSidePayload(mod, resPtr, resCap, []byte("exec:pty capability required"))
 }
 
 // stado_pty_create(args_ptr, args_len, result_ptr, result_cap) → i64
@@ -108,7 +100,7 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
 				return
 			}
-			// Enforce the exec:pty / terminal:open glob on the spawned binary —
+			// Enforce the exec:pty glob on the spawned binary —
 			// parity with the exec:proc path. Without this, exec:pty alone (or a
 			// narrow exec:pty:<glob>) could run ANY binary, and opts.Cmd expands
 			// to "/bin/sh -c <cmd>" (an unrestricted shell) inside Manager.Spawn.
@@ -346,12 +338,9 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 
 // signalNames maps POSIX signal names (sans SIG prefix, upper-case) to
 // numbers. Covers the signals an agent realistically sends to a PTY child;
-// numeric sig works for anything outside the table. Only the signals defined
-// across every host target (linux/darwin/windows) live here — the Unix-only
-// extras (USR1/USR2/STOP/CONT/TSTP/WINCH) are registered by an init in
-// host_pty_signals_unix.go. They're absent from the Windows syscall package,
-// and PTYs are a Unix-only feature anyway, so the Windows build just resolves
-// the portable subset (numeric sig always works).
+// numeric sig works for anything outside the table. Less common Linux signals
+// (USR1/USR2/STOP/CONT/TSTP/WINCH) are registered by an init in
+// host_pty_signals_unix.go.
 var signalNames = map[string]syscall.Signal{
 	"HUP": syscall.SIGHUP, "INT": syscall.SIGINT, "QUIT": syscall.SIGQUIT,
 	"KILL": syscall.SIGKILL, "TERM": syscall.SIGTERM,
@@ -560,7 +549,7 @@ func decodePTYArgs(mod api.Module, ptr, length uint32, dst any) error {
 	return nil
 }
 
-// stado_terminal_expect(idLo, idHi, argsPtr, argsLen, resPtr, resCap) → i32
+// stado_pty_expect(idLo, idHi, argsPtr, argsLen, resPtr, resCap) → i32
 //
 // Reads from an existing PTY session until a configured pattern matches,
 // the timeout elapses, or the underlying process exits. Args JSON shape:
@@ -579,7 +568,7 @@ func decodePTYArgs(mod api.Module, ptr, length uint32, dst any) error {
 // includes non-UTF8 sequences (ANSI escapes, terminal control codes).
 // JSON-string encoding would corrupt them.
 //
-// Cap-gated by exec:pty (terminal:open) — same gate as Read/Write.
+// Cap-gated by exec:pty — same gate as Read/Write.
 func registerPTYExpect(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -640,7 +629,7 @@ func registerPTYExpect(builder wazero.HostModuleBuilder, host *Host, exportName 
 			timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 			res, err := host.PTYManager.Expect(id, patterns, timeout)
 			if err != nil {
-				host.Logger.Warn("stado_terminal_expect failed", slog.String("err", err.Error()))
+				host.Logger.Warn("stado_pty_expect failed", slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}

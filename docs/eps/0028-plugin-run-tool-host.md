@@ -2,12 +2,35 @@
 ep: 0028
 title: stado plugin run --with-tool-host + HOME-rooted MkdirAll
 author: Bartosz Ptaszynski
-status: Partial
+status: Implemented
+implemented-in: v0.26.3
 type: Standards
 created: 2026-05-04
-superseded-by: ["EP-0038"]
+extended-by: ["EP-0065"]
 see-also: ["EP-0005", "EP-0006", "EP-0027", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    version: v0.26.3
+    note: >
+      Final audit confirmed that the surviving HOME/XDG trust-anchor contract
+      is implemented by UserConfigResolver and the Fedora Atomic multi-probe
+      regression. EP-0038 retired the historical --with-tool-host surface and
+      stado plugin run; the removed memory callers and their tests are not
+      current implementation dependencies.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      EP-0065 replaces this EP's historical macOS/Windows runner and degraded
+      fallback language with Linux-only current and v1 support. The surviving
+      HOME/XDG path-anchor decisions remain unchanged.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Relationship correction: EP-0038 replaced the tool-host flag and refusal
+      posture only; it did not supersede this EP's still-current HOME/XDG
+      path-anchor decisions. Removed the misleading wholesale superseded-by
+      metadata and retained EP-0038 as the scoped amendment history.
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
@@ -38,7 +61,7 @@ history:
       unchanged. CHANGELOG (Unreleased) carries the full migration notes.
 ---
 
-> **Relationships:** **Superseded by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0027](./0027-repo-root-discovery.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
+> **Relationships:** **Extended by:** [EP-0065](./0065-linux-only-platform-scope.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0027](./0027-repo-root-discovery.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll
 
@@ -47,7 +70,11 @@ history:
 > takes the tool name only, not a plugin-id). The `--with-tool-host`
 > flag became the default — the tool host is now attached on every
 > `stado tool run` (EP-0038). The text below is preserved as the
-> original EP-0028 design record.
+> original EP-0028 design record. Its `internal/memory` and
+> `plugin_run_tool_host_test.go` paths describe the initial rollout and have
+> since been deleted. The surviving path contract lives in
+> `internal/workdirpath.UserConfigResolver`, its unit tests, and
+> `hack/test-on-fedora-atomic.sh`.
 
 ## Problem
 
@@ -196,7 +223,7 @@ Algorithm:
 `OpenRootUnderUserConfig` mirrors the same anchor logic for opening
 existing trees.
 
-Updated 13 call sites:
+The initial rollout updated 13 call sites:
 
 - `internal/config/config.go`, `write_defaults.go` (config dir)
 - `internal/runtime/session.go` (worktree dir, ×2)
@@ -262,7 +289,7 @@ green because their fixture paths fall outside any trust anchor.
   fallback strict path applies. Same failure mode the strict
   walker had.
 
-## Test strategy
+## Test strategy (historical rollout)
 
 - New unit test `TestPluginRunToolHost_Surface` in
   `cmd/stado/plugin_run_tool_host_test.go` asserts the host

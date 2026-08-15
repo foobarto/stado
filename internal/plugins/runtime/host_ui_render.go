@@ -16,7 +16,7 @@ import (
 // field names. Each section's body field set is validated against the
 // declared Kind at decode so renderers don't have to guess.
 //
-// Spec: F9b (.agent/specs/open/f9b-ui-render.md). F9b.1 (2026-05-09).
+// EP-0064 and docs/plugins/host-imports.md own the public contract.
 type renderRequestWire struct {
 	Title    string        `json:"title"`
 	Sections []sectionWire `json:"sections"`
@@ -70,7 +70,7 @@ type diffBodyWire struct {
 // validRenderVariants is the closed enum for Panel.Variant. Empty
 // string is allowed (renderers treat as "info"); explicit values are
 // validated at decode so an unrecognised variant can't silently slip
-// through to renderer-side code that switches on it. F9b.1.
+// through to renderer-side code that switches on it.
 var validRenderVariants = map[string]bool{
 	"":               true,
 	"info":           true,
@@ -81,7 +81,7 @@ var validRenderVariants = map[string]bool{
 }
 
 // validRenderListMarkers is the closed enum for ListBody.Marker.
-// Empty string defaults to "bullet". F9b.1.
+// Empty string defaults to "bullet".
 var validRenderListMarkers = map[string]bool{
 	"":         true,
 	"bullet":   true,
@@ -89,7 +89,7 @@ var validRenderListMarkers = map[string]bool{
 	"check":    true,
 }
 
-// validRenderSectionKinds is the closed enum for Section.Kind. F9b.1.
+// validRenderSectionKinds is the closed enum for Section.Kind.
 var validRenderSectionKinds = map[string]bool{
 	"text":  true,
 	"kv":    true,
@@ -126,15 +126,9 @@ func targetRequiresID(target string) bool {
 // error message of n bytes is at err_ptr.
 //
 // Cap-gated by ui:render. Routes to host.RenderBridge; nil bridge =
-// drop on the floor with success (per F9 spec — a render on a
-// disconnected channel should not error). Errors only on
+// drop on the floor with success (the EP-0064 disconnected-channel
+// contract). Errors only on
 // shape / size violations and explicit bridge rejections.
-//
-// F9b.1 (host scaffolding only): the import + cap check + decode +
-// validation land here; per-channel renderers (TUI, ACP, MCP,
-// headless) wire RenderBridge implementations in subsequent F9b
-// phases. Until then RenderBridge is nil on every channel and emits
-// silently succeed.
 func registerUIRenderImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -174,8 +168,8 @@ func registerUIRenderImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			// nil bridge = drop on the floor (success). The plugin
 			// can't observe whether a render channel is wired; this
-			// matches the F9 spec's "if channel disconnected, emit
-			// succeeds silently" rule and the F9a print precedent.
+			// matches EP-0064's disconnected-channel contract and the
+			// equivalent print behavior.
 			if host.RenderBridge == nil {
 				stack[0] = api.EncodeI32(0)
 				return
@@ -197,7 +191,7 @@ func registerUIRenderImport(builder wazero.HostModuleBuilder, host *Host) {
 // fixed set; list marker in the fixed set; section bodies match
 // declared kind; per-section size cap; table row × column caps).
 // Centralised so the host import body stays tight and validation
-// is unit-testable. F9b.1.
+// is unit-testable.
 func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	if len(w.Title) > maxPluginRuntimeUIRenderTitleBytes {
 		return Panel{}, fmt.Errorf("title exceeds %d bytes", maxPluginRuntimeUIRenderTitleBytes)
@@ -283,7 +277,7 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 // decodeSection validates one wire section against its declared
 // kind. The "exactly one body field per Kind" invariant is enforced
 // here so renderers downstream can switch on Kind without defensive
-// fallthrough. F9b.1.
+// fallthrough.
 func decodeSection(i int, sw sectionWire) (Section, error) {
 	if !validRenderSectionKinds[sw.Kind] {
 		return Section{}, fmt.Errorf("section %d: kind %q not in {text,kv,list,code,table,diff}", i, sw.Kind)
@@ -415,7 +409,7 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 // requireOnlyBody enforces "exactly one body field set per declared
 // Kind." Returns an error if any sibling body field is populated.
 // Empty Heading is fine — Heading is a section-level decoration,
-// not a body. F9b.1.
+// not a body.
 func requireOnlyBody(i int, sw sectionWire, want string) error {
 	others := map[string]bool{
 		"text":  sw.Text != "",

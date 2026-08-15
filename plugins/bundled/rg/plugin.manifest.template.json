@@ -1,0 +1,22 @@
+{
+  "name": "stado-builtin-tool-rg",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["bundled-bin:rg", "exec:proc:rg", "fs:read:."],
+  "tools": [
+    {
+      "name": "rg__search",
+      "description": "Fast file-contents search via ripgrep. Pass pattern + optional path + optional flags.",
+      "export": "search",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"flags\":{\"description\":\"Extra rg flags (e.g. ['--hidden','-i'])\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"path\":{\"description\":\"Search root (default cwd)\",\"type\":\"string\"},\"pattern\":{\"description\":\"Regex pattern\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}",
+      "categories": ["code-search"],
+      "capabilities": ["fs:read:.", "exec:proc:rg", "bundled-bin:rg"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-rg"
+}

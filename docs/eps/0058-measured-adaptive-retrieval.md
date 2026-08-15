@@ -2,17 +2,18 @@
 ep: 58
 title: Measured Adaptive Retrieval
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
-implemented-in: v0.78.0
+status: Accepted
 type: Standards
 created: 2026-08-12
 requires: ["EP-0052", "EP-0053", "EP-0054", "EP-0057", "EP-0059"]
 see-also: ["EP-0007", "EP-0011", "EP-0015", "EP-0016"]
 history:
+  - date: 2026-08-14
+    status: Accepted
+    note: The staged official memory lifecycle source has a simple bounded active-artifact projection, but remains unsigned and unpublished. Measured tiers, ranking, evaluation, research escalation, and activation/publishing remain unimplemented.
   - date: 2026-08-12
-    status: Implemented
-    version: v0.78.0
-    note: Shipped in v0.78.0 as part of the memory, context, and continual-harness implementation.
+    status: Accepted
+    note: The earlier v0.78.0 native retrieval path did not implement the measured adaptive contract and was removed during the pre-v1 corrective migration.
   - date: 2026-08-12
     status: Accepted
     note: Accepted after product, security, and distributed-systems adversarial review.
@@ -24,6 +25,12 @@ history:
 > **Relationships:** **Requires:** [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0054](./0054-addressable-context-and-research-agents.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0011](./0011-observability-and-telemetry.md), [EP-0015](./0015-memory-system-plugin.md), [EP-0016](./0016-learning-self-improvement-plugin.md)
 
 # EP-0058: Measured Adaptive Retrieval
+
+> **Implementation status (2026-08-14):** Only a strict, bounded projection of
+> active artifacts is source-complete in the unsigned staged official memory
+> lifecycle application. The hot/warm/cold policy, observation-driven ranking,
+> shadow evaluation, research packages, trusted activation presenter, signing,
+> and publication remain Accepted work. Core stado provides no native imitation.
 
 ## Problem
 

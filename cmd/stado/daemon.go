@@ -39,6 +39,8 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui"
+	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -193,6 +195,7 @@ func serveDaemon(ctx context.Context, cfg *config.Config, socketPath string, std
 	if brokerErr != nil {
 		return fmt.Errorf("daemon: build broker service: %w", brokerErr)
 	}
+	defer func() { _ = brokerSvc.Close() }()
 
 	srv := daemon.NewServer(daemon.ServerOpts{
 		SocketPath:       socketPath,
@@ -473,7 +476,7 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 	}
 	if cfg != nil {
 		registeredName := registered.Name()
-		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		for _, pat := range cfg.Tools.Disabled {
 			if runtime.ToolMatchesGlob(registeredName, pat) ||
 				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
@@ -490,9 +493,8 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 		// refused even if also not in .disabled (the allowlist wins).
 		// The registry was built with the same filter at construction
 		// time, but `lookupToolInRegistry` will still resolve a tool
-		// that was added by a later registration (mcp-server's
-		// llm.invoke is exactly this shape — see Cluster C1/I-c) or a
-		// nested-invoke wrapper. Enforce a second-line check here so
+		// that was added by a later registration or a nested-invoke
+		// wrapper. Enforce a second-line check here so
 		// every dispatch path lands the same gate.
 		if len(cfg.Tools.Enabled) > 0 {
 			matched := false
@@ -524,6 +526,10 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 		workdir: workdir,
 		runner:  d.runner,
 		pty:     scope.pty,
+	}
+	if cfg != nil {
+		host.providerFactory = func() (agent.Provider, error) { return tui.BuildProvider(cfg) }
+		host.defaultModel = cfg.Defaults.Model
 	}
 	args := json.RawMessage(p.Args)
 	if len(args) == 0 {
@@ -601,7 +607,7 @@ func (d *daemonState) listTools() []daemon.ToolDescriptor {
 	all := reg.All()
 	out := make([]daemon.ToolDescriptor, 0, len(all))
 	for _, t := range all {
-		md := runtime.LookupToolMetadata(t.Name())
+		md := runtime.ToolMetadataFor(t)
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, daemon.ToolDescriptor{
 			Name:        t.Name(),
@@ -621,9 +627,11 @@ func (d *daemonState) listTools() []daemon.ToolDescriptor {
 // little sense for daemon-served calls (each `stado tool run` is its
 // own caller, so deduping the read across them would surprise).
 type daemonToolHost struct {
-	workdir string
-	runner  sandbox.Runner
-	pty     *pty.Manager
+	workdir         string
+	runner          sandbox.Runner
+	pty             *pty.Manager
+	providerFactory func() (agent.Provider, error)
+	defaultModel    string
 }
 
 func (h *daemonToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -636,6 +644,13 @@ func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 }
 func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 func (h *daemonToolHost) PTYManager() any                             { return h.pty }
+
+func (h *daemonToolHost) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" || h.providerFactory == nil {
+		return nil, errors.New("daemon provider bridge unavailable")
+	}
+	return pluginRuntime.NewOwnedProviderBridge(h.providerFactory, h.defaultModel), nil
+}
 
 // CheckWritePath implements pkg/tool.WritePathGuard so the fs.write
 // tool refuses operations resolving into a .git directory.
@@ -659,7 +674,7 @@ func (h *daemonToolHost) CheckWritePath(path string) error {
 
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider — plugins
 // calling stado_exec / stado_proc_spawn through the daemon get the
-// host-default protective policy (bwrap / sandbox-exec PID + uid
+// host-default protective policy (bwrap / firejail process
 // namespace isolation) without having to supply their own `sandbox`
 // field. Matches the mcp-server posture; both surfaces hand tool calls
 // to autonomous agents that we want confined by default.

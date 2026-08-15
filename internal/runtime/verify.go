@@ -73,10 +73,11 @@ func VerifyConfigFrom(cfg *config.Config) VerifyConfig {
 func (c VerifyConfig) Enabled() bool { return len(c.Commands) > 0 && c.MaxRounds > 0 }
 
 type VerifyEvent struct {
-	Status  VerifyStatus
-	Round   int
-	Command string
-	Output  string
+	Status       VerifyStatus
+	Round        int
+	Command      string
+	Output       string
+	EvidenceRefs []string
 }
 
 type VerifyOutcome struct {
@@ -121,42 +122,58 @@ func RunVerificationRound(ctx context.Context, executor *tools.Executor, host to
 			"command":    command,
 			"timeout_ms": 300000,
 		})
-		res, err := executor.Run(ctx, verifyToolName, args, host)
+		res, evidence, err := executor.RunWithEvidence(ctx, verifyToolName, args, host)
+		refs := verificationExecutionEvidenceRefs(evidence)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			out := VerifyOutcome{
 				Status: VerifyCancelled, Round: round, Command: command,
 				Output: ctxErr.Error(), Feedback: ctxErr.Error(), Err: ctxErr,
 			}
-			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: out.Output})
+			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: out.Output, EvidenceRefs: refs})
 			return out
 		}
 		if res.Error != "" {
 			if res.FailureKind == tool.FailureLaunch {
-				return verifyInfrastructure(round, command, res.Error, errors.New(res.Error), onEvent)
+				return verifyInfrastructureWithEvidence(round, command, res.Error, errors.New(res.Error), refs, onEvent)
 			}
 			feedback := fmt.Sprintf("Verification command failed: %s\n%s", command, res.Error)
 			out := VerifyOutcome{
 				Status: VerifyFailed, Round: round, Command: command,
 				Output: res.Error, Feedback: feedback,
 			}
-			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: res.Error})
+			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: res.Error, EvidenceRefs: refs})
 			return out
 		}
 		if err != nil {
-			return verifyInfrastructure(round, command, err.Error(), err, onEvent)
+			return verifyInfrastructureWithEvidence(round, command, err.Error(), err, refs, onEvent)
 		}
-		emitVerify(onEvent, VerifyEvent{Status: VerifyPassed, Round: round, Command: command, Output: res.Content})
+		emitVerify(onEvent, VerifyEvent{Status: VerifyPassed, Round: round, Command: command, Output: res.Content, EvidenceRefs: refs})
 	}
 	return VerifyOutcome{Status: VerifyPassed, Round: round}
 }
 
 func verifyInfrastructure(round int, command, output string, err error, onEvent func(VerifyEvent)) VerifyOutcome {
+	return verifyInfrastructureWithEvidence(round, command, output, err, nil, onEvent)
+}
+
+func verifyInfrastructureWithEvidence(round int, command, output string, err error, refs []string, onEvent func(VerifyEvent)) VerifyOutcome {
 	out := VerifyOutcome{
 		Status: VerifyInfrastructure, Round: round, Command: command,
 		Output: output, Feedback: output, Err: err,
 	}
-	emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: output})
+	emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: output, EvidenceRefs: refs})
 	return out
+}
+
+func verificationExecutionEvidenceRefs(evidence tools.ExecutionEvidence) []string {
+	refs := make([]string, 0, 2)
+	if evidence.TraceRef != "" {
+		refs = append(refs, evidence.TraceRef)
+	}
+	if evidence.TreeRef != "" {
+		refs = append(refs, evidence.TreeRef)
+	}
+	return refs
 }
 
 func emitVerify(fn func(VerifyEvent), event VerifyEvent) {

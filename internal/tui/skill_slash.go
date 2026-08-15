@@ -14,6 +14,7 @@ import (
 // render under, keeping them visually distinct from the built-in
 // Quick/Session/View groups.
 const skillSlashGroup = "Skills"
+const applicationSlashGroup = "Applications"
 
 // skillSlashCommands derives the dynamic palette commands from a set of
 // loaded skills. Only skills with a non-empty `slash:` frontmatter field
@@ -112,6 +113,24 @@ func validateSkillSlashName(name string) error {
 func (m *Model) registerSkillSlashCommands(emit func(string)) {
 	cmds, byCommand, warnings := skillSlashCommands(m.skills)
 	m.skillSlash = byCommand
+	var applicationCommands []palette.Command
+	for name, application := range m.applicationCommands {
+		if application == nil {
+			continue
+		}
+		description := "Run the " + application.Identity.Canonical + " application command"
+		for _, command := range application.Manifest.Commands {
+			if command.Name == name && strings.TrimSpace(command.Description) != "" {
+				description = command.Description
+				break
+			}
+		}
+		applicationCommands = append(applicationCommands, palette.Command{
+			Name: "/" + name, Desc: description, Group: applicationSlashGroup,
+		})
+	}
+	sort.Slice(applicationCommands, func(i, j int) bool { return applicationCommands[i].Name < applicationCommands[j].Name })
+	cmds = append(cmds, applicationCommands...)
 	palette.RegisterDynamicCommands(cmds)
 	for _, w := range warnings {
 		emit(w)

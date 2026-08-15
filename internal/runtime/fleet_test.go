@@ -21,6 +21,22 @@ type fakeSpawner struct {
 	gotPrompt string
 }
 
+type snapshotSpawnerStub struct {
+	called atomic.Int32
+	raw    fakeSpawner
+	pinned *fakeSpawner
+}
+
+func (s *snapshotSpawnerStub) PinSpawnSource(context.Context) (Spawner, error) {
+	s.called.Add(1)
+	return s.pinned, nil
+}
+
+func (s *snapshotSpawnerStub) SpawnSubagent(context.Context, subagent.Request) (subagent.Result, error) {
+	s.raw.calls.Add(1)
+	return subagent.Result{}, errors.New("unpinned spawner used")
+}
+
 func (f *fakeSpawner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
 	f.calls.Add(1)
 	f.gotPrompt = req.Prompt
@@ -59,7 +75,7 @@ func TestFleet_Spawn_RecordsRunningEntry(t *testing.T) {
 		res:   subagent.Result{ChildSession: "child-1", Text: "done"},
 		delay: 50 * time.Millisecond,
 	}
-	id, err := f.Spawn(context.Background(), sp, "investigate target X", SpawnOptions{})
+	id, err := f.Spawn(context.Background(), sp, "investigate target X", SpawnOptions{ParentSessionID: "parent-1"})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -72,6 +88,39 @@ func TestFleet_Spawn_RecordsRunningEntry(t *testing.T) {
 	}
 	if e.Prompt != "investigate target X" {
 		t.Errorf("prompt = %q", e.Prompt)
+	}
+	if e.ParentSessionID != "parent-1" {
+		t.Errorf("parent session = %q, want host-bound provenance", e.ParentSessionID)
+	}
+}
+
+func TestFleetSpawnPinsMutableSourceBeforeReturning(t *testing.T) {
+	f := NewFleet()
+	pinned := &fakeSpawner{res: subagent.Result{ChildSession: "snapshot-child", Text: "done"}}
+	spawner := &snapshotSpawnerStub{pinned: pinned}
+	id, err := f.Spawn(context.Background(), spawner, "review exact tree", SpawnOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spawner.called.Load() != 1 {
+		t.Fatalf("pin calls = %d, want 1 before Spawn returns", spawner.called.Load())
+	}
+	entry := waitForStatus(t, f, id, FleetStatusCompleted)
+	if entry.SessionID != "snapshot-child" || pinned.calls.Load() != 1 || spawner.raw.calls.Load() != 0 {
+		t.Fatalf("entry=%+v pinned calls=%d raw calls=%d", entry, pinned.calls.Load(), spawner.raw.calls.Load())
+	}
+}
+
+func TestFleetRejectsRequestedSourceWithoutSynchronousPinner(t *testing.T) {
+	f := NewFleet()
+	_, err := f.Spawn(context.Background(), &fakeSpawner{}, "review exact tree", SpawnOptions{
+		Source: &subagent.Source{At: "git:refs/sessions/root/tree@0123456789abcdef0123456789abcdef01234567#turn-1-iteration-1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "source-pinning spawner") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(f.List()) != 0 {
+		t.Fatal("fleet entry was admitted before exact source pinning")
 	}
 }
 

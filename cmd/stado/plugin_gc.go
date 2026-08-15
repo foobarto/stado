@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -21,9 +20,10 @@ var (
 
 // pluginGCCmd is the orphaned-version sweeper. After enough plugin
 // authoring iteration, `stado plugin installed` shows
-// `htb-cve-lookup-0.1.0`, `-0.2.0`, `-0.3.0` side-by-side; only the
-// newest is ever invoked. Per (signer, name) group, keep the N
-// newest versions and remove the rest.
+// multiple source-keyed revisions side-by-side. Per (scope, canonical source
+// namespace) group, keep the N newest versions and remove the rest. A manifest
+// display name must never cause packages from distinct sources to be swept as
+// one application.
 //
 // Default is dry-run, matching `session gc` precedent. --apply
 // actually deletes. Sort by SemVer (plugins.VersionLess), with
@@ -36,12 +36,12 @@ var (
 // pin and shouldn't.
 var pluginGCCmd = &cobra.Command{
 	Use:   "gc",
-	Short: "Remove older installed plugin versions, keeping the N newest per (scope, signer, name) group (dry-run by default)",
-	Long: "Scans project-local and global plugin roots and groups by (scope, manifest signer\n" +
-		"fingerprint, manifest name). Within each group, sorts by SemVer\n" +
+	Short: "Remove older installed plugin versions, keeping the N newest per canonical source (dry-run by default)",
+	Long: "Scans project-local and global plugin roots and groups by (scope, canonical\n" +
+		"source namespace). Within each group, sorts by signed package SemVer\n" +
 		"and keeps the --keep newest versions; the rest are listed (or\n" +
-		"deleted if --apply is set). Default --keep is 1. Plugins whose\n" +
-		"manifest fails to load are skipped — clean those up by hand.\n\n" +
+		"deleted if --apply is set). Default --keep is 1. Invalid store rows\n" +
+		"fail discovery closed rather than being skipped.\n\n" +
 		"Trust-store entries and rollback pins are not modified; the\n" +
 		"highest-version-seen invariant survives version cleanup so a\n" +
 		"freshly-deleted older version still cannot be reinstalled.",
@@ -63,27 +63,30 @@ var pluginGCCmd = &cobra.Command{
 		}
 
 		type entry struct {
-			id      string
-			version string
-			dir     string
-			pinned  bool
+			id       string
+			version  string
+			dir      string
+			root     string
+			storeKey string
+			pinned   bool
 		}
-		groups := make(map[string][]entry) // key = "<scope>/<signerFpr>/<name>"
+		groups := make(map[string][]entry) // key = "<scope>/<canonical source namespace>"
 		var skipped int
 		for _, location := range locations {
-			mf, _, err := plugins.LoadFromDir(location.Dir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "skip %s/%s (manifest load failed: %v)\n", location.Scope, location.ID, err)
-				skipped++
-				continue
+			pkg := location.Package
+			mf := &pkg.Manifest
+			key := location.Scope + "/" + pkg.Identity.Namespace
+			marker, _, markerErr := plugins.ReadActivePackageStoreKey(filepath.Dir(location.Dir), pkg.Identity.Namespace)
+			if markerErr != nil {
+				return fmt.Errorf("gc: active marker for %s: %w", pkg.Identity.Namespace, markerErr)
 			}
-			key := location.Scope + "/" + mf.AuthorPubkeyFpr + "/" + mf.Name
-			marker := plugins.ActiveVersionMarker(filepath.Dir(location.Dir), mf.Name)
 			groups[key] = append(groups[key], entry{
-				id:      location.ID,
-				version: mf.Version,
-				dir:     location.Dir,
-				pinned:  samePluginVersion(marker, mf.Version),
+				id:       location.ID,
+				version:  mf.Version,
+				dir:      location.Dir,
+				root:     filepath.Dir(location.Dir),
+				storeKey: pkg.Record.StoreKey,
+				pinned:   marker == pkg.Record.StoreKey,
 			})
 		}
 
@@ -99,20 +102,30 @@ var pluginGCCmd = &cobra.Command{
 			// Newest first, with non-SemVer pushed to the end (preserved,
 			// not deleted, when in doubt).
 			sort.SliceStable(es, func(i, j int) bool {
-				less, err := plugins.VersionLess(es[i].version, es[j].version)
-				if err != nil {
-					_, badI := plugins.VersionLess(es[i].version, "0.0.0")
-					_, badJ := plugins.VersionLess(es[j].version, "0.0.0")
+				iLess, iErr := plugins.VersionLess(es[i].version, es[j].version)
+				jLess, jErr := plugins.VersionLess(es[j].version, es[i].version)
+				if iErr == nil && jErr == nil {
 					switch {
-					case badI != nil && badJ == nil:
-						return false // i invalid → sorts last
-					case badJ != nil && badI == nil:
+					case iLess:
+						return false
+					case jLess:
 						return true
 					default:
-						return es[i].version > es[j].version // string fallback
+						return es[i].storeKey < es[j].storeKey
 					}
 				}
-				return !less // less means i < j → so for descending we want NOT less
+				_, badI := plugins.VersionLess(es[i].version, "0.0.0")
+				_, badJ := plugins.VersionLess(es[j].version, "0.0.0")
+				switch {
+				case badI != nil && badJ == nil:
+					return false // i invalid → sorts last
+				case badJ != nil && badI == nil:
+					return true
+				case es[i].version != es[j].version:
+					return es[i].version > es[j].version
+				default:
+					return es[i].storeKey < es[j].storeKey
+				}
 			})
 			var drop []entry
 			for i, e := range es {
@@ -148,6 +161,24 @@ var pluginGCCmd = &cobra.Command{
 			return nil
 		}
 
+		receiptRemovals := make(map[string]map[string]struct{})
+		for _, entry := range toDelete {
+			canonicalRoot, resolveErr := filepath.EvalSymlinks(entry.root)
+			if resolveErr != nil {
+				return fmt.Errorf("gc: resolve plugin root %s: %w", entry.root, resolveErr)
+			}
+			if receiptRemovals[canonicalRoot] == nil {
+				receiptRemovals[canonicalRoot] = make(map[string]struct{})
+			}
+			receiptRemovals[canonicalRoot][entry.storeKey] = struct{}{}
+		}
+		// Admission receipts are live authority, so revoke all selected rows
+		// before deleting bytes. Immutable plugin-lock rows remain provenance
+		// and tag-continuity history after collection.
+		if err := plugins.RemoveInstallReceipts(cfg.StateDir(), receiptRemovals); err != nil {
+			return fmt.Errorf("gc: remove exact admission receipts: %w", err)
+		}
+
 		var errs int
 		for _, entry := range toDelete {
 			if err := workdirpath.NewUserConfigResolver().RemoveAll(entry.dir); err != nil {
@@ -164,13 +195,9 @@ var pluginGCCmd = &cobra.Command{
 	},
 }
 
-func samePluginVersion(a, b string) bool {
-	return a != "" && strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
-}
-
 func init() {
 	pluginGCCmd.Flags().IntVar(&pluginGCKeep, "keep", 1,
-		"Number of newest versions to keep per (scope, signer, name) group")
+		"Number of newest versions to keep per (scope, canonical source) group")
 	pluginGCCmd.Flags().BoolVar(&pluginGCApply, "apply", false,
 		"Delete the listed older versions (default: dry-run)")
 }

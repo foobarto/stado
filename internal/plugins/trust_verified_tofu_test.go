@@ -66,7 +66,7 @@ func TestTrustVerified_HappyPath_PinsWithFingerprintAndVersion(t *testing.T) {
 	pub, priv, fpr := tvtofuKey(t)
 	m, sig := tvtofuSignedManifest(t, pub, priv, "1.2.3")
 
-	entry, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", m, sig)
+	entry, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, sig)
 	if err != nil {
 		t.Fatalf("TrustVerified happy path: %v", err)
 	}
@@ -79,8 +79,12 @@ func TestTrustVerified_HappyPath_PinsWithFingerprintAndVersion(t *testing.T) {
 	if entry.Author != "alice" {
 		t.Errorf("entry author = %q, want alice", entry.Author)
 	}
-	if entry.LastVersion != "1.2.3" {
-		t.Errorf("entry last_version = %q, want 1.2.3 (rollback baseline)", entry.LastVersion)
+	namespace := testTrustNamespace(m)
+	if entry.VersionFloors[namespace] != "1.2.3" {
+		t.Errorf("entry package floor = %q, want 1.2.3", entry.VersionFloors[namespace])
+	}
+	if entry.LastVersion != "" {
+		t.Errorf("entry mutated inert legacy floor to %q", entry.LastVersion)
 	}
 
 	// The pin must be persisted under its fingerprint key.
@@ -92,13 +96,39 @@ func TestTrustVerified_HappyPath_PinsWithFingerprintAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatalf("happy path did not persist a pin under fpr %q: %+v", fpr, store)
 	}
-	if got.Fingerprint != fpr || got.LastVersion != "1.2.3" {
+	if got.Fingerprint != fpr || got.VersionFloors[namespace] != "1.2.3" || got.LastVersion != "" {
 		t.Errorf("persisted entry = %+v, want fpr %q version 1.2.3", got, fpr)
 	}
 
 	// Sanity: the pinned key actually verifies the manifest signature.
 	if err := m.Verify(pub, sig); err != nil {
 		t.Errorf("pinned key should verify the manifest: %v", err)
+	}
+}
+
+func TestCheckManifestVerifiesWithoutAdvancingRollbackState(t *testing.T) {
+	ts := tvtofuStore(t)
+	pub, priv, fpr := tvtofuKey(t)
+	baseline, baselineSig := tvtofuSignedManifest(t, pub, priv, "1.2.3")
+	if _, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(baseline), baseline, baselineSig); err != nil {
+		t.Fatal(err)
+	}
+
+	newer, newerSig := tvtofuSignedManifest(t, pub, priv, "1.3.0")
+	if err := ts.CheckManifestPackage(testTrustNamespace(newer), newer, newerSig); err != nil {
+		t.Fatalf("read-only check: %v", err)
+	}
+	entries, err := ts.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entries[fpr].VersionFloors[testTrustNamespace(baseline)]; got != "1.2.3" {
+		t.Fatalf("CheckManifest advanced package floor to %q", got)
+	}
+
+	older, olderSig := tvtofuSignedManifest(t, pub, priv, "1.2.2")
+	if err := ts.CheckManifestPackage(testTrustNamespace(older), older, olderSig); err == nil || !strings.Contains(err.Error(), "rollback") {
+		t.Fatalf("CheckManifest rollback err=%v", err)
 	}
 }
 
@@ -117,7 +147,7 @@ func TestTrustVerified_FingerprintMismatch_RejectedNoPin(t *testing.T) {
 		t.Fatal("test setup: distinct keys collided on fingerprint")
 	}
 
-	_, err := ts.TrustVerified(hex.EncodeToString(otherPub), "mallory", m, sig)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(otherPub), "mallory", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("TrustVerified must reject when presented pubkey fpr != manifest author_pubkey_fpr")
 	}
@@ -137,7 +167,7 @@ func TestTrustVerified_BadSignature_RejectedNoPin(t *testing.T) {
 	m := &Manifest{Name: "tvtofu-plugin", Version: "1.0.0", AuthorPubkeyFpr: fpr}
 	bogusSig := strings.Repeat("A", 88)
 
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", m, bogusSig)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, bogusSig)
 	if err == nil {
 		t.Fatal("TrustVerified must reject a non-verifying signature")
 	}
@@ -158,7 +188,7 @@ func TestTrustVerified_TamperedManifest_RejectedNoPin(t *testing.T) {
 	// over the canonical bytes while keeping the author fingerprint intact.
 	m.Capabilities = append(m.Capabilities, "host.FSWrite")
 
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", m, sig)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("TrustVerified must reject a tampered manifest")
 	}
@@ -188,7 +218,7 @@ func TestTrustVerified_RevokedFingerprint_HardDeniedBeforePin(t *testing.T) {
 		t.Fatalf("sign: %v", err)
 	}
 
-	_, err = ts.TrustVerified(hex.EncodeToString(pub), "alice", m, sig)
+	_, err = ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("TrustVerified must hard-deny a revoked fingerprint")
 	}
@@ -226,7 +256,7 @@ func TestTrustVerified_RevokedFingerprint_WinsOverValidMatchingSigner(t *testing
 		t.Fatalf("sign: %v", err)
 	}
 
-	_, err = ts.TrustVerified(hex.EncodeToString(pub), "alice", m, sig)
+	_, err = ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("revoked deny must win even with a matching, validly-signed key")
 	}
@@ -238,20 +268,20 @@ func TestTrustVerified_RevokedFingerprint_WinsOverValidMatchingSigner(t *testing
 
 // 5. Rollback/downgrade: once a version is pinned via TrustVerified, a later
 // TrustVerified with a LOWER (but validly-signed) version is rejected and the
-// pinned LastVersion is NOT regressed.
+// source-scoped package floor is NOT regressed.
 func TestTrustVerified_Rollback_LowerVersionRejected_PinUnchanged(t *testing.T) {
 	ts := tvtofuStore(t)
 	pub, priv, fpr := tvtofuKey(t)
 
 	// Pin a high version first.
 	mHigh, sigHigh := tvtofuSignedManifest(t, pub, priv, "2.0.0")
-	if _, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mHigh, sigHigh); err != nil {
+	if _, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mHigh), mHigh, sigHigh); err != nil {
 		t.Fatalf("initial high-version pin: %v", err)
 	}
 
 	// Attempt a lower version through the same TOFU path.
 	mLow, sigLow := tvtofuSignedManifest(t, pub, priv, "1.0.0")
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mLow, sigLow)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mLow), mLow, sigLow)
 	if err == nil {
 		t.Fatal("TrustVerified must reject a rollback to a lower version")
 	}
@@ -259,7 +289,7 @@ func TestTrustVerified_Rollback_LowerVersionRejected_PinUnchanged(t *testing.T) 
 		t.Errorf("error should mention rollback, got %v", err)
 	}
 
-	// The existing pin must survive with its high LastVersion intact.
+	// The existing pin must survive with its high source floor intact.
 	store, err := ts.Load()
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -268,8 +298,11 @@ func TestTrustVerified_Rollback_LowerVersionRejected_PinUnchanged(t *testing.T) 
 	if !ok {
 		t.Fatalf("rollback attempt dropped the existing pin: %+v", store)
 	}
-	if got.LastVersion != "2.0.0" {
-		t.Errorf("LastVersion regressed to %q after a rejected rollback; want 2.0.0", got.LastVersion)
+	if floor := got.VersionFloors[testTrustNamespace(mHigh)]; floor != "2.0.0" {
+		t.Errorf("package floor regressed to %q after a rejected rollback; want 2.0.0", floor)
+	}
+	if got.LastVersion != "" {
+		t.Errorf("rollback path mutated inert legacy floor to %q", got.LastVersion)
 	}
 }
 
@@ -279,11 +312,11 @@ func TestTrustVerified_Rollback_SemverNotLexical(t *testing.T) {
 	pub, priv, _ := tvtofuKey(t)
 
 	mHigh, sigHigh := tvtofuSignedManifest(t, pub, priv, "1.10.0")
-	if _, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mHigh, sigHigh); err != nil {
+	if _, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mHigh), mHigh, sigHigh); err != nil {
 		t.Fatalf("pin 1.10.0: %v", err)
 	}
 	mLow, sigLow := tvtofuSignedManifest(t, pub, priv, "1.2.0")
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mLow, sigLow)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mLow), mLow, sigLow)
 	if err == nil {
 		t.Fatal("1.2.0 < 1.10.0 under semver must be rejected as a rollback")
 	}
@@ -293,26 +326,29 @@ func TestTrustVerified_Rollback_SemverNotLexical(t *testing.T) {
 }
 
 // 5c. Forward progression: a higher version through TrustVerified advances the
-// pinned LastVersion (the legitimate upgrade path the rollback guard protects).
+// pinned source floor (the legitimate upgrade path the rollback guard protects).
 func TestTrustVerified_ForwardUpgradeAdvancesVersion(t *testing.T) {
 	ts := tvtofuStore(t)
 	pub, priv, fpr := tvtofuKey(t)
 
 	mLow, sigLow := tvtofuSignedManifest(t, pub, priv, "1.0.0")
-	if _, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mLow, sigLow); err != nil {
+	if _, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mLow), mLow, sigLow); err != nil {
 		t.Fatalf("pin 1.0.0: %v", err)
 	}
 	mHigh, sigHigh := tvtofuSignedManifest(t, pub, priv, "1.1.0")
-	entry, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", mHigh, sigHigh)
+	entry, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(mHigh), mHigh, sigHigh)
 	if err != nil {
 		t.Fatalf("upgrade 1.0.0 -> 1.1.0 should succeed: %v", err)
 	}
-	if entry.LastVersion != "1.1.0" {
-		t.Errorf("returned LastVersion = %q, want 1.1.0", entry.LastVersion)
+	if floor := entry.VersionFloors[testTrustNamespace(mHigh)]; floor != "1.1.0" {
+		t.Errorf("returned package floor = %q, want 1.1.0", floor)
 	}
 	store, _ := ts.Load()
-	if store[fpr].LastVersion != "1.1.0" {
-		t.Errorf("persisted LastVersion = %q, want 1.1.0", store[fpr].LastVersion)
+	if floor := store[fpr].VersionFloors[testTrustNamespace(mHigh)]; floor != "1.1.0" {
+		t.Errorf("persisted package floor = %q, want 1.1.0", floor)
+	}
+	if store[fpr].LastVersion != "" {
+		t.Errorf("upgrade path mutated inert legacy floor to %q", store[fpr].LastVersion)
 	}
 }
 
@@ -328,7 +364,7 @@ func TestTrustVerified_InvalidSemverVersion_RejectedNoPin(t *testing.T) {
 		t.Fatalf("sign: %v", err)
 	}
 
-	_, err = ts.TrustVerified(hex.EncodeToString(pub), "alice", m, sig)
+	_, err = ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("TrustVerified must reject a non-semver manifest version")
 	}
@@ -342,7 +378,7 @@ func TestTrustVerified_InvalidSemverVersion_RejectedNoPin(t *testing.T) {
 func TestTrustVerified_NilManifest_Rejected(t *testing.T) {
 	ts := tvtofuStore(t)
 	pub, _, _ := tvtofuKey(t)
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", nil, "")
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", "test.dev/plugins/nil", nil, "")
 	if err == nil {
 		t.Fatal("TrustVerified(nil manifest) must error")
 	}
@@ -358,7 +394,7 @@ func TestTrustVerified_MalformedPubkey_RejectedNoPin(t *testing.T) {
 	pub, priv, _ := tvtofuKey(t)
 	m, sig := tvtofuSignedManifest(t, pub, priv, "1.0.0")
 
-	_, err := ts.TrustVerified("not-a-valid-key", "alice", m, sig)
+	_, err := ts.TrustVerifiedPackage("not-a-valid-key", "alice", testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("TrustVerified must reject a malformed pubkey")
 	}

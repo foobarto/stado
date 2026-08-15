@@ -6,9 +6,14 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
 
 > **For context:** plugins compile to wasm and run inside `wazero`.
 > Each call into `host_*` from inside a plugin is a host-import call.
-> Capabilities declared in `plugin.manifest.json` gate which imports
-> the plugin can reach; calling an ungated import returns -1 with
-> a host-side audit-log entry.
+> Top-level capabilities in `plugin.manifest.json` set the signed package
+> ceiling. Every ordinary tool declares an exact unique
+> `tools[].capabilities` subset—including `[]` for zero authority—which
+> attenuates bundled, installed, override, and nested dispatch. Persistent
+> lifecycle tools must omit the field because they share one package-wide
+> application Host. Calling an
+> import outside that effective set fails using the import's documented
+> negative-return convention and records a host-side audit entry.
 
 ## Table of contents
 
@@ -17,15 +22,18 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
   - [stado_log](#stado_log)
   - [stado_fs_*](#stado_fs_)
   - [stado_proc_* + stado_exec](#stado_proc_--stado_exec)
-  - [stado_terminal_* / stado_pty_*](#stado_terminal_--stado_pty_)
+  - [stado_pty_*](#stado_pty_)
   - [stado_bundled_bin](#stado_bundled_bin)
   - [stado_session_*](#stado_session_)
-  - [stado_llm_invoke](#stado_llm_invoke)
+  - [stado_provider_invoke](#stado_provider_invoke)
   - [stado_ui_approve](#stado_ui_approve)
   - [stado_ui_choose](#stado_ui_choose)
   - [stado_ui_print](#stado_ui_print)
   - [stado_ui_render](#stado_ui_render)
   - [stado_cfg_state_dir](#stado_cfg_state_dir)
+  - [stado_registry_catalog and stado_session_tool_surface_apply](#stado_registry_catalog-and-stado_session_tool_surface_apply)
+  - [stado_session_context_read](#stado_session_context_read)
+  - [stado_context_resource_catalog and stado_context_resource_open](#stado_context_resource_catalog-and-stado_context_resource_open)
 - [Tier 2 — stateful conveniences](#tier-2--stateful-conveniences)
   - [stado_http_client_*](#stado_http_client_)
   - [stado_http_request](#stado_http_request)
@@ -36,8 +44,10 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
   - [stado_compress, stado_decompress](#stado_compress-stado_decompress)
 - [Agent surface](#agent-surface)
   - [stado_agent_*](#stado_agent_)
-- [Memory surface](#memory-surface)
-  - [stado_memory_*](#stado_memory_)
+- [Artifact surface](#artifact-surface)
+  - [stado_artifact_*](#stado_artifact_)
+- [Evidence surface](#evidence-surface)
+  - [stado_evidence_*](#stado_evidence_)
 - [stado_lsp_*](#stado_lsp_)
 - [SDK-side exports](#sdk-side-exports)
 - [Patterns and anti-patterns](#patterns-and-anti-patterns)
@@ -49,8 +59,9 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
 ```
 Tier 1 — capability primitives  (host_log, host_fs, host_proc,
                                   host_pty, host_bundled_bin,
-                                  host_session, host_llm, host_ui,
-                                  host_ui_render, host_cfg)
+                                  host_session, host_provider, host_ui,
+                                  host_ui_render, host_cfg,
+                                  host_registry_catalog)
 
 Tier 2 — stateful conveniences  (host_http_client, host_http_request,
                                   host_dns, host_lsp, host_secrets)
@@ -58,7 +69,8 @@ Tier 2 — stateful conveniences  (host_http_client, host_http_request,
 Tier 3 — stateless conveniences (host_crypto, host_compress)
 
 Agent surface                   (host_agent)
-Memory surface                  (host_memory)
+Artifact surface                (host_artifact)
+Evidence surface                (host_evidence)
 ```
 
 ABI conventions:
@@ -135,27 +147,25 @@ broad `exec:bash` / `stado_exec_bash` tool import (both removed by
 EP-no-internal-tools) — operators see exactly which binaries a
 plugin runs.
 
-### stado_terminal_* / stado_pty_*
+### stado_pty_*
 
-PTY-backed shell sessions. Both name families register as aliases:
-`stado_terminal_*` is the canonical (architectural-reset locked)
-name; `stado_pty_*` is the legacy alias kept for backward compat.
+PTY-backed shell sessions.
 
-| `stado_pty_*` (legacy) | `stado_terminal_*` (canonical) | Returns | Description |
-|---|---|---|---|
-| `stado_pty_create` | `stado_terminal_open` | typed handle `term:<id>` | Open PTY session (args may carry `description`) |
-| `stado_pty_list` | `stado_terminal_list` | bytes (JSON list) | List active sessions (`id, cmd, description, alive, …`) |
-| `stado_pty_read` | `stado_terminal_read` | bytes | Raw incremental output read (no attach — EP-0043) |
-| `stado_pty_write` | `stado_terminal_write` | bytes | Stdin write (no attach) |
-| `stado_pty_signal` | `stado_terminal_signal` | 0/-1 | Posix signal (out-of-band) |
-| `stado_pty_resize` | `stado_terminal_resize` | 0/-1 | Cols + rows |
-| `stado_pty_destroy` | `stado_terminal_close` | 0 | Kill + free |
-| `stado_pty_snapshot` | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen. With `mode:"auto"` returns `{"kind":"stream"}` (no render) when not on the alternate screen buffer, else `{"kind":"screen", text, cols, rows, cursor, title, svg?}`. Backs `shell.read mode:screen/auto`. |
-| — | `stado_terminal_expect(id_lo, id_hi, args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Read until pattern match / timeout / EOF — see below |
+| Import | Returns | Description |
+|---|---|---|
+| `stado_pty_create` | typed handle `term:<id>` | Open PTY session (args may carry `description`) |
+| `stado_pty_list` | bytes (JSON list) | List active sessions (`id, cmd, description, alive, …`) |
+| `stado_pty_read` | bytes | Raw incremental output read (no attach — EP-0043) |
+| `stado_pty_write` | bytes | Stdin write (no attach) |
+| `stado_pty_signal` | 0/-1 | Posix signal (out-of-band) |
+| `stado_pty_resize` | 0/-1 | Cols + rows |
+| `stado_pty_destroy` | 0 | Kill + free |
+| `stado_pty_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen. With `mode:"auto"` returns `{"kind":"stream"}` (no render) when not on the alternate screen buffer, else `{"kind":"screen", text, cols, rows, cursor, title, svg?}`. Backs `shell.read mode:screen/auto`. |
+| `stado_pty_expect(id_lo, id_hi, args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Read until pattern match / timeout / EOF — see below |
 
-Capability: `terminal:open` (broad) — gates all PTY ops.
+Capability: `exec:pty` (broad) or `exec:pty:<binary-glob>` (scoped) — gates all PTY ops and constrains session creation.
 
-**`stado_terminal_expect` request shape:**
+**`stado_pty_expect` request shape:**
 
 ```jsonc
 {
@@ -179,10 +189,10 @@ Capability: `terminal:open` (broad) — gates all PTY ops.
 `before` and `match` are base64 because PTY output routinely includes
 non-UTF8 sequences (ANSI escapes, terminal control codes) JSON strings
 can't carry losslessly. After-match bytes are pushed back into the
-ring; subsequent `stado_terminal_read` returns them.
+ring; subsequent `stado_pty_read` returns them.
 
 Across patterns, the EARLIEST byte position wins; ties go to the
-lower `patterns[i]` index. Concurrent `stado_terminal_expect` on the
+lower `patterns[i]` index. Concurrent `stado_pty_expect` on the
 same session is rejected with a structured error. No attach required
 (EP-0043: the session id is the handle; `stado_*_attach`/`_detach` were
 removed).
@@ -213,39 +223,83 @@ first call; returns the absolute path. Plugin then calls it via
 `token_count`, `session_id`, `last_turn_ref`, `history`. See
 EP-0029.
 
-### stado_llm_invoke
+### stado_provider_invoke
 
 | Field | Value |
 |---|---|
-| File | `host_llm.go` |
-| Signature | `stado_llm_invoke(args_ptr, args_len, out_ptr, out_cap) → i32` |
-| Capability | `llm:invoke[:<budget-tokens>]` |
-| Returns | bytes (model reply) or -1 if budget exceeded / no session bridge |
+| File | `host_provider.go` |
+| Signature | `stado_provider_invoke(req_ptr, req_len, out_ptr, out_cap) → i32` |
+| Capability | exact `provider:invoke:<positive-token-ceiling>`; no bare/default form |
+| Returns | bytes (`stado.dev/provider-invoke-facts/v1`) or -1 for malformed/denied/unavailable bridge |
 
-One-shot completion against the active provider. The first
-ptr/len pair carries a JSON envelope so the call can be extended
-without reshuffling the wasm signature; the second pair is the
-caller-owned output buffer the host writes the reply into.
+This is a provider primitive, not a native model-facing tool. Native stado
+constructs the operator-configured provider, keeps credentials in host memory,
+injects the loader-authenticated plugin identity, propagates cancellation, and
+enforces cumulative input+output tokens. The WASM application owns prompt
+shape, tool schema, sampling policy, and how provider facts become a tool
+result.
 
-Args envelope (all fields except `prompt` are optional):
+The strict request has 1–64 messages. Roles are `user` or `assistant`; each
+content value is non-empty. `system`, `model`, `max_output_tokens`, and pointer
+`temperature` are optional. Unknown/trailing fields, aggregate content over 1
+MiB, a temperature outside 0–2, or oversized fields fail closed:
 
 ```json
 {
-  "prompt": "string (required)",
-  "persona": "string — overrides the active session persona for this one call",
-  "model": "string — overrides the active session model (e.g. claude-haiku-4-5)",
-  "system": "string — appended after the persona's system prompt",
-  "max_tokens": 0,
+  "system": "optional application-owned system text",
+  "messages": [{"role": "user", "content": "required text"}],
+  "model": "optional operator-supported model name",
+  "max_output_tokens": 0,
   "temperature": 0.0
 }
 ```
 
-Budget cap is per-session-cumulative across every `stado_llm_invoke`
-the plugin instance makes; default 10000 tokens when no suffix is
-declared on the cap (`llm:invoke` ≡ `llm:invoke:10000`). Once
-exhausted, further calls return -1 immediately without consulting
-the provider. Returns -1 with no token consumption when the host
-has no session bridge attached (e.g., tool run outside a session).
+`max_output_tokens: 0` means the remainder of the host reservation. The signed
+capability token ceiling is mandatory, positive, at most 2,000,000, and never
+accepted from request JSON. Before dispatch the host atomically reserves
+a strict structural upper bound of one token per UTF-8 byte plus bounded
+framing, together with selected maximum output; concurrent calls cannot spend
+the same remainder. If that input bound consumes the available ceiling, the
+provider is not dispatched. A native tokenizer may refine usage inside the
+already authorized reservation but cannot enlarge it. Unused reservation is
+released. Actual reported or conservatively estimated usage is committed even
+for failed, cancelled, or provider-overrun streams. If observed total usage
+exceeds the reservation, the facts are forced to `failed` with a
+`token_budget` diagnostic and no completed or partial text crosses the guest
+ABI. USD is deliberately not part of this contract.
+
+The response is host-observed facts rather than pre-shaped tool output:
+
+```json
+{
+  "schema": "stado.dev/provider-invoke-facts/v1",
+  "status": "completed",
+  "text": "provider output",
+  "provider": "configured provider name",
+  "model": "resolved model",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 4,
+    "cache_read_tokens": 8,
+    "cache_write_tokens": 0,
+    "total_tokens": 16,
+    "estimated": false
+  },
+  "cleanup": {"kind": "provider_close", "fingerprint": "sha256:<64 lowercase hex>"}
+}
+```
+
+`status` is `completed`, `failed`, or `cancelled`. Failed/cancelled responses
+carry a bounded semantic `diagnostic` kind plus fingerprint, never raw provider
+text. Owned-provider cleanup is a separate optional `cleanup` diagnostic: a
+late close failure does not replace a completed status or discard valid text.
+Cache read/write are factual subdivisions and are not added to `total_tokens`;
+the hard ceiling is saturating `input_tokens + output_tokens`.
+
+No request field can choose an actor, session, credentials, provider, budget,
+or usage. Attribution comes only from `Host.Identity`. That same-process host
+binding is the authoritative runtime fact for this ABI; it is not represented
+as a claim that same-UID execution is cryptographic identity.
 
 ### stado_ui_approve
 
@@ -256,9 +310,10 @@ has no session bridge attached (e.g., tool run outside a session).
 | Capability | `ui:approval` |
 | Returns | 1 (approved) / 0 (denied) / -1 (no approval bridge) |
 
-Surfaces an approval prompt to the operator via the TUI's approval
-bridge. Returns -1 when running outside a TUI (headless, plugin
-run); plugin should fail safely.
+Surfaces a yes/no workflow prompt via the TUI bridge. Returns -1 when running
+outside a TUI (headless, plugin run); plugin should fail safely. The response is
+useful for quality and workflow choices, but is not broker-authenticated proof
+of operator intent and cannot authorize an artifact or capability transition.
 
 ### stado_ui_choose
 
@@ -354,6 +409,206 @@ Reference example: `render-demo-go` in [foobarto/stado-plugins](https://github.c
 
 Returns `<XDG_DATA_HOME>/stado` so plugins can locate other
 installed plugins, the trust store, etc. EP-0029.
+
+### stado_registry_catalog and stado_session_tool_surface_apply
+
+| Import | Capability | Notes |
+|---|---|---|
+| `stado_registry_catalog(req_ptr, req_len, out_ptr, out_max) → i32` | `registry:catalog` | Page through loader-bound facts for the exact registry instance and current ceiling |
+| `stado_session_tool_surface_apply(req_ptr, req_len, out_ptr, out_max) → i32` | `session:tool-surface` | Atomically activate/deactivate exact wire names after a digest and ceiling recheck |
+
+Both calls accept strict JSON (unknown fields fail), cap requests at 1 MiB,
+and cap a serialized response at 1 MiB. A too-small output buffer receives the
+required positive size for retry. Other failures return `-n` with a JSON
+`{"error":"..."}` envelope in the output buffer.
+
+Catalog request:
+
+```json
+{"offset": 0, "limit": 16, "expected_digest": "omit on the first page"}
+```
+
+`offset` is a non-negative integer and `limit` is 1–64 (default 64). Every page
+after the first supplies the first response's `registry_digest` as
+`expected_digest`; a registry rebuild, mutation, or ceiling change fails stale
+rather than combining two views. The response is:
+
+```json
+{
+  "schema": "stado.dev/registry-catalog/v1",
+  "registry_digest": "sha256-hex",
+  "next_offset": 16,
+  "tools": [{
+    "name": "fs__read",
+    "canonical": "fs.read",
+    "description": "...",
+    "schema": {"type": "object"},
+    "class": "non-mutating",
+    "categories": ["filesystem"],
+    "extra_categories": ["inspection"],
+    "plugin": "stado-builtin-tool-fs",
+    "source_namespace": "stado.dev/bundled/fs"
+  }]
+}
+```
+
+These are facts, not discovery policy. `canonical` is the deterministic dotted
+form of the exact wire `name`; `plugin` is signed display metadata;
+`source_namespace` is stable unversioned package authority. Only exact `name`
+may be activated, and package grouping uses exact `source_namespace`—never the
+display field or a versioned canonical identity. The projection excludes the
+calling package's own namespace, every persistent-lifecycle tool, native
+migration debt without an authenticated source namespace, and anything above
+the config/session ceiling. It contains no score, summary, grouping label, or
+activation recommendation.
+
+Surface-edit request:
+
+```json
+{
+  "registry_digest": "digest from the complete catalog projection",
+  "activate": ["fs__read"],
+  "deactivate": ["shell__bash"]
+}
+```
+
+The two lists may contain at most 4,096 names combined. Empty, duplicate,
+overlapping, unknown, stale, or session-disabled targets reject the complete
+batch before mutation. The
+response schema is `stado.dev/session-tool-surface-edit/v1` and echoes the
+digest plus the applied exact-name lists. `AllowsToolSurface` means the current
+ceiling, not the current active set: deactivating a permitted tool does not
+remove it from the catalog or prevent later reactivation. Catalog reads work in
+one-shot plugin invocations, but mutation requires a live session controller.
+
+### stado_session_context_read
+
+| Import | Capability | Notes |
+|---|---|---|
+| `stado_session_context_read(req_ptr, req_len, out_ptr, out_max) → i32` | `session:context:read` | Read bounded quality facts for the logical session in this application's opaque broker binding |
+
+This import is available only to an admitted lifecycle application. The strict
+request is the empty object `{}`: it cannot contain a session, generation,
+repository, path, principal, plugin, or other authority selector. The host and
+broker recover that scope from the binding retained outside guest memory.
+
+The response schema is `stado.dev/session-context-facts/v1`:
+
+```json
+{
+  "schema": "stado.dev/session-context-facts/v1",
+  "as_of_sequence": 42,
+  "digest": "sha256-hex",
+  "signals": [{
+    "id": "opaque-id", "type": "repeated_tool_failure",
+    "detector_version": 1, "confidence": "high",
+    "detected_sequence": 37,
+    "created_at": "2026-08-14T12:00:00Z",
+    "expires_at": "2026-08-21T12:00:00Z"
+  }],
+  "signals_truncated": false,
+  "children": [{"id": "opaque-id", "status": "running", "generation": 1}],
+  "children_truncated": false,
+  "unread_messages": 1
+}
+```
+
+Signals and children are each capped at 128 with explicit truncation flags. A
+child known only to the session-context projection has status
+`active`; retained records use the closed set `admitted`, `starting`, `running`,
+`idle`, `completed`, `failed`, `cancelled`, `down`, `archived`, and `deleted`.
+The projection never includes signal attributes/origins/evidence, tool args,
+another application's review state, mailbox payloads, artifact bodies, or raw broker errors.
+It is a fact surface, not a recommendation API. The serialized response is
+capped at 1 MiB and callers should allocate that documented cap; application
+imports return a bounded negative error envelope rather than a retry length when
+the output buffer is too small.
+
+The canonical producer fixture is
+`internal/runtime/testdata/session-context-facts-v1.json`; official consumers
+copy it byte-for-byte and strict-decode it so schema drift fails before release.
+
+### stado_context_resource_catalog and stado_context_resource_open
+
+| Import | Capability | Notes |
+|---|---|---|
+| `stado_context_resource_catalog(req_ptr, req_len, out_ptr, out_max) → i32` | `context:resource:catalog:<kind>` | Page through loader/session-bounded, model-admitted context facts of one exact kind |
+| `stado_context_resource_open(req_ptr, req_len, out_ptr, out_max) → i32` | `context:resource:open:<kind>` | Open one opaque immutable resource ID against the exact catalog digest |
+
+Capabilities are operation- and kind-scoped. Holding
+`context:resource:catalog:skill` does not grant open, another kind, a path, or
+filesystem authority. Requests are strict JSON capped at 64 KiB. Catalog pages
+contain at most 64 entries and at most 1 MiB. Open content is capped at 128 KiB
+inside a 1 MiB JSON envelope, including worst-case JSON escaping. A too-small output buffer receives the
+required positive size for retry. Other failures return `-n` with a bounded
+`{"error":"..."}` envelope.
+
+Catalog request:
+
+```json
+{
+  "kind": "skill",
+  "offset": 0,
+  "limit": 16,
+  "expected_digest": "omit on the first page"
+}
+```
+
+Every page after the first must supply the first response's `catalog_digest`.
+The response schema is `stado.dev/context-resource-catalog/v1`:
+
+```json
+{
+  "schema": "stado.dev/context-resource-catalog/v1",
+  "catalog_digest": "sha256:...",
+  "next_offset": 16,
+  "resources": [{
+    "id": "sha256:...",
+    "digest": "sha256:...",
+    "kind": "skill",
+    "name": "review",
+    "summary": "Review a change before handoff",
+    "scope": "persona",
+    "provenance": "persona-declared",
+    "model_visible": true,
+    "effective_allowed_tools": ["fs__read"]
+  }]
+}
+```
+
+`id` binds immutable source metadata, the exact body, and declared tool names.
+`digest` binds the content bytes. `catalog_digest` additionally binds the live
+projection, including effective allowed tools under the exact session ceiling.
+These are facts, not search, ranking, formatting, or invocation policy.
+
+For `kind=skill`, native admission omits every
+`disable-model-invocation: true` resource. Project `allowed-tools` is always
+inert. Persona names are unique, bounded to 64, and intersected with the exact
+filtered registry/session ceiling; absent or globally/session-disabled names
+are not reported. Rendered bodies over 128 KiB are likewise omitted from the
+model catalog, so every advertised resource can traverse the ordinary 1 MiB
+WASM tool-result channel. This is deliberately narrower than the native
+operator loader's 1 MiB file bound: `/skill` and `--skill` remain available for
+larger operator-selected content. The host exposes no source path. Directory skills preserve
+`${STADO_SKILL_DIR}` by expanding it only inside the opened Markdown content,
+where it is a reference the model may use through separately granted tools.
+
+Open request:
+
+```json
+{"kind":"skill","id":"sha256:...","catalog_digest":"sha256:..."}
+```
+
+The response schema is `stado.dev/context-resource-open/v1` and repeats the
+catalog fact plus `content_format` and `content`. A kind mismatch, hidden or
+missing resource, changed source/trust/tool projection, stale digest, or
+missing exact open capability fails closed. A WASM application may return the
+content as an ordinary tool result; the host never rewrites it into a system
+or user role.
+
+The official `tool-registry` plugin implements search, formatting, category
+policy, describe-and-activate, and source grouping on these primitives. It is
+explicit opt-in and is not silently bundled or non-disableable.
 
 ## Tier 2 — stateful conveniences
 
@@ -517,9 +772,8 @@ Each successfully-replied echo contributes one float to `rtts_ms`.
 Lost echoes count toward `sent` but not `received`.
 
 **Privilege.** Tries an unprivileged ICMP socket first (Linux
-`net.ipv4.ping_group_range` covering the running uid; macOS supports
-this without sysctl since 10.10). Falls back to raw on `EPERM`. Raw
-needs `CAP_NET_RAW` or root. The error message names the fix:
+`net.ipv4.ping_group_range` covering the running uid). Falls back to raw on
+`EPERM`. Raw needs `CAP_NET_RAW` or root. The error message names the fix:
 
 ```
 icmp listen: ... (try `sysctl -w net.ipv4.ping_group_range='0 65535'` or run with CAP_NET_RAW)
@@ -663,8 +917,8 @@ guard — Unix sockets are inherently local; the path glob is the
 control.
 
 **Unix path constraints.** Both dial and listen refuse paths
-containing `..` and paths longer than 104 bytes (BSD `sun_path` upper
-bound; conservative across BSD/Linux).
+containing `..` and paths longer than 104 bytes (a conservative Linux
+`sun_path` bound).
 
 **Resource caps.** 64 concurrent `conn` handles per plugin Runtime
 (dial ∪ accept). 8 concurrent `listen` handles. The 65th dial /
@@ -880,31 +1134,421 @@ nested structure with successive sets:
 
 Empty path replaces the whole document (root-level set).
 
+## Lifecycle application state and scheduling
+
+EP-0064 lifecycle applications use broker-owned durable primitives through the
+uniform bounded signature `(req_ptr, req_len, resp_ptr, resp_cap) → i32`.
+Authority comes from the native-held application binding; request JSON cannot
+select a session, generation, plugin identity, or capability.
+
+| Import | Capability | Operation |
+|---|---|---|
+| `stado_session_journal_append` | `session:journal:append` | Append namespaced application journal data |
+| `stado_session_projection_read` | `session:projection:read` | Read the caller's bounded journal/hold/control/completion/worker-run/verification/timer projection |
+| `stado_session_hold_acquire`, `stado_session_hold_release` | `session:schedule` | Acquire or CAS-release a leased scheduling hold |
+| `stado_session_request_pause`, `stado_session_request_stop` | `session:schedule` | Submit typed pause/stop proposals to host scheduling |
+| `stado_session_complete` | `session:complete` | Durably transition one application run to successful completion |
+| `stado_session_input_route` | `session:input:route` | Route one immutable broker-captured input to worker delivery or the broker-owned deferred-task projection |
+| `stado_session_input_claim` | `session:input:route` | Durably claim one exact queued input for asynchronous review without settling it |
+| `stado_session_worker_request` | `session:worker:request` | Request one bounded application-owned worker recurrence; the guest cannot activate it |
+| `stado_session_worker_resume` | `session:worker:resume` | CAS-request continuation of the caller's exact interrupted worker run; activation remains native-only |
+| `stado_session_worker_cancel` | `session:worker:cancel` | CAS-cancel the caller's requested, resume-requested, or active worker run |
+| `stado_session_verification_request` | `session:verification:request` | Request one durable native run of the operator-configured Verify Work suite at an exact pending turn |
+| `stado_timer_schedule`, `stado_timer_cancel` | `timer:schedule` | Schedule or CAS-cancel a durable timer |
+
+`stado_session_complete` is not a pause/stop alias and does not require a hold
+to be left active. At a shared loop barrier, unconsumed scheduling facts use
+the fixed precedence stop → successful completion → pause → active hold. A
+successful completion ends the loop normally; it is not surfaced as an error.
+
+`stado_session_worker_request` accepts
+`{run_id, objective, prompt, conflict, idempotency_key?}`. `objective` and
+`prompt` are required and bounded. `conflict` is either `reject` or
+`replace_operator_loop`; an application can never replace another
+application-owned run. The request is only a durable proposal. After a
+successful signed command callback returns its `worker_run_id`, the native
+command host uses a dedicated session-controller-authenticated broker RPC plus
+the callback application's exact opaque binding to fetch and activate that
+broker projection. The ordinary application bearer cannot select the native
+lookup or activation operations. Replayed callbacks and activations are
+idempotent and cannot start a second turn.
+
+After `stado_session_worker_cancel` has durably returned an exact cancelled
+projection, a successful command returns `cancel_worker_run_id`. The native
+command host re-reads that exact run under the callback application's binding;
+only a broker-projected `cancelled` state clears local recurrence and cancels
+the in-flight provider/tool context. A missing, stale, or non-terminal lookup
+fails closed, and the callback field itself supplies no cancellation authority.
+
+`stado_session_worker_resume` accepts
+`{run_id, expected_version, idempotency_key?}`. Only the same interrupted run
+in the same admitted session, generation, and canonical plugin namespace may
+enter `resume_requested`; stopped, cancelled, and completed runs never do. A
+successful signed command returns the distinct `resume_worker_run_id` field,
+after which the native command host performs a separate controller-authenticated
+lookup and resume activation CAS. Run identity, objective, prompt, journal,
+captured input, and deferred-task ownership remain unchanged. A stop after the
+interruption is terminal. A pause racing after the durable resume request makes
+activation fail closed; a fresh exact resume request can acknowledge that
+newer pause. Any unexpired hold in the exact session generation, including a
+hold owned by another application, makes resume activation return a retryable
+conflict while the run remains `resume_requested`. After the hold is settled,
+the exact lookup/activation retry may proceed. Expired holds do not block.
+
+`operator.input.queued` is a targeted mandatory-action event for the exact
+application worker run that owned recurrence when the native controller
+captured the operator's text. Capture accepts valid UTF-8 up to 48 KiB and
+fails visibly on oversize input or bounded-queue backpressure; while the run
+owns recurrence the TUI never falls through to an ordinary unsupervised steer
+or prompt. The event data contains `{schema, input_id, run_id, version,
+ordinal, text, digest}`. Outer session, generation, plugin targeting, WAL order,
+and timestamps are broker-authored quality/audit provenance, not security
+proof.
+
+`stado_session_input_claim` accepts
+`{input_id, run_id, expected_version, review_id, idempotency_key?}` and moves
+only that exact queued record to `reviewing`. `review_id` is bounded,
+application-authored correlation metadata; it identifies neither an agent nor
+an authority. The durable claim permits acknowledgement of the original
+mandatory event so that a later child-lifecycle event can reach the same
+application cursor. It does not settle the input: reviewing remains part of
+the pending-input bound, fences provider/tool scheduling for the whole session
+generation, blocks completion, and is recovered in original order if its run
+terminates. Rebind projects the same record and review ID for an idempotent
+job/result replay. There is deliberately no native review timeout or
+classification policy.
+
+`stado_session_input_route` accepts `{input_id, run_id, expected_version,
+disposition, review_id?, label?, rationale?, idempotency_key?}`. A queued
+record rejects `review_id`; a reviewing record requires the exact stored
+value. `disposition` is exactly `deliver` or `defer`; the application cannot
+drop, replace, or retarget the original. Deferral is a projection of that same
+broker record, exposed through `projection.read` as bounded `deferred_tasks`
+pages. It is not a write to the legacy task store and uses no prose marker as a
+second authority. Its status is derived as `open`, `pending_continuation`, or
+`continued` from the input, completion, and receiver-delivery records. The
+native controller receives a read-only bounded summary of open deferred tasks
+as well, so a cancelled run or temporarily unavailable application cannot make
+them invisible to the operator.
+
+When completing a run, `stado_session_complete` may supply the exact ordered
+`continuation_input_ids` set. The broker rejects duplicates, omissions,
+foreign IDs, and completion while any input is still queued, reviewing, or
+ready. Native delivery appends the immutable original messages to the exact
+session using a broker-minted delivery ID and digest-checked structured receiver
+record, then commits delivery. Replay with the same ID and bytes is idempotent;
+a mismatch fails closed. Terminal runs recover queued/reviewing/ready originals
+in capture order, while deferred records remain for successful ordered continuation.
+Manual forks do not inherit them, and automatic context recovery currently
+fails closed until the broker owns an atomic ancestry-authenticated transfer.
+At TUI startup and after an exact logical-session switch, ordinary input stays
+in the editor until the native active-worker projection resolves found or not
+found; lookup, activation, and cancellation failures retain the same
+fail-closed draft fence. These recovery facts do not grant security authority.
+
+`stado_session_worker_cancel` accepts
+`{run_id, expected_version, reason, idempotency_key?}`. Pause and stop use a
+native controller-only consumption path instead: before returning the
+scheduling result, the broker terminalizes the active run as `interrupted` or
+`stopped` with the control WAL sequence. This prevents a rebind from silently
+resuming recurrence. Operator `/loop stop` uses a separate
+controller-authenticated broker cancellation, with the application binding
+serving only as the exact namespace selector, so a plugin cannot make its
+recurrence unstoppable by omitting its optional self-cancel capability.
+Neither activation nor the aggregate active-run projection is exposed as a
+WASM import.
+
+### Durable native verification
+
+`stado_session_verification_request` accepts exactly
+`{run_id, expected_worker_version, source_event_sequence,
+idempotency_key?}`. The application must also have a signed
+`session.turn_committed` event subscription. The selected event must still be
+pending for that application and must name its exact active WorkerRun version.
+The guest supplies neither a tree/session anchor nor executable text: the
+broker derives `event_sequence`, `session_sequence`, `turn_ref`, `tree_digest`,
+and `source_evidence_refs` from that broker-stamped turn event.
+
+The response is the caller-scoped durable record in `requested` state. The
+native controller cannot claim it until the application has successfully
+returned from and durably acknowledged the source event callback. This ordering
+prevents a trapped callback from starting commands. After the claim, only the
+interactive TUI resolves `[verify].commands`. It checks that the source tree is
+still the exact current session head before the suite, before every command,
+and after the suite. Session transition or lifecycle rebind cancels the captured
+native execution scope; a late old-generation result cannot mutate the new
+composition.
+
+Verification runs through an executor copy that retains the ordinary tool,
+sandbox, audit, budget, and scheduling machinery. It bypasses only an active
+leased application hold, because that hold is what stops the worker while the
+quality gate runs; ordinary worker tool dispatch remains held. Pause, stop,
+successful completion, worker terminalization, broker failure, and session
+scope change still win. Lifecycle hooks retain observation and denial, but a
+pre/post-tool mutation attempt becomes a factual denial for this native run.
+The configured command and measured result therefore cannot be relabelled by a
+hook rewrite.
+
+The durable terminal event kind is `session.verification_finished`. Its `data`
+uses schema `stado.dev/session-verification-facts/v1` and contains only:
+
+```json
+{
+  "schema": "stado.dev/session-verification-facts/v1",
+  "verification_id": "verification_...",
+  "run_id": "application-run",
+  "version": 3,
+  "source": {
+    "event_sequence": 42,
+    "session_sequence": 4294967297,
+    "turn_ref": "git:refs/sessions/.../tree@<git-hash>#turn-1-iteration-1",
+    "tree_digest": "<git-hash-or-empty>"
+  },
+  "source_evidence_refs": ["git:..."],
+  "suite_digest": "sha256:...",
+  "command_digests": ["sha256:..."],
+  "outcome": "commands_succeeded",
+  "commands": [{
+    "ordinal": 1,
+    "command_digest": "sha256:...",
+    "result_digest": "sha256:...",
+    "outcome": "succeeded",
+    "evidence_refs": ["git:refs/sessions/.../trace@<commit>"]
+  }],
+  "evidence_refs": ["git:...", "broker:wal:lifecycle_application:<broker_sequence>"]
+}
+```
+
+Optional `failure_kind` and `failure_fingerprint` fields occur on a failed
+terminal record and on the one terminal command fact. Outcomes are exactly
+`commands_succeeded`, `command_failed`, `infrastructure_error`, `cancelled`, or
+`no_suite`; per-command outcomes are `succeeded`, `failed`,
+`infrastructure_error`, `cancelled`, or `not_run`. Command facts form an ordered
+short-circuit sequence: a succeeded prefix, at most one terminal command, then
+only `not_run`. `no_suite` has no commands and is deliberately neither pass nor
+fail; the application decides whether an absent operator suite blocks its own
+workflow.
+
+Top-level failure kinds are also closed: `command_failed` accompanies
+`command_failed`; `infrastructure_error` or `suite_changed` accompanies
+`infrastructure_error`; and `cancelled`, `stale_anchor`, or `worker_terminal`
+accompanies `cancelled`. A terminal command fact uses only the matching
+`command_failed`, `infrastructure_error`, or `cancelled` kind. `suite_changed`
+is discovered before execution and therefore has only `not_run` facts;
+`stale_anchor` and `worker_terminal` may override otherwise valid command facts
+because the newer host state wins.
+
+`command_digest` is SHA-256 of the exact configured command string.
+`suite_digest` is SHA-256 of the canonical JSON array of ordered command
+digests. `result_digest` hashes the bounded executor result material used for
+that command fact. Terminal versions are monotonic and greater than the
+requested version; consumers must not assume an exact number of intermediate
+CAS transitions.
+
+The outer application event's `broker_sequence` is the terminal record's WAL
+sequence. `broker:wal:lifecycle_application:<broker_sequence>` appears in the
+terminal evidence and every command fact; each executed command additionally
+names the exact signed trace commit and its exact tree commit when execution
+advanced the tree. `source_evidence_refs` remain separate immutable evidence
+for the anchored turn. Session ID, generation, plugin/owner identity, worker
+version, status, timestamps, routing, and controller bookkeeping never enter
+the event data.
+
+There is no guest cancellation import. Native context cancellation records a
+terminal `cancelled` fact when the old broker remains reachable; otherwise the
+durable `running` record is recovered and executed again. Execution is
+therefore intentionally **at least once** across the irreducible crash window
+after a command has completed but before its terminal WAL append. Commands in
+`[verify].commands` must be safe under that retry model. A reply-loss replay,
+controller lookup, projection, and terminal event all return the same terminal
+record and derived WAL evidence references.
+
 ## Agent surface
 
-EP-0038c — wasm plugins talk to the in-process Fleet via these
-imports. Manifest declares `agent:fleet`; bundled `agent` plugin
-is the canonical user.
+EP-0038c/EP-0064 — WASM plugins talk to the runtime fleet through
+operation-scoped imports. New manifests declare only the operations they need:
+`agent:spawn`, `agent:list`, `agent:read`, `agent:send`, and `agent:cancel`.
+The removed aggregate `agent:fleet` capability grants no operation.
+`agent:spawn:configure` is an additional, non-standalone attenuation: a plugin
+must hold it as well as `agent:spawn` before it can select provider, model,
+thinking mode/budget, or reasoning effort. It does not expose provider
+credentials, endpoints, or an operation by itself.
 
 ### stado_agent_*
 
 | Import | Capability | Description |
 |---|---|---|
-| `stado_agent_spawn(req_ptr, req_len, out_ptr, out_max) → i32` | `agent:fleet` | Spawn child agent. Args: `{prompt, model?, async?, ephemeral?, parent_session?, sandbox_profile?, allowed_tools?[]}`. Returns `{id, session_id, status, final_text?}` |
-| `stado_agent_list(out_ptr, out_max) → i32` | `agent:fleet` | List agents in caller's spawn tree |
-| `stado_agent_read_messages(args_ptr, args_len, out_ptr, out_max) → i32` | `agent:fleet` | Args: `{id, since?, timeout_ms?}`. Returns `{messages[], offset, status}` |
-| `stado_agent_send_message(args_ptr, args_len) → i32` | `agent:fleet` | Args: `{id, message}`. Posted at the child's next yield point |
-| `stado_agent_cancel(args_ptr, args_len) → i32` | `agent:fleet` | Args: `{id}`. Child exits at next yield |
+| `stado_agent_spawn(req_ptr, req_len, out_ptr, out_max) → i32` | `agent:spawn`; also `agent:spawn:configure` when any profile override is present | Spawn a child. Args include `{prompt, provider?, model?, thinking?, thinking_budget_tokens?, reasoning_effort?, async?, ephemeral?, role?, mode?, max_turns?, timeout_seconds?, tool_profile?, narrow_tools?[], token_budget?, execution?, source?, idempotency_key?}`. Plain spawn inherits the parent profile. `provider` is at most 128 bytes and requires `model` (at most 512 bytes); a model-only override stays on the parent provider. `thinking` is `auto\|on\|off`; its 0..2,000,000 token budget cannot exceed the child token budget; effort is `low\|medium\|high\|xhigh\|max`. The host resolves the exact requested provider/model, rejects silent model substitution and unsupported forced controls, and keeps credentials native. `source.at` may be the exact broker-stamped `turn_ref` from `session.turn_committed`; `source.session_id` can be omitted for that form because the host derives and ancestry-checks it from the ref. The source is resolved and pinned before asynchronous admission returns. Host policy fixes parent session, sandbox ceiling, and allowed role/mode combinations. The host injects the caller namespace from the loader-verified signed package identity: an `agent_child_only` name in `narrow_tools` is admitted only when that package owns it, and guest JSON cannot select or spoof this owner. Returns `{id, session_id, status, final_text?, terminal?}`. |
+| `stado_agent_list(out_ptr, out_max) → i32` | `agent:list` | List agents in caller's spawn tree. |
+| `stado_agent_read_messages(args_ptr, args_len, out_ptr, out_max) → i32` | `agent:read` | Args: `{id, since?, timeout_ms?}`. Returns `{messages[], offset, status, terminal?}`. Terminal metadata is `{usage:{input_tokens,output_tokens,cache_read_tokens?,cache_write_tokens?},usage_complete,cleanup?}`; cleanup is `{kind,fingerprint}` and never raw provider text. |
+| `stado_agent_send_message(args_ptr, args_len) → i32` | `agent:send` | Args: `{id, message}`. Posted at the child's next yield point. |
+| `stado_agent_cancel(args_ptr, args_len) → i32` | `agent:cancel` | Args: `{id}`. Child exits at the next cancellable boundary. |
 
-## Memory surface
+The spawn response `id` is the Fleet control handle used by `agent:read`,
+`agent:send`, and `agent:cancel`; `session_id` is the child conversation/tree
+coordinate. They may differ. The durable `agent.down` lifecycle fact therefore
+carries both `child.agent_id` and `child.session_id`: applications correlate
+control operations with the former and bind immutable tree/trace evidence to
+the latter. An omitted `execution` field is normalized to `wait` before
+admission and before terminal facts are published.
 
-EP-0015 memory-system plugin's host-side imports.
+For `execution: "retained"`, the host resolves the source synchronously into
+an immutable session/generation/turn, conversation digest, tree commit, and
+trace commit. Admission and every delayed launch or restart consume that same
+fork point. A mutable selector such as `last_committed_turn` is never resolved
+again after the spawn call returns.
+
+The exact application selector is
+`git:refs/sessions/<id>/tree@<commit>#turn-<N>-iteration-<M>`. It starts a
+fresh child conversation over that immutable tree; applications provide their
+own bounded review prompt rather than inheriting mutable worker chat. Terminal
+token counters are collected by the host. If the provider omits or reports
+invalid usage, `usage_complete` is false. A later provider-close failure is a
+separate fingerprinted `cleanup` fact and cannot replace `final_text` or remove
+the final assistant message.
+
+Lifecycle applications should journal a bounded `idempotency_key` before an
+asynchronous spawn and reuse it until the exact child acknowledgement is
+durable. The host keys it by the authenticated canonical plugin, broker
+session, and generation and stores the normalized request digest. Concurrent
+or post-module-rebind replay in the same live Stado process returns the exact
+same child; reuse with different input fails closed. The map is intentionally
+process-local because Fleet children are in-process: after a process restart
+the old child is terminal, so replay may admit a replacement rather than
+falsely returning a dead child as live.
+
+## Artifact surface
+
+### stado_artifact_*
+
+EP-0063 replaces the memory-specific ABI with a generic, broker-owned artifact
+surface. The ordinary artifact operations and the isolated lifecycle migration
+trigger use the same bounded convention:
+
+```text
+stado_artifact_*(req_ptr, req_len, resp_ptr, resp_cap) -> i32
+```
 
 | Import | Capability | Description |
 |---|---|---|
-| `stado_memory_query(args_ptr, args_len, out_ptr, out_max) → i32` | `memory:read` | Query stored memories |
-| `stado_memory_propose(args_ptr, args_len) → i32` | `memory:write` | Propose new memory entry |
-| `stado_memory_update(args_ptr, args_len) → i32` | `memory:write` | Update existing entry |
+| `stado_artifact_propose(...) → i32` | `artifact:propose:<local-kind>` | Propose a candidate artifact of a kind declared in this plugin's signed manifest |
+| `stado_artifact_query(...) → i32` | `artifact:read:<qualified-kind-pattern>` | Query 1..32 explicit qualified kinds within broker scope and sensitivity policy; optional `refs:[{id,version}]` resolves exact immutable versions without recency pagination |
+| `stado_artifact_edit(...) → i32` | `artifact:edit:<local-kind>` | Propose a candidate version of an existing artifact; never mutate an active version in place |
+| `stado_artifact_observe(...) → i32` | `artifact:observe:<qualified-kind-pattern>` | Record a bounded observation for explicitly named qualified kinds |
+| `stado_artifact_migrate_legacy_memory_v1(...) → i32` | exact `artifact:migrate:legacy-memory-v1` | Lifecycle-only trigger for the broker-owned fixed one-way historical migration; request is `{}` and supplies no path, bytes, identity, scope, or IDs |
+
+A positive return is the JSON response byte count. A negative return is the
+negated byte count of a bounded error written to the response buffer. Missing
+broker wiring or canonical runtime identity fails closed.
+
+`propose` and `edit` requests name a manifest-declared local `kind`; their
+capabilities are exact local-name grants. `query` and `observe` requests carry
+`kind` or `kinds` with fully qualified values such as
+`github.com/acme/reviewer#review-contract`. Read/observe patterns are deliberately
+limited to an exact qualified kind, `*`, or one trailing-`*` prefix; they are not
+filesystem globs. A plugin may use the exact pseudo-kind
+`self#<manifest-declared-local-kind>` in both its signed read/observe capability
+and request. The host replaces it with the loader-authenticated namespace, and
+the broker independently resolves the signed grant at admission. Wildcard or
+undeclared `self#` forms are invalid; the guest cannot use this spelling to
+claim another namespace. A signed local-development package follows the same
+path: broker admission reopens it from an enabled install root, recomputes its
+install-path-bound `local://...` identity, and rechecks its source-scoped signer
+pin and WASM digest. No fabricated remote lock is accepted or required.
+
+An exact configuration or evidence lookup supplies both explicit `kinds` and
+`refs:[{"id":"art_...","version":3}]`. The broker applies the same scope,
+kind, sensitivity, and expiry checks but does not let newer unrelated artifacts
+push the selected version out of a bounded recency page. Missing, stale, or
+invisible refs are omitted, so the application must require the exact expected
+result and fail closed.
+
+Ordinary queries return digest-fenced pages:
+
+```json
+{
+  "items": [],
+  "page_digest": "sha256:<64 lowercase hex>",
+  "next_offset": 50,
+  "complete": false
+}
+```
+
+The first request uses `page_offset:0` and omits `page_digest`. A continuation
+supplies the prior exact digest with the bounded `page_offset`; drift rejects
+the page and requires restart at zero. Every response includes `items`,
+`page_digest`, and `complete`; `next_offset` is present only when incomplete.
+
+`propose` and `edit` may carry `evidence_receipt_ids`. Each ID is the opaque
+`sha256:...` value returned by an exact `stado_evidence_open` under the same
+plugin/session/generation binding. The broker resolves the receipts and
+persists broker-derived evidence references. Free-form `evidence_refs` remain a
+separate compatibility field and cannot use the reserved broker receipt
+namespace.
+
+The host injects canonical plugin identity, principal, repository, session
+generation, and ancestry immediately before broker dispatch. Those fields are
+not guest authority input. Activation, rejection, retirement, deletion, and
+operator grants remain outside this model-facing ABI. See
+[EP-0063](../eps/0063-plugin-defined-harness-artifacts.md) for the envelope,
+identity, schema archive, and single-writer contract.
+
+## Evidence surface
+
+### stado_evidence_*
+
+EP-0054 exposes authenticated corpus reads without making the native host a
+research application. All imports use the bounded JSON convention:
+
+```text
+stado_evidence_*(req_ptr, req_len, resp_ptr, resp_cap) -> i32
+```
+
+| Import | Capability | Description |
+|---|---|---|
+| `stado_evidence_catalog(...) → i32` | exact `evidence:catalog:artifact` or `evidence:catalog:session` | List bounded authenticated references for the request's fixed `corpus` |
+| `stado_evidence_search(...) → i32` | exact `evidence:search:artifact` or `evidence:search:session` | Search bounded summaries inside the authenticated corpus; requires `query`, accepts `limit` |
+| `stado_evidence_open(...) → i32` | exact `evidence:open:artifact` or `evidence:open:session` | Open one exact returned `ref` and durably receipt the immutable body |
+| `stado_evidence_validate(...) → i32` | `evidence:validate` | Validate a structured result against receipts from the caller's exact direct read-only child |
+
+A positive return is the JSON byte count. A negative return is the negated
+byte count of a bounded error written to the response buffer. Callers should
+allocate their declared maximum response size; this surface does not return a
+required length when the buffer is too small.
+
+For an ordinary installed-tool call, the host obtains a broker binding for the
+exact selected signed tool and the broker derives that tool's effective
+capability subset. A persistent lifecycle application instead uses its existing
+application binding token and truthful package-wide capabilities; the host does
+not mint a second `evidence.bind` that could misattribute or attenuate it through
+a tool name. In either case the opaque binding never enters guest memory and is
+fenced by the exact plugin, session, generation, and rebind state. Request JSON
+cannot choose a principal, repository, source session, ancestry, plugin
+namespace, or generation.
+
+Every successful `open` response contains the exact `ref`, bounded `body`, and
+an opaque `receipt_id`. The receipt is binding-scoped evidence for a later
+artifact proposal; copying a locator or digest string does not create one.
+
+Artifact refs identify one active visible artifact version. Session refs use
+an immutable complete JSONL record range such as
+`conversation.jsonl:bytes:120-487` plus its digest, and are restricted to the
+broker-bound current session and at most its 99 nearest fork ancestors. Each
+conversation log has an 8 MiB search-scan ceiling. Append-only turns and
+compaction markers do not invalidate an earlier range.
+
+Catalog and search responses count toward the same aggregate returned-byte
+budget as open. The broker serializes budget fold and WAL append and stores
+usage/read receipts per exact child session, generation, and canonical package,
+so Host recreation, concurrent calls, and broker restart cannot reset or
+overspend the ceiling. Exact replay is idempotent.
+
+Validation checks direct child parentage, subagent purpose, `explorer` role,
+`read_only` mode, exact ref/digest, receipt generation/package/parent, and that
+each bounded excerpt is an exact substring of an opened body. It always returns
+`entailment_verified: false`: the host proves citation integrity, not whether
+the cited bytes logically support the model's claim. See
+[EP-0054](../eps/0054-addressable-context-and-research-agents.md).
 
 ## stado_lsp_*
 
@@ -944,21 +1588,8 @@ same handful of helpers manually; example plugins for them live in
 
 ## Manifest extras
 
-Beyond capabilities, the plugin manifest carries two extras worth
-mentioning here for plugin authors:
-
-### `requires`
-
-Optional list of plugin dependencies. `stado plugin install`
-verifies each entry is already installed at a satisfying version
-before completing. Pre-1.0 supports only `>=` constraints.
-
-```json
-{
-  "name": "exploit-lib",
-  "requires": ["http-session >= 0.1.0", "secrets-store"]
-}
-```
+Beyond capabilities, the plugin manifest carries several application
+declarations worth mentioning here for plugin authors:
 
 ### `tools[].categories`
 
@@ -967,6 +1598,74 @@ The tool-level `categories` array enables operator-side
 tool tagged with a matching category to the per-turn autoload set.
 Lets HTB-tooling sessions run lean and pull, e.g., `recon` tools
 always while `exploit` tools stay lazy-loaded behind tools.activate.
+
+### `tools[].application_worker`
+
+Persistent lifecycle applications may opt an exact declared tool into the
+model surface of their own broker-owned worker recurrence:
+
+```json
+{
+  "name": "quality__progress",
+  "description": "Record progress against the accepted quality contract",
+  "class": "StateMutating",
+  "application_worker": {"plan_visible": true}
+}
+```
+
+The `application_worker` object is optional, but when present it has a closed
+shape and requires the boolean `plan_visible`. Unknown keys, a missing key, or
+a non-boolean value reject the manifest. `false` exposes the tool in Do mode;
+`true` also exposes it in Plan mode. This metadata grants no host import and no
+new authority. The exact application's active broker WorkerRun must own the
+turn, and global/session tool policy still narrows the result. All lifecycle
+tools are absent from ordinary and other-application model pools, and none are
+available in BTW. The host rechecks exact instance and WorkerRun freshness at
+execution so a response generated before rebind or terminalization fails
+closed.
+
+### `artifact_kinds`
+
+Declares plugin-owned artifact `data` shapes. Each entry has a bounded local
+`name`, exact JSON Schema bytes in `schema`, and optional deterministic JSON
+Pointer projections in `index`. The schema root must be an object; unknown or
+external schema vocabulary is rejected at load rather than ignored. The signed
+manifest digest covers these declarations. See EP-0063.
+
+### `lifecycle`
+
+Declares EP-0064 lifecycle application subscriptions: synchronous `points`,
+durable broker `events`, `failure` (`open` or `closed`), and a bounded
+`timeout_ms`. The manifest shape is validated and covered by the signed digest,
+but validation alone does not make callback dispatch available. The persistent
+WASM application dispatcher and its operation-scoped lifecycle capabilities are
+the accepted, in-flight EP-0064 contract. A declaration never widens operator
+policy and is not a compatibility alias for native application policy.
+
+Point participation is separately capability-gated. In addition to
+`lifecycle:observe:<point>` and the stronger `lifecycle:decide:<point>`, an
+application may declare `lifecycle:contribute:pre_llm`. Its only extra valid
+response is:
+
+```json
+{"decision":"contribute","contribution":{"system_append":"advisory text"}}
+```
+
+`system_append` is trimmed, must be non-empty, and is capped at 16 KiB. The
+response cannot include `reason`, `mutation`, model/history fields, or a deny.
+Failure-open callback/decode faults are logged and contribute nothing; the
+shared Lua runner's fail-closed setting does not promote this advisory
+capability into a gate. Lifecycle applications, including this contribution,
+are hosted by the TUI only in v0.80/v1.
+
+### `commands`
+
+Declares operator-routed commands handled by the fixed
+`stado_plugin_command` export. Each entry contains `name`, `description`, an
+optional one-line `usage`, and optional `timeout_ms`. Zero inherits
+`lifecycle.timeout_ms`; the signed command-specific value is capped at 15
+minutes for interactive workflows that make several generic UI bridge calls.
+It affects only wall-clock cancellation and grants no capability or authority.
 
 ## Patterns and anti-patterns
 
@@ -994,19 +1693,21 @@ cap. Avoid building a "read someone else's session output" import
 
 ### Long-lived state across tool calls
 
-Tool calls today are stateless: each invocation gets a fresh wasm
-instance. For state that needs to span calls (auth cookies, session
-tokens, accumulated data), see:
+Ordinary tool calls may receive a fresh wasm instance. The EP-0064 TUI
+dispatcher gives lifecycle applications a serialized per-session instance,
+but instance memory remains an optimization rather than authoritative durable
+state. For short-lived state, see:
 
 - **`stado_http_client_*`** — cookie jar persists for the
   client-handle's lifetime
 - **`stado_secrets_*`** — operator-managed secrets persist on disk
-- **(Phase 2 follow-up)** `stado_instance_get/set` — KV store with
-  per-plugin namespacing for arbitrary state. Not yet shipped.
+- **`stado_instance_get/set`** — process-lifetime KV with per-plugin
+  namespacing; it is cleared when the runtime closes.
 
-If your plugin needs persistent state RIGHT NOW and these don't fit,
-write to `<state-dir>/<plugin-name>/<key>` via `stado_fs_write`
-with `fs:write:<that-path>` cap.
+Use broker-owned EP-0063 artifacts for versioned application records and the
+EP-0057/0059 journal/event imports above for recoverable lifecycle progress.
+`stado_cfg_state_dir` plus `stado_fs_write` may hold a plugin-private cache, but
+it is not an authority, shared-WAL, or lifecycle-recovery bridge.
 
 ### Returning more bytes than `out_max` allows
 
@@ -1028,22 +1729,39 @@ vocabulary (manifest declarations):
 fs:read:<glob>             fs:write:<glob>
 exec:proc:<binary-glob>    exec:pty
 net:http_request           net:http_request:<host>
-net:<host>                 # DEAD — only gated the removed stado_http_get
 net:http_request_private   net:http_client
 net:dial:tcp:<host>:<port>
 dns:resolve                dns:resolve:<glob>
 secrets:read[:<glob>]      secrets:write[:<glob>]
 crypto:hash
 tool:invoke[:<name-glob>]
+registry:catalog           session:tool-surface
+session:context:read
+lifecycle:observe:<point>  lifecycle:decide:<point>
+lifecycle:contribute:pre_llm
+context:resource:catalog:<kind>
+context:resource:open:<kind>
 state:read[:<glob>]        state:write[:<glob>]
 session:observe            session:read
 session:fork
-llm:invoke[:<budget>]
-agent:fleet
-memory:read                memory:write
+provider:invoke:<positive-budget>
+session:journal:append      session:projection:read
+session:schedule            session:complete
+session:input:route
+session:worker:request      session:worker:resume
+session:worker:cancel
+session:verification:request
+timer:schedule
+agent:spawn                 agent:spawn:configure
+agent:list
+agent:read                  agent:send
+agent:cancel
+artifact:propose:<local-kind>
+artifact:read:<qualified-kind-pattern>
+artifact:edit:<local-kind>
+artifact:observe:<qualified-kind-pattern>
 ui:approval                ui:choice
 ui:print                   ui:render
-terminal:open
 bundled-bin:<name>
 cfg:state_dir
 lsp:query

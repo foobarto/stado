@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/foobarto/stado/internal/brokercredential"
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/headless"
 	"github.com/foobarto/stado/internal/hooks"
@@ -54,17 +54,6 @@ var (
 	runTopP        float64
 	runTopK        int
 )
-
-func activeSessionID(sess *stadogit.Session, fallback string) string {
-	if sess != nil {
-		return sess.ID
-	}
-	return fallback
-}
-
-func hasRetrievedMemory(body string) bool {
-	return guidance.HasRetrievedMemory(body)
-}
 
 var (
 	runLoadConfig    = config.Load
@@ -137,7 +126,22 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 		if err != nil {
 			return err
 		}
-		// EP-0038d: sandbox wrap-mode — re-exec under bwrap/firejail/sandbox-exec
+		// EP-0064: non-interactive run does not own a persistent lifecycle-
+		// application composition. Resolve the launch persona before doing any
+		// provider/session work so its additive plugin declarations participate
+		// in the same fail-closed surface check as global background plugins.
+		persona, personaErr := resolvePersona(runPersona, cfg)
+		if personaErr != nil {
+			fmt.Fprintf(os.Stderr, "stado run: %v\n", personaErr)
+		}
+		var personaPlugins []string
+		if persona != nil {
+			personaPlugins = persona.Plugins
+		}
+		if err := runtime.RequireLifecycleApplicationSurface(cfg, personaPlugins, runtime.ApplicationSurfaceRun); err != nil {
+			return fmt.Errorf("stado run: %w", err)
+		}
+		// EP-0038d: sandbox wrap-mode — re-exec under bwrap/firejail
 		// when [sandbox] mode = "wrap" and not already inside a wrapper.
 		if err := sandbox.MaybeRewrap(sandbox.WrapConfig{
 			Mode:           cfg.Sandbox.Mode,
@@ -258,8 +262,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 			if continueWorktree != "" {
 				promptWorkdir = continueWorktree
 			}
-			memoryContext := buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, continueSessID, runPrompt)
-
 			maxTurns := runMaxTurns
 			if runNoTurnLimit {
 				// math.MaxInt32 is "effectively unlimited" without
@@ -267,10 +269,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				// arithmetic. Real termination still relies on
 				// no-tool-calls-remain or context cancellation.
 				maxTurns = math.MaxInt32
-			}
-			persona, perr := resolvePersona(runPersona, cfg)
-			if perr != nil {
-				fmt.Fprintf(os.Stderr, "stado run: %v\n", perr)
 			}
 			effectiveSkills, skErr := runtime.EffectiveSkills(promptWorkdir, persona)
 			if skErr != nil {
@@ -299,8 +297,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 				System:               sysPrompt,
 				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
-				MemoryContext:        memoryContext,
-				CostCapUSD:           cfg.Budget.HardUSD,
 				TokenCap:             cfg.Budget.HardTokens,
 				InputTokenCap:        cfg.Budget.HardInputTokens,
 				OutputTokenCap:       cfg.Budget.HardOutputTokens,
@@ -334,8 +330,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				recorder := trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: sess.ID, Principal: trajectory.LocalPrincipal()}
 				recorder.EnsureObjective(runPrompt)
 				opts.OnToolOutcome = recorder.ToolOutcome
-				opts.MemoryContext = buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, sess.ID, runPrompt)
-				opts.Research = buildRunResearch(cfg, prov, sess, cwd)
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
@@ -376,16 +370,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
 				}
 			}
-			opts.GuidanceContext = func() string {
-				return guidance.Build(guidance.Options{StateDir: cfg.StateDir(), SessionID: activeSessionID(activeSession, continueSessID), Prompt: runPrompt, FastContext: hasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
-					if opts.Executor == nil || opts.Executor.Registry == nil {
-						return false
-					}
-					_, ok := opts.Executor.Registry.Get(name)
-					return ok
-				}})
-			}
-
 			cwd, _ := os.Getwd()
 			baseCtx, _ := telemetry.LoadParentTraceparent(runCtx, cwd)
 			ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
@@ -410,6 +394,23 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					fmt.Fprintf(os.Stderr, "stado run: broker session.terminate: %v\n", closeErr)
 				}
 			}()
+			if activeSession != nil {
+				credentialStore, credentialErr := brokercredential.New(cfg.StateDir())
+				if credentialErr != nil {
+					return fmt.Errorf("stado run: durable broker session credentials: %w", credentialErr)
+				}
+				brokerSession.logicalCredentials = credentialStore
+				logical, logicalErr := brokerSession.OpenLogicalSession(ctx, cwd, activeSession.ID)
+				if logicalErr != nil {
+					return fmt.Errorf("stado run: durable broker session: %w", logicalErr)
+				}
+				opts.Broker = logical
+				defer func() {
+					if closeErr := logical.Close(); closeErr != nil {
+						fmt.Fprintf(os.Stderr, "stado run: durable broker session close: %v\n", closeErr)
+					}
+				}()
+			}
 
 			// Apply the same broker decision used by every other executor-owning
 			// surface. This preserves skipped attaches and makes --no-sandbox an
@@ -445,10 +446,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				}
 			}
 			if loopErr != nil {
-				if errors.Is(loopErr, runtime.ErrCostCapExceeded) {
-					fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
-					return &exitCodeError{Code: 2, Err: loopErr}
-				}
 				if runLoopUsesExitCode2(loopErr) {
 					return &exitCodeError{Code: 2, Err: loopErr}
 				}
@@ -575,6 +572,13 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		}
 		defaultPersona = p
 	}
+	var personaPlugins []string
+	if defaultPersona != nil {
+		personaPlugins = defaultPersona.Plugins
+	}
+	if err := runtime.RequireLifecycleApplicationSurface(cfg, personaPlugins, runtime.ApplicationSurfaceHeadless); err != nil {
+		return fmt.Errorf("stado run --headless: %w", err)
+	}
 	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 		cwd, _ := os.Getwd()
 		brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
@@ -635,7 +639,7 @@ func init() {
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runNoTurnLimit, "no-turn-limit", false,
-		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Useful for long-running multi-step tasks where the cap is the wrong control surface (use --budget hard_usd or context timeout instead).")
+		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Use token budgets or context timeout for bounded long-running work.")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,

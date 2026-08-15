@@ -1,26 +1,34 @@
-// Package artifacts implements the versioned memory/lesson projection defined
-// by EP-0053. Canonical ordering and durability belong to broker/wal.
+// Package artifacts implements the plugin-defined, versioned harness artifact
+// envelope from EP-0053 and EP-0063. Canonical ordering and durability belong
+// to broker/wal; plugin manifests define only the dynamic data object.
 package artifacts
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
+
+const APIVersionV1 = "stado.dev/artifact/v1"
 
 type Kind string
 
-const (
-	KindMemory Kind = "memory"
-	KindLesson Kind = "lesson"
-)
+type KindSchema struct {
+	PluginIdentity string `json:"plugin_identity"`
+	PluginCommit   string `json:"plugin_commit,omitempty"`
+	ManifestDigest string `json:"manifest_digest"`
+	LocalName      string `json:"local_name"`
+	SchemaDigest   string `json:"schema_digest"`
+}
 
 type Authority string
 
 const (
-	AuthorityCandidate    Authority = "candidate"
-	AuthorityActive       Authority = "active"
-	AuthorityLegacyActive Authority = "legacy_active"
-	AuthorityRejected     Authority = "rejected"
-	AuthoritySuperseded   Authority = "superseded"
-	AuthorityRetired      Authority = "retired"
-	AuthorityDeleted      Authority = "deleted"
+	AuthorityCandidate  Authority = "candidate"
+	AuthorityActive     Authority = "active"
+	AuthorityRejected   Authority = "rejected"
+	AuthoritySuperseded Authority = "superseded"
+	AuthorityRetired    Authority = "retired"
+	AuthorityDeleted    Authority = "deleted"
 )
 
 type Scope string
@@ -38,28 +46,35 @@ type ScopeBinding struct {
 	AnchorForkPoint string `json:"anchor_fork_point,omitempty"`
 }
 
+// Provenance records mechanically assigned origins separately from the actor
+// that created this artifact version and the causal records that led to it.
+// It is host-owned envelope data (EP-0053/EP-0063), not part of a plugin's
+// dynamic data schema.
+type Provenance struct {
+	Origins   []string `json:"origins,omitempty"`
+	CreatedBy string   `json:"created_by,omitempty"`
+	Refs      []string `json:"refs,omitempty"`
+}
+
 type Artifact struct {
-	ID              string       `json:"id"`
-	Version         uint64       `json:"version"`
-	Kind            Kind         `json:"kind"`
-	Scope           Scope        `json:"scope"`
-	Binding         ScopeBinding `json:"scope_binding"`
-	Authority       Authority    `json:"authority"`
-	Summary         string       `json:"summary"`
-	Content         string       `json:"content,omitempty"`
-	Trigger         string       `json:"trigger,omitempty"`
-	Tags            []string     `json:"tags,omitempty"`
-	Groups          []string     `json:"groups,omitempty"`
-	EvidenceRefs    []string     `json:"evidence_refs,omitempty"`
-	Sensitivity     string       `json:"sensitivity"`
-	Provenance      []string     `json:"provenance,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
-	UpdatedAt       time.Time    `json:"updated_at"`
-	ExpiresAt       time.Time    `json:"expires_at,omitempty"`
-	Supersedes      []string     `json:"supersedes,omitempty"`
-	LegacyID        string       `json:"legacy_id,omitempty"`
-	ExpectedOutcome string       `json:"expected_outcome,omitempty"`
-	Validation      string       `json:"validation,omitempty"`
+	APIVersion   string          `json:"api_version"`
+	ID           string          `json:"id"`
+	Version      uint64          `json:"version"`
+	Kind         Kind            `json:"kind"`
+	KindSchema   KindSchema      `json:"kind_schema"`
+	Scope        Scope           `json:"scope"`
+	Binding      ScopeBinding    `json:"scope_binding"`
+	Authority    Authority       `json:"authority"`
+	Tags         []string        `json:"tags,omitempty"`
+	Groups       []string        `json:"groups,omitempty"`
+	EvidenceRefs []string        `json:"evidence_refs,omitempty"`
+	Sensitivity  string          `json:"sensitivity"`
+	Provenance   Provenance      `json:"provenance"`
+	Data         json.RawMessage `json:"data"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	ExpiresAt    time.Time       `json:"expires_at,omitempty"`
+	Supersedes   []string        `json:"supersedes,omitempty"`
 }
 
 type QueryContext struct {
@@ -69,13 +84,27 @@ type QueryContext struct {
 	AncestorSessionIDs []string
 }
 
+// ArtifactRef selects one immutable artifact version. Query callers use Refs
+// when correctness depends on an exact object (for example, recovering
+// application-local configuration) rather than searching a recency page.
+type ArtifactRef struct {
+	ID      string `json:"id"`
+	Version uint64 `json:"version"`
+}
+
 type Query struct {
 	Context    QueryContext
+	Refs       []ArtifactRef
 	Kinds      []Kind
 	Tags       []string
 	Groups     []string
 	ActiveOnly bool
-	MaxItems   int
+	// ExcludeSecret is set by untrusted application/evidence projections.
+	// Native operator/audit callers deliberately leave it false so canonical
+	// secret records remain inspectable. The filter is applied before exact-ref
+	// selection, ordering, pagination, and digesting.
+	ExcludeSecret bool
+	MaxItems      int
 }
 
 type UsageEvent string
@@ -118,5 +147,5 @@ type Relation struct {
 	ToID       string       `json:"to_id"`
 	Type       RelationType `json:"type"`
 	CreatedAt  time.Time    `json:"created_at"`
-	Provenance []string     `json:"provenance,omitempty"`
+	Provenance Provenance   `json:"provenance"`
 }

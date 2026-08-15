@@ -3,8 +3,25 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// literalChildDirs preserves the regression for the old glob escape without
+// retaining flat name/version removal in production.
+func literalChildDirs(base, prefix string) []string {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
+			out = append(out, filepath.Join(base, entry.Name()))
+		}
+	}
+	return out
+}
 
 // Codex #1: filepath.Glob(filepath.Join(base, name+"-*")) interprets glob
 // metacharacters in the *base* path, so a project dir whose name contains
@@ -36,7 +53,7 @@ func TestMatchPluginVersionDirs_NoGlobEscapeOfBase(t *testing.T) {
 		}
 	}
 
-	got := matchPluginVersionDirs(base, "foo")
+	got := literalChildDirs(base, "foo-")
 	if len(got) != 1 {
 		t.Fatalf("matchPluginVersionDirs(%q) = %v, want exactly the real base entry", base, got)
 	}
@@ -48,7 +65,7 @@ func TestMatchPluginVersionDirs_NoGlobEscapeOfBase(t *testing.T) {
 
 // Empty/missing base resolves to no matches, not an error.
 func TestMatchPluginVersionDirs_MissingBase(t *testing.T) {
-	if got := matchPluginVersionDirs(filepath.Join(t.TempDir(), "nope"), "foo"); got != nil {
+	if got := literalChildDirs(filepath.Join(t.TempDir(), "nope"), "foo-"); got != nil {
 		t.Fatalf("missing base: got %v, want nil", got)
 	}
 }

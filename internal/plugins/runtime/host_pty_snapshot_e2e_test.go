@@ -37,10 +37,10 @@ func TestShellReadModesE2E(t *testing.T) {
 		Version:      "1.0.0",
 		Capabilities: []string{"exec:pty"},
 		Tools: []plugins.ToolDef{
-			{Name: "spawn", Class: "Exec"},
-			{Name: "write", Class: "Exec"},
-			{Name: "read", Class: "NonMutating"},
-			{Name: "destroy", Class: "Exec"},
+			{Name: "spawn", Class: "Exec", Capabilities: plugins.CapabilitySubset("exec:pty")},
+			{Name: "write", Class: "Exec", Capabilities: plugins.CapabilitySubset("exec:pty")},
+			{Name: "read", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("exec:pty")},
+			{Name: "destroy", Class: "Exec", Capabilities: plugins.CapabilitySubset("exec:pty")},
 		},
 	}
 	host := NewHost(mf, t.TempDir(), nil)

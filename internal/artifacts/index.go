@@ -3,6 +3,7 @@ package artifacts
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -50,6 +51,7 @@ func (i *Index) Rebuild(records []wal.Record) error {
 	if err != nil {
 		return err
 	}
+	descriptors := archivedKindDescriptors(records)
 	tmp := i.path + ".rebuild"
 	_ = os.Remove(tmp)
 	db, err := sql.Open("sqlite", tmp)
@@ -60,7 +62,7 @@ func (i *Index) Rebuild(records []wal.Record) error {
 	if _, err = db.Exec(`PRAGMA journal_mode=DELETE;
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE artifacts(id TEXT PRIMARY KEY, version INTEGER NOT NULL, authority TEXT NOT NULL, sensitivity TEXT NOT NULL);
-CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, summary, content, trigger, tags, groups);`); err != nil {
+CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, title, text, trigger, tags, groups);`); err != nil {
 		return fail(err)
 	}
 	tx, err := db.Begin()
@@ -75,7 +77,17 @@ CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, summary, content, tri
 		// Normal content only. Private/secret metadata and bodies do not enter
 		// the ordinary FTS corpus.
 		if a.Sensitivity == "normal" && a.Authority != AuthorityDeleted {
-			if _, err = tx.Exec(`INSERT INTO artifact_fts(id,summary,content,trigger,tags,groups) VALUES(?,?,?,?,?,?)`, a.ID, a.Summary, a.Content, a.Trigger, strings.Join(a.Tags, " "), strings.Join(a.Groups, " ")); err != nil {
+			desc, ok := descriptorForArtifact(descriptors, a)
+			if !ok {
+				_ = tx.Rollback()
+				return fail(fmt.Errorf("artifact %q has no exact archived kind descriptor", a.ID))
+			}
+			title, text, trigger, projectErr := projectIndexText(a.Data, desc)
+			if projectErr != nil {
+				_ = tx.Rollback()
+				return fail(fmt.Errorf("project artifact %q: %w", a.ID, projectErr))
+			}
+			if _, err = tx.Exec(`INSERT INTO artifact_fts(id,title,text,trigger,tags,groups) VALUES(?,?,?,?,?,?)`, a.ID, title, text, trigger, strings.Join(a.Tags, " "), strings.Join(a.Groups, " ")); err != nil {
 				_ = tx.Rollback()
 				return fail(err)
 			}
@@ -157,10 +169,87 @@ func queryLimit(n int) int {
 func checkpoint(records []wal.Record) (uint64, string) {
 	for i := len(records) - 1; i >= 0; i-- {
 		for _, event := range records[i].Transaction.Events {
-			if event.Store == artifactStore && (event.Type == "artifact.create" || event.Type == "artifact.edit" || event.Type == "artifact.authority") {
+			if event.Store == artifactStore && (event.Type == "kind.registered" || event.Type == "artifact.create" || event.Type == "artifact.edit" || event.Type == "artifact.authority") {
 				return records[i].Sequence, records[i].Digest
 			}
 		}
 	}
 	return 0, ""
+}
+
+func archivedKindDescriptors(records []wal.Record) map[Kind][]KindDescriptor {
+	out := make(map[Kind][]KindDescriptor)
+	for _, rec := range records {
+		for _, event := range rec.Transaction.Events {
+			if event.Store != artifactStore || event.Type != "kind.registered" {
+				continue
+			}
+			var payload kindEvent
+			if json.Unmarshal(event.Data, &payload) == nil {
+				out[payload.Descriptor.Kind] = append(out[payload.Descriptor.Kind], payload.Descriptor)
+			}
+		}
+	}
+	return out
+}
+
+func descriptorForArtifact(all map[Kind][]KindDescriptor, a Artifact) (KindDescriptor, bool) {
+	for _, desc := range all[a.Kind] {
+		if desc.Schema == a.KindSchema {
+			return desc, true
+		}
+	}
+	return KindDescriptor{}, false
+}
+
+const (
+	maxProjectedValueBytes = 8 << 10
+	maxProjectedRoleBytes  = 32 << 10
+)
+
+func projectIndexText(data json.RawMessage, descriptor KindDescriptor) (string, string, string, error) {
+	if err := descriptor.Definition.Validate(); err != nil {
+		return "", "", "", fmt.Errorf("invalid archived descriptor: %w", err)
+	}
+	if err := descriptor.Definition.ValidateData(data); err != nil {
+		return "", "", "", fmt.Errorf("data does not match archived schema: %w", err)
+	}
+	roles := map[string][]string{"title": {}, "text": {}, "trigger": {}}
+	roleBytes := map[string]int{}
+	appendValue := func(role, value string) error {
+		if len(value) > maxProjectedValueBytes {
+			return fmt.Errorf("%s projection value exceeds %d bytes", role, maxProjectedValueBytes)
+		}
+		roleBytes[role] += len(value)
+		if roleBytes[role] > maxProjectedRoleBytes {
+			return fmt.Errorf("%s projection exceeds %d bytes", role, maxProjectedRoleBytes)
+		}
+		roles[role] = append(roles[role], value)
+		return nil
+	}
+	for _, projection := range descriptor.Definition.Index {
+		value, ok := resolveJSONPointer(data, projection.Pointer)
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case string:
+			if err := appendValue(projection.Role, typed); err != nil {
+				return "", "", "", err
+			}
+		case []any:
+			for _, item := range typed {
+				text, ok := item.(string)
+				if !ok {
+					return "", "", "", fmt.Errorf("%s projection array contains a non-string", projection.Role)
+				}
+				if err := appendValue(projection.Role, text); err != nil {
+					return "", "", "", err
+				}
+			}
+		default:
+			return "", "", "", fmt.Errorf("%s projection is neither a string nor string array", projection.Role)
+		}
+	}
+	return strings.Join(roles["title"], " "), strings.Join(roles["text"], " "), strings.Join(roles["trigger"], " "), nil
 }

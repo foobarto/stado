@@ -361,6 +361,19 @@ func TestLifecycleRunner_Append(t *testing.T) {
 	}
 }
 
+func TestLifecycleRunnerWithoutMutationsDeniesRewriteWithoutChangingOriginal(t *testing.T) {
+	original := NewLifecycleRunner(rewriteArgs("rewrite", `{"path":"rewritten"}`))
+	factOnly := original.WithoutMutations()
+	decision, out := factOnly.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", `{"path":"original"}`))
+	if decision.Decision != DecisionDeny || !strings.Contains(decision.Reason, "native verification fact") || out.(*PreToolPayload).Args != `{"path":"original"}` {
+		t.Fatalf("fact-only decision=%+v output=%+v", decision, out)
+	}
+	decision, out = original.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", `{"path":"original"}`))
+	if decision.Decision != DecisionMutate || out.(*PreToolPayload).Args != `{"path":"rewritten"}` {
+		t.Fatalf("ordinary runner lost mutation semantics: decision=%+v output=%+v", decision, out)
+	}
+}
+
 // mutateResult is a post_tool hook that rewrites the result, used to test
 // last-winning-mutator attribution.
 func mutateResult(name, newResult string) BuiltinHook {
@@ -427,5 +440,16 @@ func TestLifecycleRunner_FailClosed_AttributesFaultingHook(t *testing.T) {
 	}
 	if res.HookName != "broken-policy" {
 		t.Fatalf("fail-closed deny must attribute the faulting hook: got %q", res.HookName)
+	}
+}
+
+func TestPreLLMQualityFactsAreBoundedAndExplicitlyContentOnly(t *testing.T) {
+	input := strings.Repeat("x", maxLifecycleCurrentInputBytes+32)
+	got := PreLLMWithQualityFacts(1, "model", "system", 2, 3, input, "retrieved context")
+	if got.QualityFacts == nil || len(got.QualityFacts.CurrentInput.Text) != maxLifecycleCurrentInputBytes || !got.QualityFacts.CurrentInput.Truncated {
+		t.Fatalf("current input facts=%+v", got.QualityFacts)
+	}
+	if got.QualityFacts.CurrentInput.Digest == "" || !got.QualityFacts.FastContext.Present || got.QualityFacts.FastContext.Digest == "" {
+		t.Fatalf("quality facts=%+v", got.QualityFacts)
 	}
 }

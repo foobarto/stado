@@ -167,9 +167,7 @@ func TestBridge_Fork_RequiresForkFn(t *testing.T) {
 	}
 }
 
-// TestBridge_InvokeLLM_AggregatesDeltas — a stream of EvTextDelta
-// events concatenates into the reply; EvUsage reports tokens.
-func TestBridge_InvokeLLM_AggregatesDeltas(t *testing.T) {
+func TestBridge_InvokeProviderAggregatesDeltasAndUsage(t *testing.T) {
 	p := fakeStreamProvider{
 		events: []agent.Event{
 			{Kind: agent.EvTextDelta, Text: "Hello "},
@@ -179,22 +177,24 @@ func TestBridge_InvokeLLM_AggregatesDeltas(t *testing.T) {
 		},
 	}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	reply, tokens, err := b.InvokeLLM(context.Background(), "hi", LLMInvokeOpts{})
+	facts, err := b.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "hi"}},
+	}, 100)
 	if err != nil {
-		t.Fatalf("InvokeLLM: %v", err)
+		t.Fatalf("InvokeProvider: %v", err)
 	}
-	if reply != "Hello world." {
-		t.Errorf("reply = %q", reply)
+	if facts.Status != "completed" || facts.Text != "Hello world." {
+		t.Fatalf("facts = %+v", facts)
 	}
-	if tokens != 13 {
-		t.Errorf("tokens = %d, want 13", tokens)
+	if facts.Usage.TotalTokens != 13 || facts.Usage.Estimated {
+		t.Errorf("usage = %+v, want exact total 13", facts.Usage)
 	}
 }
 
-// TestBridge_InvokeLLM_FallbackTokenEstimate — when the provider
+// When the provider
 // emits no EvUsage event, the bridge falls back to a byte-heuristic
 // so budget enforcement still has teeth.
-func TestBridge_InvokeLLM_FallbackTokenEstimate(t *testing.T) {
+func TestBridge_InvokeProviderFallbackTokenEstimate(t *testing.T) {
 	p := fakeStreamProvider{
 		events: []agent.Event{
 			{Kind: agent.EvTextDelta, Text: "reply text here"},
@@ -202,24 +202,113 @@ func TestBridge_InvokeLLM_FallbackTokenEstimate(t *testing.T) {
 		},
 	}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	_, tokens, err := b.InvokeLLM(context.Background(), "prompt", LLMInvokeOpts{})
+	facts, err := b.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "prompt"}},
+	}, 100)
 	if err != nil {
-		t.Fatalf("InvokeLLM: %v", err)
+		t.Fatalf("InvokeProvider: %v", err)
 	}
-	if tokens <= 0 {
-		t.Errorf("fallback estimate should be positive, got %d", tokens)
+	if facts.Usage.TotalTokens <= 0 || !facts.Usage.Estimated {
+		t.Errorf("fallback usage should be positive and estimated: %+v", facts.Usage)
 	}
 }
 
-// TestBridge_InvokeLLM_ProviderError — provider-side errors surface;
-// an error here blocks the budget counter from incrementing so a
-// degenerate provider can't drain the quota.
-func TestBridge_InvokeLLM_ProviderError(t *testing.T) {
-	p := fakeStreamProvider{err: errors.New("provider boom")}
+func TestBridge_InvokeProviderNoTokenizerRefusesConservativeInputBeforeDispatch(t *testing.T) {
+	provider := &countingNoTokenizerProvider{}
+	req := ProviderInvokeRequest{Messages: []ProviderInvokeMessage{{Role: "user", Content: "é" + strings.Repeat("x", 8)}}}
+	ceiling := conservativeProviderInputTokens(req)
+	bridge := NativeProviderBridge{Provider: provider, DefaultModel: "fake"}
+	facts, err := bridge.InvokeProvider(context.Background(), "source.example/plugin@v1", req, ceiling)
+	if err != nil || provider.calls != 0 {
+		t.Fatalf("no-tokenizer provider dispatched past conservative input bound: calls=%d err=%v", provider.calls, err)
+	}
+	if facts.Status != "failed" || facts.Text != "" || facts.Diagnostic == nil || facts.Diagnostic.Kind != "token_budget" {
+		t.Fatalf("conservative refusal facts=%+v", facts)
+	}
+}
+
+func TestBridge_InvokeProviderReportedOverrunSuppressesCompletedText(t *testing.T) {
+	provider := &reportedOverrunProvider{}
+	bridge := NativeProviderBridge{Provider: provider, DefaultModel: "fake"}
+	facts, err := bridge.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "x"}},
+	}, 5)
+	if err != nil || provider.calls != 1 || provider.maxTokens != 4 {
+		t.Fatalf("provider dispatch calls=%d max_tokens=%d err=%v", provider.calls, provider.maxTokens, err)
+	}
+	if facts.Status != "failed" || facts.Text != "" || facts.Diagnostic == nil || facts.Diagnostic.Kind != "token_budget" {
+		t.Fatalf("reported overrun leaked text: %+v", facts)
+	}
+	if facts.Usage.TotalTokens != 7 {
+		t.Fatalf("reported overrun was not accounted: %+v", facts.Usage)
+	}
+}
+
+// Provider-side errors cross the ABI only as bounded diagnostic facts.
+func TestBridge_InvokeProviderErrorIsSafeFact(t *testing.T) {
+	p := fakeStreamProvider{err: errors.New("provider boom secret=do-not-leak")}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	_, _, err := b.InvokeLLM(context.Background(), "x", LLMInvokeOpts{})
-	if err == nil {
-		t.Fatal("expected error")
+	facts, err := b.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "x"}},
+	}, 100)
+	if err != nil || facts.Status != "failed" || facts.Diagnostic == nil {
+		t.Fatalf("facts=%+v err=%v", facts, err)
+	}
+	if strings.Contains(facts.Diagnostic.Fingerprint, "secret") {
+		t.Fatalf("raw provider error leaked: %+v", facts.Diagnostic)
+	}
+}
+
+func TestBridge_InvokeProviderCleanupDoesNotDiscardCompletedText(t *testing.T) {
+	provider := &closingFakeProvider{
+		fakeStreamProvider: fakeStreamProvider{events: []agent.Event{
+			{Kind: agent.EvTextDelta, Text: "valid result"},
+			{Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 2}},
+		}},
+		closeErr: errors.New("close secret=do-not-leak"),
+	}
+	bridge := NewOwnedProviderBridge(func() (agent.Provider, error) { return provider, nil }, "fake")
+	facts, err := bridge.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "hi"}},
+	}, 100)
+	if err != nil || facts.Status != "completed" || facts.Text != "valid result" {
+		t.Fatalf("cleanup replaced semantic result: facts=%+v err=%v", facts, err)
+	}
+	if provider.closeCalls != 1 || facts.Cleanup == nil || facts.Cleanup.Kind != "provider_close" {
+		t.Fatalf("cleanup facts=%+v closeCalls=%d", facts.Cleanup, provider.closeCalls)
+	}
+	if strings.Contains(facts.Cleanup.Fingerprint, "secret") {
+		t.Fatalf("raw cleanup error leaked: %+v", facts.Cleanup)
+	}
+}
+
+func TestBridge_InvokeProviderDoneIsTerminalEvenIfStreamStaysOpen(t *testing.T) {
+	stream := make(chan agent.Event, 1)
+	stream <- agent.Event{Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 1, OutputTokens: 0}}
+	provider := openStreamProvider{stream: stream}
+	bridge := NativeProviderBridge{Provider: provider, DefaultModel: "fake"}
+	facts, err := bridge.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "x"}},
+	}, 10)
+	if err != nil || facts.Status != "completed" {
+		t.Fatalf("done event did not terminate invocation: facts=%+v err=%v", facts, err)
+	}
+}
+
+func TestBridge_InvokeProviderResponseLimitCommitsReportedUsage(t *testing.T) {
+	provider := fakeStreamProvider{events: []agent.Event{
+		{Kind: agent.EvUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 5}},
+		{Kind: agent.EvTextDelta, Text: strings.Repeat("x", maxProviderInvokeTextBytes+1)},
+	}}
+	bridge := NativeProviderBridge{Provider: provider, DefaultModel: "fake"}
+	facts, err := bridge.InvokeProvider(context.Background(), "source.example/plugin@v1", ProviderInvokeRequest{
+		Messages: []ProviderInvokeMessage{{Role: "user", Content: "x"}},
+	}, 100)
+	if err != nil || facts.Status != "failed" || facts.Diagnostic == nil || facts.Diagnostic.Kind != "response_limit" {
+		t.Fatalf("response limit facts=%+v err=%v", facts, err)
+	}
+	if facts.Usage.TotalTokens != 7 || facts.Usage.Estimated {
+		t.Fatalf("reported response-limit usage was discarded: %+v", facts.Usage)
 	}
 }
 
@@ -228,6 +317,59 @@ func TestBridge_InvokeLLM_ProviderError(t *testing.T) {
 type fakeStreamProvider struct {
 	events []agent.Event
 	err    error
+}
+
+type closingFakeProvider struct {
+	fakeStreamProvider
+	closeErr   error
+	closeCalls int
+}
+
+type openStreamProvider struct{ stream <-chan agent.Event }
+
+type countingNoTokenizerProvider struct{ calls int }
+
+func (*countingNoTokenizerProvider) Name() string                     { return "uncounted" }
+func (*countingNoTokenizerProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (p *countingNoTokenizerProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	p.calls++
+	ch := make(chan agent.Event)
+	close(ch)
+	return ch, nil
+}
+
+type reportedOverrunProvider struct {
+	calls     int
+	maxTokens int
+}
+
+func (*reportedOverrunProvider) Name() string                     { return "overrun" }
+func (*reportedOverrunProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (*reportedOverrunProvider) CountTokens(context.Context, agent.TurnRequest) (int, error) {
+	return 1, nil
+}
+func (p *reportedOverrunProvider) StreamTurn(_ context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+	p.calls++
+	p.maxTokens = req.MaxTokens
+	ch := make(chan agent.Event, 2)
+	ch <- agent.Event{Kind: agent.EvTextDelta, Text: "over-budget text"}
+	ch <- agent.Event{Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 1, OutputTokens: 6}}
+	close(ch)
+	return ch, nil
+}
+
+func (openStreamProvider) Name() string                     { return "open-stream" }
+func (openStreamProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (openStreamProvider) CountTokens(context.Context, agent.TurnRequest) (int, error) {
+	return 1, nil
+}
+func (p openStreamProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	return p.stream, nil
+}
+
+func (p *closingFakeProvider) Close() error {
+	p.closeCalls++
+	return p.closeErr
 }
 
 func (fakeStreamProvider) Name() string                     { return "fake" }

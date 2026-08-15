@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -36,12 +37,13 @@ import (
 	"github.com/foobarto/stado/internal/tui/providerpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
-	"github.com/foobarto/stado/internal/tui/taskpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
 	"github.com/foobarto/stado/internal/tui/treepicker"
 	"github.com/foobarto/stado/internal/tui/vimmode"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 // block is the UI-level conversation unit. One conversation is a slice of these.
@@ -50,6 +52,9 @@ type block struct {
 	body    string
 	meta    string
 	details string
+	// deliveryID is native-only receiver correlation for broker-owned operator
+	// input. It is not rendered or parsed as task/application authority.
+	deliveryID string
 
 	// queued: user message appended to the chat while a turn was in
 	// flight. The block renders with a muted "queued" tag until the
@@ -220,6 +225,13 @@ const (
 	renderOneLine                   // a single summary line
 )
 
+type applicationBoundaryContinuation uint8
+
+const (
+	applicationBoundaryFinishTurn applicationBoundaryContinuation = iota + 1
+	applicationBoundaryContinueTools
+)
+
 // Internal messages used by the bubbletea update loop.
 type (
 	streamEventMsg        struct{ ev agent.Event }
@@ -237,8 +249,22 @@ type (
 		outcome    runtime.VerifyOutcome
 		generation uint64
 	}
-	recoveryTimeoutMsg       struct{}
-	toolsExecutedMsg         struct{ results []agent.ToolResultBlock }
+	recoveryTimeoutMsg     struct{}
+	toolsExecutedMsg       struct{ results []agent.ToolResultBlock }
+	applicationBoundaryMsg struct {
+		continuation applicationBoundaryContinuation
+		applications []*runtime.LoadedLifecycleApplication
+		published    bool
+		completed    bool
+		err          error
+		generation   uint64
+	}
+	applicationPollTickMsg   struct{}
+	applicationPollResultMsg struct {
+		applications []*runtime.LoadedLifecycleApplication
+		err          error
+		generation   uint64
+	}
 	pluginApprovalRequestMsg struct {
 		title    string
 		body     string
@@ -345,7 +371,8 @@ type Model struct {
 	rootCtx context.Context
 
 	// loop is non-nil when a /loop session is active. EP-0036.
-	loop *loopState
+	loop           *loopState
+	loopGeneration uint64
 
 	// monitor is non-nil when a /monitor process is running. EP-0036.
 	monitor *monitorState
@@ -361,11 +388,42 @@ type Model struct {
 	// telemetry bridges, recorders) can react without needing an
 	// explicit user slash-command. See internal/plugins/runtime
 	// §BackgroundPlugin for the ABI contract.
-	backgroundPlugins      []*pluginRuntime.BackgroundPlugin
-	backgroundTickRunning  bool
-	backgroundTickQueued   bool
-	backgroundTickPayload  []byte
-	backgroundPluginIssues []string
+	backgroundPlugins []*pluginRuntime.BackgroundPlugin
+	// lifecycleApplications are signed EP-0064 applications. Unlike the
+	// legacy tick-only BackgroundPlugin ABI, each instance participates in
+	// lifecycle hooks, model tools, operator commands, broker events, and
+	// scheduling under one canonical broker admission.
+	lifecycleApplications            []*runtime.LoadedLifecycleApplication
+	applicationCommands              map[string]*runtime.LoadedLifecycleApplication
+	applicationCommandConflicts      map[string]struct{}
+	applicationFailure               error
+	applicationAdmissionFailure      error
+	applicationFailureSources        map[string]error
+	applicationWorkerRecoveryPending bool
+	applicationPollRunning           bool
+	applicationPollGeneration        uint64
+	applicationCommandRunning        bool
+	applicationWorkerHandoffRunning  bool
+	applicationVerificationMu        sync.Mutex
+	// applicationVerificationContext is cancelled whenever the admitted
+	// lifecycle composition is replaced or closed. Verification commands run
+	// against a captured context, never by reading mutable Model session fields
+	// from their goroutine. The generation also prevents a late result from an
+	// old composition replacing the newly admitted application set.
+	applicationVerificationContext    context.Context
+	applicationVerificationCancel     context.CancelFunc
+	applicationVerificationGeneration uint64
+	applicationInputCaptureRunning    bool
+	applicationInputCaptureText       string
+	applicationInputCaptureRetryID    string
+	applicationInputCaptureRetryText  string
+	applicationInputDeliveryRunning   bool
+	applicationInputPendingAfter      applicationInputAfter
+	applicationDeferredTaskNotice     string
+	backgroundTickRunning             bool
+	backgroundTickQueued              bool
+	backgroundTickPayload             []byte
+	backgroundPluginIssues            []string
 	// pluginRuntime shared across all background plugins — each
 	// plugin's Module is separate, but the wazero Runtime is the
 	// container. Nil until LoadBackgroundPlugins runs.
@@ -385,10 +443,15 @@ type Model struct {
 
 	// Tool execution + git state. executor may be nil (no session) in which
 	// case tool calls are reported but not executed.
-	executor         *tools.Executor
-	executorSandbox  runtime.ExecutorSandbox
-	metrics          telemetry.Metrics
+	executor        *tools.Executor
+	executorSandbox runtime.ExecutorSandbox
+	metrics         telemetry.Metrics
+	// brokerRoot owns the daemon transport for the TUI process. broker is the
+	// active logical session's independently controlled peer; only peers marked
+	// by brokerPeerOwned are retired during session transitions and shutdown.
+	brokerRoot       runtime.BrokerController
 	broker           runtime.BrokerController
+	brokerPeerOwned  bool
 	verifyConfig     runtime.VerifyConfig
 	verifyEnabled    bool
 	verifyRounds     int
@@ -411,7 +474,6 @@ type Model struct {
 	agentPick    *agentpicker.Model
 	modelPicker  *modelpicker.Model
 	sessionPick  *sessionpicker.Model
-	taskPick     *taskpicker.Model
 	treePick     *treepicker.Model
 	themePick    *themepicker.Model
 	filePicker   *filepicker.Model
@@ -424,14 +486,14 @@ type Model struct {
 	// overrides. EP-0037 §I, BACKLOG #5.
 	sessionToolOverrides sessionToolOverrides
 
-	// activatedTools tracks tools the model brought into the per-turn
-	// surface via tools__describe / tools__activate / plugin__load.
-	// EP-0037 lazy-load: each turn sends only AutoloadedTools(reg, cfg)
-	// + the names in this set. Cleared on /clear and on session-switch.
-	// nil = empty (treat as no activations).
-	activatedTools map[string]bool
-	vp             viewport.Model
-	showHelp       bool
+	// activatedTools is the generic session-scoped expansion chosen by a
+	// signed WASM application through the digest-fenced surface-edit import.
+	// Native code applies complete edits atomically and never infers policy
+	// from a tool result. Cleared on /clear and on session switch.
+	activatedToolsMu sync.RWMutex
+	activatedTools   map[string]bool
+	vp               viewport.Model
+	showHelp         bool
 	// helpScroll is the first visible content line of the help overlay
 	// (the body is taller than the canvas; ↑/↓ scroll it). Reset to 0
 	// whenever the overlay opens; clamped by RenderHelp on every frame.
@@ -473,9 +535,6 @@ type Model struct {
 	// message exists). Pi's pattern — lets the user line up "the next
 	// thing to try" without waiting for the model to finish typing.
 	queuedPrompt string
-	// pendingLearn records a user /learn gesture made while a turn is busy.
-	// It runs only after that turn reaches a durable boundary.
-	pendingLearnFocus *string
 	// steeringMsg is a message the user injected mid-turn (Enter while
 	// busy, or /steer). Unlike queuedPrompt (which waits for the next
 	// turn), it's drained into the live conversation at the next tool
@@ -484,17 +543,21 @@ type Model struct {
 	steeringMsg string
 	// recoveryPrompt is the blocked prompt currently waiting for a
 	// plugin-driven context recovery fork. When the expected plugin
-	// creates a child session, the TUI switches to it and replays this
-	// prompt there instead of dropping it.
-	recoveryPrompt       string
-	recoveryPluginName   string
-	recoveryPluginActive bool
+	// creates a child session, the TUI switches to it and either replays this
+	// ordinary prompt there or, when recoveryApplicationWorker is set,
+	// reconciles the exact broker-owned WorkerRun instead. Treating an
+	// application recurrence prompt as ordinary input would bypass its durable
+	// owner and could race a duplicate recurrence after the handoff.
+	recoveryPrompt            string
+	recoveryPluginName        string
+	recoveryPluginActive      bool
+	recoveryApplicationWorker bool
 
 	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
 	// prompt size (not cumulative) — it's the correct input for the
 	// context-window percentage calculation. cumulativeInputTokens tracks
 	// the session sum for hard_tokens / combined token budget gates.
-	// OutputTokens and CostUSD remain cumulative.
+	// OutputTokens and observational CostUSD remain cumulative.
 	usage                 agent.Usage
 	cumulativeInputTokens int
 
@@ -508,17 +571,8 @@ type Model struct {
 	// back under soft (e.g. after a compaction).
 	softThresholdWarned bool
 
-	// Budget thresholds from config.Budget. Compared against
-	// usage.CostUSD (cumulative across turns).
-	// - budgetWarnUSD > 0 and crossed: render "budget N%" pill and
-	//   append a one-time system block. budgetWarned latches so the
-	//   block doesn't repeat every turn.
-	// - budgetHardUSD > 0 and crossed: further user prompts are
-	//   blocked with an actionable hint; session acks to unblock via
-	//   `/budget ack` which sets budgetAcked for the rest of the
-	//   session.
-	budgetWarnUSD          float64
-	budgetHardUSD          float64
+	// Token-only budget thresholds from config.Budget. Currency estimates are
+	// retained for display/telemetry but never block or steer a turn.
 	budgetWarnTokens       int
 	budgetHardTokens       int
 	budgetWarnInputTokens  int
@@ -686,9 +740,20 @@ type Model struct {
 	turnThinkSig  string
 	turnToolCalls []agent.ToolUseBlock
 	turnAllowed   map[string]struct{}
-	turnMode      inputMode
-	turnModel     string
-	turnProvider  string
+	// turnToolInstances binds each provider-visible name to the exact adapter
+	// projected for that turn. It prevents a response generated against an old
+	// lifecycle application instance from dispatching through a rebound owner.
+	turnToolInstances                       map[string]tool.Tool
+	turnApplicationToolProjectionGeneration uint64
+	applicationToolProjectionGeneration     atomic.Uint64
+	turnMode                                inputMode
+	turnModel                               string
+	turnProvider                            string
+	turnUsage                               agent.Usage
+	turnTreeBefore                          plumbing.Hash
+	// applicationIteration counts provider continuations inside the current
+	// operator turn. It resets only after Session.NextTurn succeeds.
+	applicationIteration int
 
 	// Tool queue: calls waiting for execution + the results already
 	// collected during this tool batch. When the queue drains we emit
@@ -814,7 +879,6 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		modelPicker:      modelpicker.New(),
 		personaPicker:    personapicker.New(),
 		sessionPick:      sessionpicker.New(),
-		taskPick:         taskpicker.New(),
 		treePick:         treepicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
@@ -963,22 +1027,7 @@ func (m *Model) vimModeLabel() string {
 // explicitly through the plugin host when they declare the UI capability.
 func (m *Model) SetApprovals(_ string, _ []string) {}
 
-// SetBudget propagates [budget] config into the TUI. All args are
-// optional (zero = "no cap"); a negative value is a no-op. Sanity
-// check (hard > warn) is enforced upstream in config.Load.
-func (m *Model) SetBudget(warnUSD, hardUSD float64) {
-	if warnUSD >= 0 {
-		m.budgetWarnUSD = warnUSD
-	}
-	if hardUSD >= 0 {
-		m.budgetHardUSD = hardUSD
-	}
-}
-
-// SetBudgetTokens is the token-equivalent of SetBudget for the
-// combined (input+output) cap. Useful for local-runner setups
-// (Ollama / LM Studio / vLLM) where CostUSD is always 0 — there the
-// meaningful budget is throughput, not dollars.
+// SetBudgetTokens configures the combined input+output token cap.
 func (m *Model) SetBudgetTokens(warnTokens, hardTokens int) {
 	if warnTokens >= 0 {
 		m.budgetWarnTokens = warnTokens
@@ -1009,16 +1058,13 @@ func (m *Model) SetBudgetTokensSplit(warnIn, hardIn, warnOut, hardOut int) {
 	}
 }
 
-// budgetExceeded reports whether the cumulative session cost or any
-// configured token cap has crossed its hard threshold. budgetAcked
+// budgetExceeded reports whether any configured token cap has crossed its
+// hard threshold. budgetAcked
 // lets the user continue past every cap for the rest of the session
 // after confirming.
 func (m *Model) budgetExceeded() bool {
 	if m.budgetAcked {
 		return false
-	}
-	if m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD {
-		return true
 	}
 	if m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens {
 		return true
@@ -1035,15 +1081,11 @@ func (m *Model) budgetExceeded() bool {
 // budgetBreachDescription names the specific hard cap that fired and
 // the config knob that raises it, in the same precedence order as
 // budgetExceeded. It exists so the blocking system block speaks the
-// truth on a TOKEN breach instead of the old USD-only message ("cost
-// $0.00 ≥ hard cap $0.00 — edit [budget].hard_usd"), which is nonsense
-// when the cap that actually fired is a token cap. Returns
+// truth about the token threshold that fired. Returns
 // (whatExceeded, configKnob); whatExceeded is empty when nothing is
 // over its hard cap.
 func (m *Model) budgetBreachDescription() (whatExceeded, configKnob string) {
 	switch {
-	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD:
-		return fmt.Sprintf("cost $%.2f ≥ hard cap $%.2f", m.usage.CostUSD, m.budgetHardUSD), "hard_usd"
 	case m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens:
 		return fmt.Sprintf("tokens %s ≥ hard cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetHardTokens)), "hard_tokens"
 	case m.budgetHardInputTokens > 0 && m.usage.InputTokens >= m.budgetHardInputTokens:
@@ -1062,18 +1104,9 @@ func (m *Model) totalTokens() int {
 	return m.cumulativeInputTokens + m.usage.OutputTokens
 }
 
-// budgetWarning returns a short status-bar pill when cumulative cost
-// or token count has crossed the warn threshold. USD pill takes
-// precedence (most users have USD configured); combined-token pill
-// next; per-direction pills last. Empty when nothing's crossed.
+// budgetWarning returns a short status-bar pill when a token count has crossed
+// its warning threshold. Combined tokens take precedence, then per-direction.
 func (m *Model) budgetWarning() string {
-	if m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD {
-		cap := m.budgetWarnUSD
-		if m.budgetHardUSD > 0 {
-			cap = m.budgetHardUSD
-		}
-		return fmt.Sprintf("budget $%.2f/$%.2f", m.usage.CostUSD, cap)
-	}
 	if m.budgetWarnTokens > 0 && m.totalTokens() >= m.budgetWarnTokens {
 		cap := m.budgetWarnTokens
 		if m.budgetHardTokens > 0 {
@@ -1265,5 +1298,5 @@ func (m *Model) Init() tea.Cmd {
 	// Also kick the daemon-health probe chain (daemon_health.go): one
 	// immediate probe plus the periodic tick, so the status bar shows
 	// daemon reachability from the first frames.
-	return tea.Batch(titleTickCmd(), probeDaemonCmd(), daemonProbeTickCmd())
+	return tea.Batch(titleTickCmd(), probeDaemonCmd(), daemonProbeTickCmd(), applicationPollTickCmd(), m.reconcileApplicationWorkerRun(), m.reconcileApplicationOperatorInput(applicationInputAfterNone))
 }

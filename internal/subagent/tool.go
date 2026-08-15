@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -49,13 +51,25 @@ type Request struct {
 	Source *Source `json:"source,omitempty"`
 	// Model is an optional operator-configured model; the host must resolve it
 	// explicitly and never silently substitute another model.
-	Model       string   `json:"model,omitempty"`
-	ToolProfile string   `json:"tool_profile,omitempty"`
-	NarrowTools []string `json:"narrow_tools,omitempty"`
-	TokenBudget int      `json:"token_budget,omitempty"`
-	Execution   string   `json:"execution,omitempty"`
+	Provider             string   `json:"provider,omitempty"`
+	Model                string   `json:"model,omitempty"`
+	Thinking             string   `json:"thinking,omitempty"`
+	ThinkingBudgetTokens int      `json:"thinking_budget_tokens,omitempty"`
+	ReasoningEffort      string   `json:"reasoning_effort,omitempty"`
+	ToolProfile          string   `json:"tool_profile,omitempty"`
+	NarrowTools          []string `json:"narrow_tools,omitempty"`
+	TokenBudget          int      `json:"token_budget,omitempty"`
+	Execution            string   `json:"execution,omitempty"`
+	// ChildToolOwner is host-only provenance for exact signed
+	// agent_child_only projection. Empty means no package owns helper access.
+	ChildToolOwner string `json:"-"`
 	// ChildSessionID is host-only admission output; model JSON cannot set it.
 	ChildSessionID string `json:"-"`
+	// AgentID is the host-only control handle assigned by the Fleet admission
+	// which owns this request. It is distinct from ChildSessionID: callers use
+	// AgentID for list/read/send/cancel and ChildSessionID for immutable session
+	// and evidence coordinates.
+	AgentID string `json:"-"`
 }
 
 type Source struct {
@@ -63,21 +77,48 @@ type Source struct {
 	At        string `json:"at"`
 }
 
+// TokenUsage is host-collected terminal accounting for one child run. It is
+// intentionally token-only: currency estimates are observational UI data and
+// must not become an application-policy input.
+type TokenUsage struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
+// CleanupDiagnostic reports resource cleanup separately from the semantic
+// child result. Detail is a stable fingerprint rather than raw provider text,
+// which can contain transport endpoints or credentials. A cleanup failure may
+// inform application policy but must never erase an already-produced result.
+type CleanupDiagnostic struct {
+	Kind        string `json:"kind"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// TerminalMetadata contains facts available only after a child stops.
+type TerminalMetadata struct {
+	Usage         TokenUsage         `json:"usage"`
+	UsageComplete bool               `json:"usage_complete"`
+	Cleanup       *CleanupDiagnostic `json:"cleanup,omitempty"`
+}
+
 // Result is the structured payload returned to the parent model.
 type Result struct {
-	Status          string   `json:"status"`
-	Role            string   `json:"role"`
-	Mode            string   `json:"mode"`
-	ChildSession    string   `json:"child_session"`
-	Worktree        string   `json:"worktree"`
-	Text            string   `json:"text,omitempty"`
-	MessageCount    int      `json:"message_count,omitempty"`
-	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
-	ForkTree        string   `json:"fork_tree,omitempty"`
-	ChangedFiles    []string `json:"changed_files,omitempty"`
-	ScopeViolations []string `json:"scope_violations,omitempty"`
-	AdoptionCommand string   `json:"adoption_command,omitempty"`
-	Error           string   `json:"error,omitempty"`
+	Status          string           `json:"status"`
+	Role            string           `json:"role"`
+	Mode            string           `json:"mode"`
+	ChildSession    string           `json:"child_session"`
+	Worktree        string           `json:"worktree"`
+	Text            string           `json:"text,omitempty"`
+	MessageCount    int              `json:"message_count,omitempty"`
+	TimeoutSeconds  int              `json:"timeout_seconds,omitempty"`
+	ForkTree        string           `json:"fork_tree,omitempty"`
+	ChangedFiles    []string         `json:"changed_files,omitempty"`
+	ScopeViolations []string         `json:"scope_violations,omitempty"`
+	AdoptionCommand string           `json:"adoption_command,omitempty"`
+	Terminal        TerminalMetadata `json:"terminal"`
+	Error           string           `json:"error,omitempty"`
 }
 
 // Spawner is the host-side capability the runtime/TUI/headless surfaces
@@ -98,7 +139,10 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	req.Role = strings.TrimSpace(req.Role)
 	req.Mode = strings.TrimSpace(req.Mode)
 	req.Ownership = strings.TrimSpace(req.Ownership)
+	req.Provider = strings.TrimSpace(req.Provider)
 	req.Model = strings.TrimSpace(req.Model)
+	req.Thinking = strings.TrimSpace(req.Thinking)
+	req.ReasoningEffort = strings.TrimSpace(req.ReasoningEffort)
 	req.ToolProfile = strings.TrimSpace(req.ToolProfile)
 	req.Execution = strings.TrimSpace(req.Execution)
 	if req.Prompt == "" {
@@ -165,7 +209,51 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	if req.TokenBudget == 0 {
 		req.TokenBudget = DefaultTokenBudget
 	}
+	if err := ValidateProviderProfile(req); err != nil {
+		return Request{}, err
+	}
 	return req, nil
+}
+
+// ValidateProviderProfile checks the bounded provider/reasoning portion of a
+// child request. Provider credentials and construction remain native; these
+// strings only select within a separately capability-gated host surface.
+func ValidateProviderProfile(req Request) error {
+	if invalidProfileString(req.Provider, 128) || invalidProfileString(req.Model, 512) {
+		return errors.New("spawn_agent: invalid provider or model")
+	}
+	if req.Provider != "" && req.Model == "" {
+		return errors.New("spawn_agent: model is required when provider is selected")
+	}
+	switch req.Thinking {
+	case "", "auto", "on", "off":
+	default:
+		return errors.New("spawn_agent: thinking must be auto, on, or off")
+	}
+	if req.ThinkingBudgetTokens < 0 || req.ThinkingBudgetTokens > 2_000_000 {
+		return errors.New("spawn_agent: thinking_budget_tokens must be between 0 and 2000000")
+	}
+	if req.ThinkingBudgetTokens > 0 && req.TokenBudget > 0 && req.ThinkingBudgetTokens > req.TokenBudget {
+		return errors.New("spawn_agent: thinking_budget_tokens cannot exceed token_budget")
+	}
+	switch req.ReasoningEffort {
+	case "", "low", "medium", "high", "xhigh", "max":
+	default:
+		return errors.New("spawn_agent: reasoning_effort must be low, medium, high, xhigh, or max")
+	}
+	return nil
+}
+
+func invalidProfileString(value string, max int) bool {
+	if len(value) > max || !utf8.ValidString(value) {
+		return true
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // NormalizeWriteScope validates future worker-mode write scopes without
@@ -182,7 +270,7 @@ func NormalizeWriteScope(entries []string) ([]string, error) {
 		if strings.Contains(scope, `\`) {
 			return nil, fmt.Errorf("entry %d %q uses backslashes; use slash-separated repo-relative paths", i, entry)
 		}
-		if path.IsAbs(scope) || isWindowsAbsolutePath(scope) {
+		if path.IsAbs(scope) || isDriveAbsolutePath(scope) {
 			return nil, fmt.Errorf("entry %d %q is absolute; use a repo-relative path", i, entry)
 		}
 		if hasPathSegment(scope, "..") {
@@ -209,8 +297,8 @@ func NormalizeWriteScope(entries []string) ([]string, error) {
 
 // hasPathSegment reports whether `segment` appears as a `/`-delimited
 // segment in `p`. Compare is case-INSENSITIVE so `.GIT/HEAD` is
-// caught alongside `.git/HEAD` on macOS HFS+/APFS and Windows NTFS
-// where they address the same directory. Codex 2026-05-25 deep-dive
+// caught alongside `.git/HEAD` on a case-insensitive mounted filesystem.
+// Codex 2026-05-25 deep-dive
 // — same case-insensitive sibling-miss flagged on the 3 other
 // CheckWritePath impls (acpwrap / acp / daemon); those now factor
 // through tool.DefaultGitWritePathGuard. subagent's
@@ -228,7 +316,9 @@ func hasPathSegment(p, segment string) bool {
 	return false
 }
 
-func isWindowsAbsolutePath(p string) bool {
+// isDriveAbsolutePath rejects foreign drive-qualified input even though the
+// Linux path package would otherwise parse it as relative text.
+func isDriveAbsolutePath(p string) bool {
 	if len(p) < 3 {
 		return false
 	}

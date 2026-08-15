@@ -1,0 +1,230 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginruntime "github.com/foobarto/stado/internal/plugins/runtime"
+)
+
+type workerRunBridgeStub struct {
+	operations []string
+	requests   []string
+	payloads   [][]byte
+	response   ApplicationWorkerRun
+	err        error
+}
+
+func (b *workerRunBridgeStub) CallApplicationController(_ context.Context, operation string, payload []byte) ([]byte, error) {
+	b.operations = append(b.operations, operation)
+	b.payloads = append(b.payloads, append([]byte(nil), payload...))
+	if b.err != nil {
+		return nil, b.err
+	}
+	return json.Marshal(b.response)
+}
+
+type lifecycleApplicationBrokerStub struct {
+	identity plugins.RuntimeIdentity
+	manifest plugins.Manifest
+	anchor   pluginruntime.ApplicationAnchor
+	binding  pluginruntime.ApplicationBinding
+}
+
+func (b *lifecycleApplicationBrokerStub) BindApplication(_ context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginruntime.ApplicationBinding, error) {
+	b.identity = identity
+	b.manifest = manifest
+	binding := b.binding
+	binding.Anchor = b.anchor
+	return binding, nil
+}
+
+type lifecycleEvidenceBridgeStub struct{}
+
+func (*lifecycleEvidenceBridgeStub) CallEvidence(context.Context, string, []byte) ([]byte, error) {
+	return []byte(`{"items":[]}`), nil
+}
+
+func TestLoadVerifiedLifecycleApplicationBindsCanonicalAuthority(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	manifest := plugins.Manifest{
+		Name: "display-only", Version: "dev",
+		Capabilities: []string{"state:read", "secrets:read"},
+		Lifecycle:    &plugins.LifecycleDef{},
+	}
+	identity, err := plugins.RuntimeIdentityForLocalSource(manifest, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := &lifecycleApplicationBrokerStub{anchor: pluginruntime.ApplicationAnchor{
+		SessionID: "session-1", SessionGeneration: 7, CanonicalRepoID: "repo:one",
+	}}
+	loaded, err := loadVerifiedLifecycleApplication(
+		context.Background(), t.TempDir(), manifest, identity,
+		[]byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00},
+		LifecycleApplicationLoadOptions{Config: &config.Config{}, Broker: broker},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = loaded.Close(context.Background()) }()
+
+	if broker.identity.Canonical != identity.Canonical || broker.identity.Namespace != identity.Namespace {
+		t.Fatalf("broker identity = %+v, want %+v", broker.identity, identity)
+	}
+	if loaded.Application.Anchor != broker.anchor {
+		t.Fatalf("application anchor = %+v, want %+v", loaded.Application.Anchor, broker.anchor)
+	}
+	host := loaded.Application.Host
+	if host.Secrets == nil || host.Secrets.PluginName != identity.Namespace || host.Secrets.Store == nil {
+		t.Fatalf("secret authority was not canonically provisioned: %+v", host.Secrets)
+	}
+	if host.State == nil || host.State.PluginName != identity.Namespace || host.State.Store == nil {
+		t.Fatalf("instance authority was not canonically provisioned: %+v", host.State)
+	}
+}
+
+func TestLifecycleApplicationAttachesEvidenceOnlyForDeclaredAuthority(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	wasm := []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}
+	anchor := pluginruntime.ApplicationAnchor{SessionID: "session-1", SessionGeneration: 1}
+	evidence := &lifecycleEvidenceBridgeStub{}
+	load := func(t *testing.T, capabilities []string, binding pluginruntime.ApplicationBinding) (*LoadedLifecycleApplication, error) {
+		t.Helper()
+		manifest := plugins.Manifest{Name: "evidence-app", Version: "dev", Capabilities: capabilities, Lifecycle: &plugins.LifecycleDef{}}
+		identity, err := plugins.RuntimeIdentityForLocalSource(manifest, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loadVerifiedLifecycleApplication(context.Background(), t.TempDir(), manifest, identity, wasm,
+			LifecycleApplicationLoadOptions{Config: &config.Config{}, Broker: &lifecycleApplicationBrokerStub{anchor: anchor, binding: binding}})
+	}
+
+	declared, err := load(t, []string{"evidence:catalog:artifact"}, pluginruntime.ApplicationBinding{
+		Evidence: pluginruntime.EvidenceBridgeBinding{Bridge: evidence},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = declared.Close(context.Background()) }()
+	if declared.Application.Host.EvidenceBridge != evidence {
+		t.Fatal("declared lifecycle evidence authority was not attached")
+	}
+
+	undeclared, err := load(t, nil, pluginruntime.ApplicationBinding{Evidence: pluginruntime.EvidenceBridgeBinding{Bridge: evidence}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = undeclared.Close(context.Background()) }()
+	if undeclared.Application.Host.EvidenceBridge != nil {
+		t.Fatal("undeclared lifecycle evidence bridge was exposed to the host")
+	}
+
+	if _, err := load(t, []string{"evidence:catalog:artifact"}, pluginruntime.ApplicationBinding{}); err == nil ||
+		!strings.Contains(err.Error(), "no broker binding") {
+		t.Fatalf("declared evidence authority accepted a missing broker binding: %v", err)
+	}
+}
+
+func TestLifecycleApplicationToolMetadataCarriesSignedSessionProjection(t *testing.T) {
+	identity := plugins.RuntimeIdentity{Namespace: "github.com/foobarto/stado-plugins/tasks", Canonical: "github.com/foobarto/stado-plugins/tasks@v0.1.0"}
+	definition := plugins.ToolDef{
+		Name: "tasks", ApplicationSession: &plugins.ApplicationSessionToolDef{PlanVisible: false},
+	}
+	metadata := newLifecycleApplicationTool(nil, identity, "tasks", definition).ToolMetadata()
+	if metadata.LifecycleApplication != identity.Namespace || metadata.ApplicationSession != identity.Namespace || metadata.ApplicationSessionPlan {
+		t.Fatalf("application session metadata=%+v", metadata)
+	}
+	definition.ApplicationSession.PlanVisible = true
+	metadata = newLifecycleApplicationTool(nil, identity, "tasks", definition).ToolMetadata()
+	if !metadata.ApplicationSessionPlan {
+		t.Fatal("signed Plan visibility was not preserved")
+	}
+}
+
+func TestLoadInstalledLifecycleApplicationRequiresBrokerAndConfig(t *testing.T) {
+	for name, opts := range map[string]LifecycleApplicationLoadOptions{
+		"config": {},
+		"broker": {Config: &config.Config{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadInstalledLifecycleApplication(context.Background(), t.TempDir(), opts); err == nil {
+				t.Fatal("missing authority input accepted")
+			}
+		})
+	}
+}
+
+func TestLoadedLifecycleApplicationWorkerRunUsesBrokerProjectionAndCAS(t *testing.T) {
+	identity := plugins.RuntimeIdentity{Namespace: "github.com/example/apps#worker", Canonical: "github.com/example/apps#worker@v1"}
+	run := ApplicationWorkerRun{
+		SessionID: "session-1", Generation: 7, PluginID: identity.Namespace,
+		RunID: "run-1", Version: 1, WALSequence: 42,
+		Objective: "finish", Prompt: "continue", Conflict: ApplicationWorkerRunRejectOperatorLoop,
+		Status: ApplicationWorkerRunRequested,
+	}
+	bridge := &workerRunBridgeStub{response: run}
+	loaded := &LoadedLifecycleApplication{
+		Identity: identity, Controller: bridge,
+		Application: &pluginruntime.LifecycleApplication{Anchor: pluginruntime.ApplicationAnchor{SessionID: run.SessionID, SessionGeneration: run.Generation}},
+	}
+	got, err := loaded.WorkerRun(context.Background(), run.RunID)
+	if err != nil || !reflect.DeepEqual(got, run) {
+		t.Fatalf("get run = %+v, %v", got, err)
+	}
+	bridge.response.Status = ApplicationWorkerRunActive
+	bridge.response.Version = 2
+	active, err := loaded.ActivateWorkerRun(context.Background(), run)
+	if err != nil || active.Status != ApplicationWorkerRunActive {
+		t.Fatalf("activate run = %+v, %v", active, err)
+	}
+	resumeRequested := run
+	resumeRequested.Status = ApplicationWorkerRunResumeRequested
+	resumeRequested.Version = 2
+	bridge.response.Status = ApplicationWorkerRunActive
+	bridge.response.Version = 3
+	if _, err := loaded.ActivateResumedWorkerRun(context.Background(), resumeRequested); err != nil {
+		t.Fatal(err)
+	}
+	bridge.response.Status = ApplicationWorkerRunCancelled
+	bridge.response.Version = 4
+	if _, err := loaded.CancelWorkerRun(context.Background(), active, "operator stopped recurrence"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"worker.get", "worker.activate", "worker.resume.activate", "worker.cancel"}; !reflect.DeepEqual(bridge.operations, want) {
+		t.Fatalf("operations = %v, want %v", bridge.operations, want)
+	}
+	var activation struct {
+		RunID           string `json:"run_id"`
+		ExpectedVersion uint64 `json:"expected_version"`
+	}
+	if err := json.Unmarshal(bridge.payloads[1], &activation); err != nil || activation.RunID != run.RunID || activation.ExpectedVersion != run.Version {
+		t.Fatalf("activation payload = %+v, %v", activation, err)
+	}
+	if err := json.Unmarshal(bridge.payloads[2], &activation); err != nil || activation.RunID != run.RunID || activation.ExpectedVersion != resumeRequested.Version {
+		t.Fatalf("resume activation payload = %+v, %v", activation, err)
+	}
+}
+
+func TestLoadedLifecycleApplicationRejectsWorkerRunOutsideAnchor(t *testing.T) {
+	run := ApplicationWorkerRun{
+		SessionID: "other", Generation: 7, PluginID: "plugin#worker", RunID: "run",
+		Version: 1, WALSequence: 1, Objective: "finish", Prompt: "continue",
+		Conflict: ApplicationWorkerRunRejectOperatorLoop, Status: ApplicationWorkerRunRequested,
+	}
+	loaded := &LoadedLifecycleApplication{
+		Identity:   plugins.RuntimeIdentity{Namespace: run.PluginID, Canonical: "plugin#worker@v1"},
+		Controller: &workerRunBridgeStub{response: run},
+		Application: &pluginruntime.LifecycleApplication{Anchor: pluginruntime.ApplicationAnchor{
+			SessionID: "session-1", SessionGeneration: run.Generation,
+		}},
+	}
+	if _, err := loaded.WorkerRun(context.Background(), run.RunID); err == nil {
+		t.Fatal("cross-session worker projection accepted")
+	}
+}

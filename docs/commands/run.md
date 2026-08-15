@@ -4,6 +4,11 @@ Non-interactive: pipe a prompt through the agent loop and print the
 result. Used for scripting, CI integrations, one-shot reviews, and
 batch processing.
 
+`stado run` is not a lifecycle-application host in v0.80/v1. If global config
+or the selected persona enables a manifest-declared lifecycle application, run
+fails before provider/session work and directs the operator to the interactive
+TUI. The generic agent loop never creates a prompt-local application instance.
+
 ## What it does
 
 Given `--prompt "..."`:
@@ -60,7 +65,7 @@ stado run --prompt "find every TODO in this repo"
 
 Tools are **on by default**. The model can call `read` / `grep` /
 `ripgrep` / `bash` / `webfetch` / `read_with_context` / `ast_grep` /
-`edit` / `write` / `glob` / `tasks` / LSP-backed symbol tools, a
+`edit` / `write` / `glob` / LSP-backed symbol tools, a
 session worktree (sidecar-backed, signed refs) is opened so calls are
 auditable, and each call lands in the session's audit log.
 
@@ -72,21 +77,26 @@ Tool execution uses the auto-approve host — there's no interactive
 y/n in run mode. Scope it via `[tools]` in `config.toml` if that's
 too broad.
 
-The `tasks` tool stores work items in stado state rather than the
-session worktree. It is audited as state-mutating trace metadata, but it
-does not create a tree commit.
+Lifecycle-application tools such as the optional official `tasks` package are
+not projected here; configuring one makes this surface fail closed with the
+documented TUI-only diagnostic.
 
-Runs with tools also expose two isolated retrieval tools:
+When a future explicit signed official `research` package is published,
+installed, and activated, runs with tools may expose isolated retrieval tools
+such as:
 
 - `memory__research` searches authorized active memories and lessons.
 - `session__research` performs a slower search over the current session and
   its authorized ancestors.
 
-Each researcher gets only bounded catalog/search/open operations. The parent
+This is a separate application package, not the memory lifecycle application
+and not an implicit context path. Each researcher gets only bounded
+catalog/search/open operations. The parent
 receives a synthesis with digest-bound locators and short supporting excerpts,
 not the researcher's explored corpus. These tools spend an additional model
 call and therefore trade tokens and latency for higher-quality retrieval and a
-smaller parent context.
+smaller parent context. The package is still unsigned and unpublished in this
+unreleased source state; these names are not an unconditional built-in surface.
 
 ### Continue a prior session
 
@@ -121,16 +131,17 @@ what's available.
 
 ### Model-invoked skills (EP-0045)
 
-`--skill` is the operator-driven path. Independently, every skill the
-run discovers (cwd walk ∪ the active persona's `skills:`) also surfaces
-to the model: each skill's `name` + `description` enters the system
-prompt, and the model can pull a body in on its own initiative by
-calling the `skills__load` tool — no `--skill` needed.
+`--skill` is the operator-driven path. Independently, the run binds its
+effective cwd/persona catalog as generic host facts. When the explicit official
+`skills` WASM package is installed and `skills__search` plus `skills__load` are
+surfaced through normal tool policy, the model can search and open one body.
+The body remains a labeled tool result; native stado adds no system listing or
+synthetic user message.
 
 - Keep a side-effecting skill operator-only with
   `disable-model-invocation: true` in its frontmatter.
-- Turn model invocation off wholesale with
-  `--tools-disable skills__load` (user `--skill` is unaffected).
+- Turn model body invocation off with `--tools-disable skills__load` (user
+  `--skill` is unaffected). Omitting the optional plugin has the same effect.
 - A skill that is both `disable-model-invocation: true` and
   `user-invocable: false` is unreachable; `run` warns about it on
   stderr at startup.
@@ -171,8 +182,8 @@ Relevant `config.toml` sections:
 - `[defaults]` — `provider`, `model`, `allow_project_persona` (user only).
 - `[agent].thinking` / `thinking_budget_tokens` — extended-thinking
   on providers that support it.
-- `[budget]` — `warn_usd` / `hard_usd` and optional token caps
-  (`warn_tokens`, `hard_tokens`, per-direction variants). Crossing a
+- `[budget]` — token caps (`warn_tokens`, `hard_tokens`, and optional
+  per-direction variants). Crossing a
   hard cap exits 2. See [features/budget.md](../features/budget.md).
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
@@ -195,11 +206,10 @@ Relevant `config.toml` sections:
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.
 - **Sandbox-by-default since v0.57.0.** `stado run` applies Landlock
-  + the broker-projected ceiling-runner by default on Linux; macOS
-  gets the ceiling-runner + sandbox-exec for tool execution but no
-  Linux-style whole-process narrowing. Windows v2 sandboxing is
-  still deferred. Pass `--no-sandbox` to opt out (NoneRunner, no
-  Landlock).
+  + the broker-projected ceiling-runner by default on the supported Linux
+  platform. Pass `--no-sandbox` to opt out (NoneRunner, no Landlock) and run
+  without the v1 containment posture. Darwin and Windows are outside the
+  current and v1 support contract (EP-0065).
 - **`--sandbox-fs` retired in v0.57.0.** The pre-v0.57.0 flag is
   gone with no deprecation alias; passing it produces an "unknown
   flag" error. The new default is the sandboxed mode; `--no-sandbox`
@@ -208,7 +218,7 @@ Relevant `config.toml` sections:
   may appear in chunks. Use `--json` for deterministic event
   boundaries.
 - **Hard cap check is turn-boundary.** A single very long turn can
-  overshoot a USD or token cap — the loop checks after the turn
+  overshoot a token cap — the loop checks after the turn
   completes. `hard_tokens` uses session-cumulative input plus output
   (v0.75.2 fixed per-turn input counting).
 - **AGENTS.md loading is cwd-walk.** Run from a subdirectory and
@@ -218,6 +228,6 @@ Relevant `config.toml` sections:
 
 - [session.md](session.md) — what `--session` operates on
 - [features/skills.md](../features/skills.md) — the `--skill` flag
-- [features/tasks.md](../features/tasks.md) — the shared `tasks` tool
-- [features/budget.md](../features/budget.md) — the cost gate
+- [features/tasks.md](../features/tasks.md) — the TUI-only explicit tasks lifecycle application (not a `stado run` native tool)
+- [features/budget.md](../features/budget.md) — token guardrails
 - [features/instructions.md](../features/instructions.md) — AGENTS.md loader

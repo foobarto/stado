@@ -1,8 +1,9 @@
 # stado — docs
 
-Per-command + per-feature guides. Each file covers the **why** (design
-choice, trade-off) alongside the **how** (invocation, config, flags).
-Skim the TOC, jump to what you need.
+Concise command and feature guides live alongside longer articles about design
+choices and failure modes. Use the guides when you need an invocation, option,
+or configuration detail; use the articles when you want the reasoning behind a
+feature.
 
 Shorter forms live in:
 - `stado --help` — one-line summaries at the CLI
@@ -13,6 +14,13 @@ Shorter forms live in:
 - [DESIGN.md](../DESIGN.md) — as-built architecture
 - [eps/README.md](eps/README.md) — retroactive design records and EP index
 - [PLAN.md](../PLAN.md) — phased roadmap
+
+## Articles
+
+| Article | Focus |
+|---------|-------|
+| [The Loop Needs a Witness](articles/supervise-in-practice.md) | Why supervised work separates the worker, watchdog, verifier, application policy, and broker-enforced authority |
+| [What Survives the Window](articles/adaptive-context.md) | Why useful history needs governed persistence, retrieval, and learning rather than a larger prompt |
 
 ## Command guides
 
@@ -25,8 +33,8 @@ Shorter forms live in:
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
 | `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, sign, and scaffold WASM plugins |
-| `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
-| `stado learn` | [commands/learning.md](commands/learning.md) | Review trajectories and manage evidence-backed lessons |
+| `/memory` application | [commands/memory.md](commands/memory.md) | Future signed TUI lifecycle command; staged source is unsigned/unpublished |
+| `/learn` application | [commands/learning.md](commands/learning.md) | Future candidate-only TUI review; no native CLI fallback |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
 | `stado run --headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
@@ -46,15 +54,15 @@ Shorter forms live in:
 |---------|-------|---------------|
 | All tools as WASM | [features/no-internal-tools.md](features/no-internal-tools.md) | Why every model-facing tool is a plugin |
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
-| `[budget]` cost + token gate | [features/budget.md](features/budget.md) | Warn + hard caps on cumulative USD and token usage |
+| `[budget]` token gate | [features/budget.md](features/budget.md) | Warn + hard caps on cumulative token usage |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
 | `[hooks]` shell hook | [features/hooks.md](features/hooks.md) | Fire-and-forget shell hook on completed TUI, CLI, and headless turns |
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
-| Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
+| Tasks application (release pending) | [features/tasks.md](features/tasks.md) | Explicit TUI lifecycle application with global broker artifacts and no native fallback |
+| Supervised work (plugin release pending) | [features/supervise.md](features/supervise.md) | Official WASM quality gate; source/evaluator live in `foobarto/stado-plugins`, with real-key signing and publication still pending |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
-| Adaptive context and learning | [adaptive-context.md](adaptive-context.md) | Versioned memory, trajectory learning, isolated research, retained agents, and bounded state |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |
 | Personas | [features/personas.md](features/personas.md) | Operating-manual personas — bundled set, user additions, opt-in project personas (`allow_project_persona`), resolution order, `agent.spawn` delegation |
 | Plugin ABI | [plugins/abi-reference.md](plugins/abi-reference.md) | Systematic ABI reference — memory model, return-code conventions, typed handles, JSON envelope, capability vocabulary, manifest schema, lifecycle |
@@ -65,11 +73,7 @@ Shorter forms live in:
 ## Status
 
 `stado <cmd> --help` remains authoritative for exact flag spelling, but
-every shipped top-level command now has a guide above. The shape each
-guide follows:
-
-1. **What it does** — one paragraph
-2. **Why it exists** — design rationale, what it replaces or complements
-3. **How to use it** — invocation, common flags, worked examples
-4. **Config** — any `config.toml` sections that apply
-5. **Gotchas** — known rough edges, workarounds, deferred work
+every shipped top-level command now has a guide above. Guides stay practical:
+what the command or feature does, how to invoke and configure it, and the
+important gotchas. Design arguments that need room to breathe belong in
+[articles](articles/).

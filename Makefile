@@ -1,11 +1,16 @@
 # stado — Makefile
 #
 # Default target builds `./stado`. The release pipeline uses goreleaser
-# (see .goreleaser.yaml) for cross-platform + signed artefacts; this
+# (see .goreleaser.yaml) for signed Linux artefacts; this
 # file is for the local dev loop.
 
 GO       ?= go
 GOFLAGS  ?=
+# Persistent compiler and linter caches belong on the host-backed project
+# mount. The devbox's virtual /tmp and /var/tmp disks are intentionally small.
+GOCACHE ?= $(CURDIR)/.cache/go-build
+GOLANGCI_LINT_CACHE ?= $(CURDIR)/.cache/golangci-lint
+export GOCACHE GOLANGCI_LINT_CACHE
 # Go roots `t.TempDir()` at GOTMPDIR. Several suites walk parent dirs
 # looking for .git / .env / AGENTS.md / CLAUDE.md, and the fs/grep walk
 # guards reject symlinked path components — so GOTMPDIR must sit where no
@@ -14,14 +19,16 @@ GOFLAGS  ?=
 # under $HOME on Fedora Atomic, where /home -> /var/home). It must also
 # stay off /tmp (per-user quota is tight on this host). /var/tmp fits on
 # every count. Override with `make GOTMPDIR=/path ...`.
-GOTMPDIR ?= /var/tmp/stado-gotmp-$(shell id -u)
+# Keep this basename short: t.TempDir includes test names, and daemon tests add
+# Unix sockets whose complete paths must stay below Linux's 108-byte UDS cap.
+GOTMPDIR ?= /var/tmp/s$(shell id -u)
 # An inherited GOTMPDIR inside the repo would make those parent-walk
 # suites escape into the repo's own files; force it back out.
 ifneq (,$(findstring $(CURDIR),$(GOTMPDIR)))
-GOTMPDIR := /var/tmp/stado-gotmp-$(shell id -u)
+GOTMPDIR := /var/tmp/s$(shell id -u)
 endif
 export GOTMPDIR
-_ := $(shell mkdir -p $(GOTMPDIR))
+_ := $(shell mkdir -p $(GOTMPDIR) $(GOCACHE) $(GOLANGCI_LINT_CACHE))
 PKG      ?= ./cmd/stado
 BIN      ?= stado
 STATICCHECK ?= staticcheck

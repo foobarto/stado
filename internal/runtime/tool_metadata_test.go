@@ -1,66 +1,40 @@
 package runtime
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"testing"
 
-// TestLookupToolMetadata_ResolutionOrder locks the new metadata
-// pipeline: hidden → canonical literal → wire-form parse → legacy
-// bare alias → unknown bare. Pre-2026-05-09 the metadata table held
-// duplicate entries for bare and wire forms; the dedup left a single
-// source of truth keyed on canonical, with three fall-through paths
-// for non-canonical inputs. Lock all three in.
-func TestLookupToolMetadata_ResolutionOrder(t *testing.T) {
-	cases := []struct {
-		name          string
-		input         string
-		wantCanonical string
-		wantPlugin    string
-	}{
-		// 1. Canonical literal hits the canonical map directly.
-		{"canonical fs.read", "fs.read", "fs.read", "fs"},
-		{"canonical shell.read", "shell.read", "shell.read", "shell"},
-		{"canonical shell.read_until", "shell.read_until", "shell.read_until", "shell"},
-		{"canonical browser.cdp_eval", "browser.cdp_eval", "browser.cdp_eval", "browser"},
+	"github.com/foobarto/stado/pkg/tool"
+)
 
-		// 2. Wire form parses and reaches the canonical map.
-		{"wire fs__read", "fs__read", "fs.read", "fs"},
-		{"wire shell__read", "shell__read", "shell.read", "shell"},
-		{"wire shell__read_until", "shell__read_until", "shell.read_until", "shell"},
-		{"wire agent__send_message", "agent__send_message", "agent.send_message", "agent"},
-
-		// 3. Legacy bare alias → canonical (the pre-EP-0038 surface).
-		{"legacy read → fs.read", "read", "fs.read", "fs"},
-		{"legacy bash → shell.exec", "bash", "shell.exec", "shell"},
-		{"legacy ripgrep → rg.search", "ripgrep", "rg.search", "rg"},
-		{"legacy find_definition → lsp.definition", "find_definition", "lsp.definition", "lsp"},
-
-		// 4. Unknown wire form: synthesise from the alias prefix.
-		{"unknown wire form", "myplugin__customtool", "myplugin.customtool", "myplugin"},
-
-		// 5. Unknown bare name: return literal, no plugin.
-		{"unknown bare", "unrecognised", "unrecognised", ""},
+func TestToolMetadataForBundledToolComesFromManifest(t *testing.T) {
+	registered, ok := BuildDefaultRegistry(nil).Get("fs__read")
+	if !ok {
+		t.Fatal("fs__read missing")
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			md := LookupToolMetadata(c.input)
-			if md.Canonical != c.wantCanonical {
-				t.Errorf("LookupToolMetadata(%q).Canonical = %q, want %q", c.input, md.Canonical, c.wantCanonical)
-			}
-			if md.Plugin != c.wantPlugin {
-				t.Errorf("LookupToolMetadata(%q).Plugin = %q, want %q", c.input, md.Plugin, c.wantPlugin)
-			}
-		})
+	metadata := ToolMetadataFor(registered)
+	if metadata.Canonical != "fs.read" || metadata.Plugin != "stado-builtin-tool-fs" || metadata.PackageNamespace != "stado.dev/bundled/fs" {
+		t.Fatalf("metadata = %+v", metadata)
+	}
+	if len(metadata.Categories) != 1 || metadata.Categories[0] != "filesystem" {
+		t.Fatalf("categories = %v", metadata.Categories)
 	}
 }
 
-// TestLookupToolMetadata_HiddenSuppressed confirms the legacy hidden
-// tools (`ls`, `webfetch`) return a zero ToolMetadata so the listing
-// code can suppress them. Without this, the operator-facing tool
-// list would show both the legacy bare name and its wasm replacement.
-func TestLookupToolMetadata_HiddenSuppressed(t *testing.T) {
-	for _, name := range []string{"ls", "webfetch"} {
-		md := LookupToolMetadata(name)
-		if md.Canonical != "" {
-			t.Errorf("LookupToolMetadata(%q): hidden tools should return empty Canonical; got %+v", name, md)
-		}
+func TestToolMetadataForNativeDebtUsesOnlyWireProjection(t *testing.T) {
+	registered := namedStubTool("example__inspect")
+	metadata := ToolMetadataFor(registered)
+	if metadata.Canonical != "example.inspect" || metadata.Plugin != "example" {
+		t.Fatalf("metadata = %+v", metadata)
 	}
+}
+
+type namedStubTool string
+
+func (t namedStubTool) Name() string         { return string(t) }
+func (namedStubTool) Description() string    { return "" }
+func (namedStubTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (namedStubTool) Run(context.Context, json.RawMessage, tool.Host) (tool.Result, error) {
+	return tool.Result{}, nil
 }

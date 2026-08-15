@@ -51,12 +51,29 @@ func (p *Provider) Name() string { return p.name }
 
 func (p *Provider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		SupportsPromptCache:  true,
-		SupportsThinking:     false, // via Responses API only; not in this provider
-		MaxParallelToolCalls: 8,
-		SupportsVision:       true,
-		MaxContextTokens:     128_000,
+		SupportsPromptCache:     true,
+		SupportsThinking:        false, // via Responses API only; not in this provider
+		SupportsReasoningEffort: false,
+		MaxParallelToolCalls:    8,
+		SupportsVision:          true,
+		MaxContextTokens:        128_000,
 	}
+}
+
+func (p *Provider) CapabilitiesForModel(model string) agent.Capabilities {
+	caps := p.Capabilities()
+	caps.SupportsReasoningEffort = openAIReasoningEffortSupported(model)
+	return caps
+}
+
+func openAIReasoningEffortSupported(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	for _, family := range []string{"gpt-5", "o1", "o3", "o4"} {
+		if model == family || strings.HasPrefix(model, family+"-") || strings.HasPrefix(model, family+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // CountTokens uses tiktoken (offline BPE loader) to return the prompt-side
@@ -210,6 +227,17 @@ func buildParams(req agent.TurnRequest) (sdk.ChatCompletionNewParams, error) {
 		StreamOptions: sdk.ChatCompletionStreamOptionsParam{
 			IncludeUsage: sdk.Bool(true),
 		},
+	}
+	if req.ReasoningEffort != "" && openAIReasoningEffortSupported(req.Model) {
+		effort := req.ReasoningEffort
+		// The native OpenAI SDK/API currently exposes low, medium, and high.
+		// Preserve stado's provider-neutral xhigh/max choices by clamping them
+		// to the strongest native value. OpenAI-compatible providers receive
+		// their original vocabulary through the separate wire implementation.
+		if effort == "xhigh" || effort == "max" {
+			effort = "high"
+		}
+		params.ReasoningEffort = sdk.ReasoningEffort(effort)
 	}
 	if req.Temperature != nil {
 		params.Temperature = sdk.Float(*req.Temperature)

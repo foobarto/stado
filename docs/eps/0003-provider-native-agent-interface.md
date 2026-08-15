@@ -116,5 +116,5 @@ failures local to the adapter instead of a shared abstraction layer.
 - [EP-7: Conversation State and Compaction](./0007-conversation-state-and-compaction.md)
 - [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
-- [DESIGN.md](../../DESIGN.md#provider-interface-pkgagent)
-- [PLAN.md](../../PLAN.md#phase-1--coding-agent-provider-interface--)
+- [DESIGN.md — Provider layer](../../DESIGN.md#provider-layer)
+- [PLAN.md — Shared surfaces and operator experience](../../PLAN.md#shared-surfaces-and-operator-experience)

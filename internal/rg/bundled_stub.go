@@ -10,9 +10,7 @@
 
 package rg
 
-import "runtime"
-
-// bundledBytes is the raw ripgrep binary for the current platform, or
+// bundledBytes is the raw ripgrep binary for the current Linux target, or
 // nil when this build didn't include one.
 var bundledBytes []byte
 
@@ -20,5 +18,3 @@ var bundledBytes []byte
 // binext.Extract to verify the blob on first use. Empty when there's
 // no bundled binary.
 var bundledSHA256 string
-
-func isWindows() bool { return runtime.GOOS == "windows" }

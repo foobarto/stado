@@ -335,18 +335,18 @@ func parsePersona(raw []byte) (Persona, string, error) {
 //	(blank line)
 //	project AGENTS.md / CLAUDE.md  (when non-empty)
 //	(blank line)
-//	memory context             (when non-empty)
+//	application context        (when non-empty)
 //	(blank line)
 //	per-call extra              (when non-empty)
 //
 // Sections are separated by a blank line; missing sections are
 // elided cleanly. Trailing whitespace trimmed.
-func AssembleSystem(p *Persona, projectInstructions, memoryCtx, extra string) string {
+func AssembleSystem(p *Persona, projectInstructions, applicationContext, extra string) string {
 	var parts []string
 	if p != nil && strings.TrimSpace(p.Body) != "" {
 		parts = append(parts, strings.TrimSpace(p.Body))
 	}
-	for _, s := range []string{projectInstructions, memoryCtx, extra} {
+	for _, s := range []string{projectInstructions, applicationContext, extra} {
 		if t := strings.TrimSpace(s); t != "" {
 			parts = append(parts, t)
 		}

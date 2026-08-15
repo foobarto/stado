@@ -22,12 +22,13 @@ import (
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
-// runtimeLookupCanonical wraps runtime.LookupToolMetadata so the
+// runtimeLookupCanonical derives the canonical form without a global
+// metadata table so the
 // helper file can reach the metadata table without re-importing it
 // from tool_run.go. Returns the canonical dotted form ("shell.spawn")
 // or "" when the registered name isn't in the metadata table.
 func runtimeLookupCanonical(registered string) string {
-	return runtime.LookupToolMetadata(registered).Canonical
+	return runtime.CanonicalToolName(registered)
 }
 
 // daemonMode is the operator's choice of daemon involvement, sourced
@@ -199,16 +200,7 @@ func errPTYRequiresDaemon(registered, why string) error {
 			" To enable auto-spawn unset STADO_DAEMON or set STADO_DAEMON=auto. To use a manually-managed daemon: `stado daemon start` + STADO_DAEMON=manual. To stay single-shot (and refuse PTY tools): STADO_DAEMON=off. Note: as of v0.57.0 the TUI (`stado`), MCP server (`stado mcp-server`), and agent loop (`stado run`) attach to the broker (an evolution of the daemon) by default for sandboxing — STADO_DAEMON=off no longer reliably blocks the daemon there. Set STADO_BROKER_ATTACH=0 to keep those surfaces from attaching to the broker, or pass `stado run --no-sandbox` to opt out for a single run.")
 }
 
-// lookupCanonical resolves a registered (wire-form) tool name to its
-// canonical dotted form via the runtime metadata table. Empty return
-// means the metadata didn't have a canonical entry — caller falls back
-// to printing the registered form.
+// lookupCanonical resolves a registered wire-form name deterministically.
 func lookupCanonical(registered string) string {
-	// Imported indirectly via runtime — keep this helper here so the
-	// import surface of tool_run.go stays unchanged. The actual
-	// lookupToolMetadata call lives in tool_run.go's existing import
-	// (runtime), reachable via runtime.LookupToolMetadata at the
-	// caller. We re-look-up here so callers don't have to thread the
-	// metadata around.
 	return runtimeLookupCanonical(registered)
 }

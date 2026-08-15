@@ -67,7 +67,7 @@ func (t Taint) String() string {
 // Setting from Tainted → Clean is allowed (operator turn reset);
 // setting from Clean → Tainted is the typical ingestion-site
 // transition.
-func (s *Service) SetTaint(sessionID string, t Taint) error {
+func (s *Service) SetTaint(sessionID, controllerToken string, t Taint) error {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
 	st, ok := s.sessions[sessionID]
@@ -76,6 +76,18 @@ func (s *Service) SetTaint(sessionID string, t Taint) error {
 	}
 	if st.terminated {
 		return ErrSessionTerminated
+	}
+	if err := authenticateControllerLocked(st, controllerToken); err != nil {
+		return err
+	}
+	if st.scope.durable {
+		next := *st
+		next.taint = t
+		next.scope.version++
+		if err := s.appendSessionScopeSnapshotLocked(&next, s.now()); err != nil {
+			return err
+		}
+		st.scope.version = next.scope.version
 	}
 	st.taint = t
 	return nil

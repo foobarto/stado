@@ -1,13 +1,10 @@
-//go:build unix
+//go:build linux
 
 package runtime
 
 import "syscall"
 
-// Register the Unix-only signal names. These constants are undefined in the
-// Windows syscall package, so they can't live in the cross-platform
-// signalNames literal — but PTYs are a Unix feature, so this is where the
-// agent-relevant job-control / user signals actually matter.
+// Register the less common Linux job-control and user signal names.
 func init() {
 	signalNames["USR1"] = syscall.SIGUSR1
 	signalNames["USR2"] = syscall.SIGUSR2

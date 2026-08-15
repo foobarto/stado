@@ -8,14 +8,13 @@ import (
 )
 
 // TestLoop_StopsOnBudgetHardCap: a /loop iteration must respect the same
-// budget hard-cap gate a manual Enter does. Before the fix, loopIterate
-// called startStream() directly, so an unattended loop blew straight past
-// [budget].hard_usd. The safe behavior is to STOP the loop (no human is
+// token-budget hard-cap gate a manual Enter does. The safe behavior is to STOP
+// the loop (no human is
 // present to /budget ack) and say why — not silently spin.
 func TestLoop_StopsOnBudgetHardCap(t *testing.T) {
 	m := newBudgetModel(t)
-	m.SetBudget(1.00, 2.00)
-	m.usage.CostUSD = 2.50 // over the hard cap
+	m.SetBudgetTokens(100, 200)
+	m.cumulativeInputTokens = 250 // over the hard cap
 	if !m.budgetExceeded() {
 		t.Fatal("precondition: expected budgetExceeded=true")
 	}

@@ -27,10 +27,16 @@ so you can verify what you're running, including from an airgapped
 environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
-> audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
-> adaptive retrieval, trajectory learning, retained subagents, durable
-> mailboxes, and resumable broker automation are shipped. Main remaining gap: Windows sandbox
-> v2. See
+> audit log, Linux sandboxing, MCP/ACP, signed WASM plugins, retained
+> subagents, durable mailboxes, resumable broker automation, generic
+> plugin-defined artifacts, and the persistent TUI lifecycle host are
+> source-complete. Native product-workflow fallbacks, including `/supervise`,
+> are removed. Official application source is preserved in
+> `foobarto/stado-plugins`, but those packages are not ordinary installed
+> surfaces until their own signing, publication, and Accepted EP gates close.
+> Linux is the only supported platform now and through v1; Darwin and Windows
+> are outside the build, runtime, packaging, and roadmap contract
+> ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). See
 > [PLAN.md](PLAN.md) for the phased roadmap.
 >
 > **Working in this codebase (agent or human)?** Jump to the
@@ -45,10 +51,9 @@ environment.
   changes only touch your branch when you run `stado session land`.
 - **Every action is auditable.** Each session maintains signed `tree`
   and `trace` refs; `stado audit verify` detects tampering.
-- **Tool execution is sandboxed.** Linux has the strongest shipped path
-  (`Landlock` + `bubblewrap` + `seccomp`), macOS has real subprocess
-  sandboxing via `sandbox-exec`, and Windows is still warning-only in
-  v1. Built-in and third-party WASM tools run inside `wazero` and are
+- **Tool execution is sandboxed.** The supported Linux path composes
+  `Landlock`, `bubblewrap`, namespaces, and `seccomp`. Built-in and
+  third-party WASM tools run inside `wazero` and are
   gated by manifest capabilities rather than the OS subprocess runner.
 - **Provider support is direct.** Anthropic, OpenAI, Google, and
   OpenAI-compatible backends keep provider-native features instead of
@@ -59,29 +64,35 @@ environment.
 ## Feature highlights
 
 The newer pieces turn stado from a safe coding loop into a durable agent
-runtime. A few highlights from recently shipped capabilities and their EPs:
+runtime. This table includes both shipped capabilities and accepted in-flight
+contracts; the wording identifies the latter rather than presenting an EP as
+an implementation report.
 
 | Capability | What makes it useful |
 | --- | --- |
-| **Plugin-first tools + signed WASM runtime** ([EP-0002](docs/eps/0002-all-tools-as-plugins.md), [EP-0006](docs/eps/0006-signed-wasm-plugin-runtime.md), [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md)) | Keep integrations replaceable instead of baking them into the loop. Most bundled tools and installed third-party tools share a capability-gated ABI and `wazero` runtime; bundled modules are trusted embedded release assets, while installed plugins require signature, trust-store, and digest verification. The shared `tasks` tool remains a documented native bootstrap exception pending migration. |
-| **Isolated research agents** ([EP-0054](docs/eps/0054-addressable-context-and-research-agents.md)) | Delegate repository archaeology and long investigations without flooding the main conversation; address the result later by durable handle. |
+| **Plugin-first tools + signed WASM runtime** ([EP-0002](docs/eps/0002-all-tools-as-plugins.md), [EP-0006](docs/eps/0006-signed-wasm-plugin-runtime.md), [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0066](docs/eps/0066-canonical-plugin-authority-and-application-placement.md)) | Keep integrations replaceable instead of baking them into the loop. Bundled and installed plugins share a capability-gated ABI and `wazero` runtime. The stado-owned native model-tool allowlist is empty; the exact external MCP adapter is not a native product application. |
+| **Isolated research agents** ([EP-0054](docs/eps/0054-addressable-context-and-research-agents.md)) | Accepted in-flight contract for delegating repository archaeology and long investigations without flooding the main conversation. Its replacement package is not shipped until the official WASM is signed, published, installed, and release-verified. |
 | **Retained subagents + mailboxes** ([EP-0055](docs/eps/0055-retained-resumable-subagents.md), [EP-0056](docs/eps/0056-agent-mailboxes-and-supervision.md)) | Keep useful workers alive across turns, supervise them, and exchange durable messages instead of losing coordination when one prompt ends. |
-| **Measured adaptive-retrieval shadowing** ([EP-0058](docs/eps/0058-measured-adaptive-retrieval.md)) | Compare explainable candidate rankings against active bounded retrieval and report feedback signals without changing what the prompt receives yet. |
-| **Trajectory learning** ([EP-0052](docs/eps/0052-learn-trajectory-refinement.md)) | Review completed sessions for concrete lesson candidates, approve the useful ones, and feed them back into future work. |
+| **Measured adaptive retrieval — accepted, not implemented** ([EP-0058](docs/eps/0058-measured-adaptive-retrieval.md)) | The accepted design will compare explainable candidate rankings against active bounded retrieval before any adaptive policy changes prompts. The current source has neither ranking nor a shadow evaluator. |
+| **Trajectory learning — staged source** ([EP-0052](docs/eps/0052-learn-trajectory-refinement.md)) | The unsigned official source reviews bounded evidence into lesson candidates only. Exact activation remains unavailable until a predeclared policy or separately trusted presenter can prove operator authority; an in-process command is not enough. |
 | **Session journal + deterministic signals** ([EP-0057](docs/eps/0057-session-state-journal-decisions-and-signals.md)) | Project objectives, blockers, decisions, corrections, and mistakes into queryable durable state rather than reconstructing them from chat. |
 | **Durable broker, events, and budgets** ([EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md)) | Give agents and automations resumable event delivery, explicit budgets, crash-safe coordination, and one shared substrate for supervision. |
 | **Verify Work command gates** ([EP-0046](docs/eps/0046-verify-work-phase.md)) | Run configured verification commands before completion and record their evidence; the EP's independent LLM judge remains deferred. |
-| **Programmable Lua lifecycle hooks** ([EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md)) | Inspect, deny, or mutate lifecycle events through a constrained scripting contract while stado retains the actual enforcement boundary. |
+| **WASM lifecycle applications — TUI host implemented** ([EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md), [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md)) | Lua remains the compact operator-authored hook surface. The TUI now owns one persistent, serialized WASM application instance across commands, tools, hooks, events, ticks, and generic bridges. Run, headless, and ACP fail closed on configured lifecycle applications for v1 rather than offering partial composition. |
+| **Plugin-defined harness artifacts — generic substrate complete** ([EP-0053](docs/eps/0053-versioned-harness-artifacts-and-index.md), [EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md)) | The manifest, broker, authenticated host imports, archived descriptors, and fail-closed legacy migration are source-complete. Signed plugins declare validated `data` shapes and deterministic index projections; the memory/learn application remains unsigned and candidate-only. |
+| **Supervised work — application source complete, release pending** ([EP-0062](docs/eps/0062-harness-enforced-supervised-work.md), [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md)) | The official `foobarto/stado-plugins/supervise` lifecycle application owns cadence, detectors, prompts, stale-verdict policy, and workflow. Native stado supplies only generic facts and enforcement. The source is durably checkpointed; the `supervise/v0.1.0` artifact is not yet real-key-signed or published, so `/supervise` is not currently available to ordinary installs and has no native fallback. |
 
-Together with native bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),
-these capabilities teach the model when to research, delegate, learn, resume,
-and coordinate while stado continues to own tools, policy, audit, and sandboxing.
+Together with bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),
+these contracts separate application policy from the primitives stado must
+enforce. Plugins may decide how to research, delegate, learn, resume, and
+supervise; the host and broker retain session binding, ordered observations,
+authority ceilings, audit, and sandboxing.
 
 ---
 
 ## Install
 
-### Install script (Linux, macOS)
+### Install script (Linux)
 
 `install.sh` is the first-install path. It downloads the signed
 `checksums.txt` manifest from the latest release (or a pinned tag),
@@ -89,8 +100,7 @@ verifies that manifest with `cosign`, verifies the matching archive
 against the manifest, and installs `stado` to `~/.local/bin` by
 default.
 
-Requirements: `curl`, `cosign`, `tar`, and either `sha256sum` or
-`shasum`.
+Requirements: `curl`, `cosign`, `tar`, and `sha256sum`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | bash
@@ -103,12 +113,6 @@ curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
   bash -s -- --dir /usr/local/bin --version v0.79.0
 ```
 
-### Homebrew
-
-```sh
-brew install foobarto/tap/stado
-```
-
 ### Self-update (existing installs)
 
 ```sh
@@ -116,7 +120,7 @@ stado self-update --dry-run
 stado self-update
 ```
 
-`self-update` picks the archive matching the current OS/arch, verifies
+`self-update` picks the archive matching the current Linux architecture, verifies
 the downloaded asset against a minisign-verified `checksums.txt`
 manifest, and then atomically swaps the binary into place. The updater
 requires a build with an embedded minisign pubkey and a release that
@@ -139,8 +143,7 @@ cosign verify-blob \
   checksums.txt
 
 # replace <asset> with the archive/package you downloaded
-grep " <asset>$" checksums.txt | sha256sum -c -         # Linux
-grep " <asset>$" checksums.txt | shasum -a 256 -c -    # macOS
+grep " <asset>$" checksums.txt | sha256sum -c -
 
 # inspect the minisign root embedded in the stado binary you already trust
 stado verify --show-builtin-keys
@@ -201,9 +204,10 @@ provider-native thinking is rendered without changing what stado
 captures in the transcript.
 Press `/` on an empty prompt for inline slash-command suggestions, or
 `Ctrl+P` for the full command palette. Use `Ctrl+X M` or `/model` to
-switch models; selections become the next startup default. Use
-`Ctrl+X K` or `/tasks` to open the shared task manager that both you
-and the agent can update.
+switch models; selections become the next startup default. An explicitly
+admitted signed `tasks` lifecycle application can add a dynamic `/tasks`
+command and Do-turn model tool backed by global broker artifacts. Core stado
+has no native task store, fixed task keybinding, or default task autoload.
 
 ### TUI screenshots
 
@@ -245,13 +249,10 @@ stado run --session <id> "follow-up"    # continue an existing session from the 
 stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
 stado config show                       # resolved effective config (file + env + defaults)
-stado memory list                       # review plugin-proposed/approved memories
-stado learn --session-id <id>           # review a completed trajectory for lesson candidates
-stado learn candidates --session-id <id> # inspect candidates from that session review
 stado session state <id>                # bounded objective/work/blocker projection
 stado session signals <id>              # deterministic mistake/correction signals
 stado session journal <id>              # canonical structured session chronology
-stado run --tools --prompt "create tasks for the release checklist"
+stado run --tools --prompt "draft a release checklist from the repository"
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
 stado doctor --json | jq                # newline-delimited JSON, one check per line
 ```
@@ -273,7 +274,10 @@ stado tool run --session <sid> <tool> '{...}'  # session-aware tool CLI
 ```
 
 `plugin list` shows the detailed catalog and trust state; `plugin installed`
-shows runnable plugin IDs (`<name>-<version>`) and project/global scope. The
+shows exact source-derived store keys, canonical sources, and project/global
+scope. A friendly manifest-name alias works only when it identifies one
+installed package; use a displayed `project:` or `global:` selector whenever
+the same exact package exists in both roots. The
 shipped bundled plugin catalog lives under [plugins/bundled/](plugins/bundled/):
 `plugins/bundled/auto-compact/`
 is on by default. Opt-in plugins (the former `optional/` + `demos/`) now live in
@@ -308,45 +312,54 @@ surface itself is shipped and stable enough to wire into Zed today.
 ### Learning, memory, and context research
 
 Stado treats useful context as governed state rather than an ever-growing
-prompt. The fast path injects only active, authorized, non-expired memories and
-lessons under hard item and token limits. The slower `memory__research` and
-`session__research` tools delegate a query to an isolated research agent, which
-can search and open a bounded authorized corpus without filling the parent
-agent's context. The parent receives a synthesis with digest-bound citations and
-short supporting excerpts instead of the raw material explored by the child.
+prompt. The staged official memory lifecycle application can contribute only
+active, authorized, non-expired memories and lessons under hard bounds in the
+interactive TUI. It is unsigned and unpublished, so ordinary installs currently
+have no memory/learn surface and core provides no native fallback. When the
+explicit signed official
+`research` package is installed and activated, its slower `memory__research`
+and `session__research` tools delegate a query to an isolated research agent,
+which can search and open a bounded authorized corpus without filling the
+parent agent's context. The parent receives a synthesis with digest-bound
+citations and short supporting excerpts instead of the raw material explored
+by the child. That package is unsigned and unpublished in this unreleased
+source state, so these tools are not yet an unconditional installed surface.
 
-Learning is explicit and evidence-backed:
+The staged package declares the following application-owned commands once a
+signed release is published, installed, admitted, and explicitly enabled:
 
-```sh
-stado learn --session-id <id>                 # same as: stado learn run ...
-stado learn candidates --session-id <id>
-stado learn artifact <artifact-id> --session-id <id>
-stado learn retrieval-report                  # shadow-ranking observations
-stado learn migrate                           # idempotent legacy-memory import
+```text
+/memory [status|on|off|list|add ...]
+/learn [focus]
 ```
 
-Inside the TUI, `/learn [focus]` reviews the just-completed trajectory. The
+`/learn [focus]` reviews bounded broker-opened evidence. The
 reviewer considers deterministic signals such as repeated tool failures,
 argument corrections followed by success, verification fail→pass transitions,
 scope denials, and explicit operator corrections. It proposes versioned lesson
-candidates but cannot activate them. Use `/learn candidates`, `/learn show
-<id>`, and `/learn approve <id>` for the trusted interactive review path;
-ordinary CLI or agent-shell execution cannot mint an operator approval.
+candidates but cannot activate them. Security-significant activation is
+withheld until a broker-owned predeclared policy or separately trusted presenter can
+prove operator intent; neither a TUI callback nor ordinary CLI or agent-shell
+execution can mint that authority.
 
 Artifacts retain host-bound global, repository, or session scope plus
 provenance, sensitivity, tags, groups, evidence, and version history. Session
 scope flows from the creating session to descendants, never to siblings or
 ancestors. Active memories remain untrusted guidance below operator and repo
 instructions and cannot grant tools or capabilities. See
-[Adaptive context and learning](docs/adaptive-context.md) and the
-[`stado learn` guide](docs/commands/learning.md) for the full contract.
+[What Survives the Window](docs/articles/adaptive-context.md) and the
+[memory/learn lifecycle guide](docs/commands/learning.md) for the full contract.
 
-Stado also supplies bounded native harness guidance at model-turn boundaries.
-Strong unreviewed mechanical signals prompt the agent to preserve a candidate
-lesson and ask you to use `/learn`; historical questions can be routed to the
-isolated memory/session researchers, and retained children with pending work
-trigger mailbox coordination reminders. These nudges use fixed host templates,
-never embed mailbox/tool payloads, and cannot approve memory or widen authority.
+The staged official `guidance` lifecycle application can supply bounded
+advisory context at model-turn boundaries in the interactive TUI. It owns its
+classifiers, thresholds, wording, and ordering while native stado exposes only
+bounded current-session facts and the exact registry/session ceiling. The
+package is explicit opt-in and currently unsigned and unpublished, so ordinary
+installs have no guidance surface and there is no native fallback. Once signed,
+installed, and configured as a background application, it may recommend
+preserving a lesson, using the official isolated-research tools, or coordinating
+retained children; it cannot approve memory, deny a turn, replace the system
+prompt, mutate history, or widen authority.
 
 Retained subagents complement this memory system for longer work. They can fork
 an authorized historical session into a new identity with an attenuated tool,
@@ -363,15 +376,16 @@ context contributes data, never authority.
 - **Tools.** Bundled tools, MCP tool registration, and signed WASM
   plugin overrides all flow through the same runtime.
 - **State.** Git-native sidecar sessions with signed `tree` + `trace`
-  refs, shared user/agent tasks, plus resume/fork/land/export/search
+  refs and generic broker-owned artifacts, plus resume/fork/land/export/search
   tooling.
 - **Surfaces.** Terminal TUI, `stado run`, headless JSON-RPC, ACP, and
   MCP server mode all compose the same core runtime.
 - **Ops.** Strict manifest-based self-update, OpenTelemetry, context
   management, and signed audit export are already shipped.
-- **Learning.** Evidence-backed `stado learn`/`/learn`, scoped versioned
-  memories, isolated memory/session research, bounded state and signals, and
-  shadow adaptive retrieval are shipped.
+- **Learning.** Generic scoped/versioned artifacts and the fail-closed legacy
+  migration are source-complete. The official candidate-only `/memory` and
+  `/learn` lifecycle source is staged but unsigned/unpublished; fresh activation,
+  adaptive ranking, and isolated research remain Accepted release work.
 - **Recovery.** Bundled `auto-compact` is enabled by default as a
   background plugin; when the TUI hits the hard context threshold it
   forks a compacted child session and replays the blocked prompt there.
@@ -394,13 +408,17 @@ For the full as-built detail, see [docs/README.md](docs/README.md),
 
 See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
-- **Sandbox — Windows v2** (Phase 3.6). Linux (bubblewrap + landlock +
-  seccomp + CONNECT-proxy) and macOS (`sandbox-exec`) are shipped;
-  Windows runs unsandboxed with a warning until job objects + restricted
-  tokens land in v2.
-- **Release distribution** (Phase 10.3b / 10.7 tail). The Homebrew tap
-  is already live and release archives/packages are built today; the
-  remaining work is signed apt/rpm repository hosting plus the release
+- **Official supervise release.** The native workflow has been cut away and the
+  official application source is preserved in `foobarto/stado-plugins` commit
+  `5e92643d9c5f96d2706d79375b87b4778742039e`. Finish the full workflow
+  conformance proof, sign `supervise/v0.1.0` with the offline plugin key,
+  publish it, and independently verify installation against stado 0.80.0.
+- **Linux containment convergence.** Complete the broker, namespace,
+  Landlock, seccomp, network, and WASM-capability intersections as one
+  coherent Linux release gate. Other platforms are outside the current and
+  v1 roadmap ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
+- **Release distribution.** Linux release archives/packages are built today;
+  the remaining work is signed apt/rpm repository hosting plus the release
   ceremony that seeds embedded minisign roots into tagged builds.
 
 ---
@@ -417,8 +435,8 @@ every invocation. Provider endpoints remain whatever you point stado at.
 
 Release verification stays offline-friendly via `checksums.txt.minisig`
 and `stado verify --show-builtin-keys`. For the detailed flow, see
-[SECURITY.md](SECURITY.md). For the honest tradeoff discussion on local
-model quality, see [PLAN.md](PLAN.md#offline--airgap-honesty).
+[SECURITY.md](SECURITY.md). Current v1 scope and tradeoffs are tracked under
+[PLAN.md — Explicit non-goals through v1](PLAN.md#explicit-non-goals-through-v1).
 
 ---
 
@@ -435,11 +453,6 @@ model    = "claude-sonnet-4-6"
 [agent]
 thinking = "auto"
 system_prompt_path = "~/.config/stado/system-prompt.md"
-
-[memory]
-enabled = false       # opt in to approved-memory prompt context
-max_items = 8
-budget_tokens = 800
 
 [inference.presets.my-proxy]
 endpoint = "https://proxy.example/v1"
@@ -554,17 +567,13 @@ notes in `CHANGELOG.md` for v0.57.0).
   For `net:<host>` policies on subprocesses and MCP stdio servers,
   stado wraps the subprocess in `pasta --splice-only` and exposes only
   its local CONNECT-allowlist proxy port inside the private netns.
-- **macOS** — sandboxed subprocesses run under generated
-  `sandbox-exec` profiles from the same policy vocabulary; the broker
-  + ceiling apply at the runner layer the same way as on Linux,
-  minus the Landlock in-process belt-and-braces.
-- **Windows** — v1 remains warning-only passthrough; v2 is planned.
 - **WASM plugins and bundled plugin-backed tools** — execute inside
   `wazero`; filesystem/session/LLM/tool access is mediated by
   capability-gated host imports rather than the OS subprocess runner.
 
-`stado doctor` reports the sandbox runner in use. On Linux it also
-reports Landlock availability.
+`stado doctor` reports the sandbox runner and Landlock availability. Darwin and
+Windows are outside the supported build/runtime contract and carry no current
+containment guarantee (EP-0065).
 
 ### MCP server isolation
 
@@ -589,8 +598,7 @@ servers without capabilities are refused at startup rather than run
 unsandboxed. HTTP MCP servers (`url = "https://…"`) are not wrapped
 locally; stdio servers (`command = …`) are. On Linux, `net:<host>`
 entries require `pasta` (`passt` package) and run inside a private
-netns where only the CONNECT proxy port is reachable. On macOS,
-`net:<host>` remains `sandbox-exec`-enforced. Plain HTTP is still
+netns where only the CONNECT proxy port is reachable. Plain HTTP is still
 outside the CONNECT proxy itself.
 
 ### WASM plugins
@@ -669,16 +677,16 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 | `internal/tools/{executor,registry,classify}.go` | tool dispatch + per-call commit invariants; the name→tool registry; mutation class (tree vs trace commit) |
 | `internal/providers/` (+ `pkg/agent`) | provider impls (anthropic/openai/google/oaicompat); native thinking-signature + prompt-cache round-trip |
 | `internal/{instructions,personas,skills}` | AGENTS.md/CLAUDE.md loading; persona inheritance; `.stado/skills/*.md` → `/skill:` commands |
-| `internal/{memory,artifacts,artifactprompt,learn,research}` | legacy and versioned memory; bounded prompt retrieval; evidence-backed learning; isolated memory/session researchers |
+| `internal/{artifacts,broker}` | generic broker-owned artifacts, strict signed projections, typed evidence receipts, and the isolated one-way legacy-memory migration reader |
 | `internal/{sessioncontext,stateprompt,trajectory}` | bounded operational state, journal, deterministic learning signals, and turn/tool observations |
-| `internal/{tasks,orchestration}` | shared user+agent task list; retained child admission, leases, mailbox coordination, and supervision |
+| `internal/{broker,artifacts,orchestration}` | generic broker artifacts, retained child admission, leases, mailbox coordination, and supervision primitives |
 | `internal/{compact,streambudget,toolinput}` | user-invoked compaction; streamed-text + tool-arg size caps |
 | `internal/runtime/subagent.go` (+ `internal/subagent`) | `spawn_agent`: child loop, forked worktree, write-scope projection |
 | `internal/state/git/{sidecar,session}.go` | the sidecar-bare-repo state model; repo-id canonicalization; per-session `tree`/`trace` refs |
 | `internal/state/git/{commit_write,commit_meta}.go` | where a session commit is written + signed; per-tool-call trailer format |
 | `internal/audit/{signer,verify}.go` | the `stado-audit-v2` signature format; strict v2 verify (no v1 fallback); the audit ref-walk |
 | `internal/sandbox/policy.go` | the capability grammar (`fs:`/`net:`/`exec:`/`env:`); policy intersection (`Merge`) |
-| `internal/sandbox/{runner_linux,runner_darwin,landlock_linux,seccomp_linux,proxy}.go` | per-OS enforcement (bwrap/landlock/seccomp, sandbox-exec); the net-allowlist CONNECT proxy |
+| `internal/sandbox/{runner_linux,landlock_linux,seccomp_linux,proxy}.go` | supported Linux enforcement (bwrap/landlock/seccomp) and the net-allowlist CONNECT proxy |
 | `internal/broker/` | the privileged broker: session-ceiling projection, profiles, taint, mount table, canonical WAL/snapshots, artifact grants, mailboxes, retained lifecycle, and recursive budgets |
 | `internal/{netguard,providers/envscrub,secrets}` | SSRF / private-IP egress blocking; subprocess env safelist (`inherit_env`); operator secret store |
 
@@ -727,7 +735,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 | add / modify a picker | `internal/tui/<name>picker/picker.go` + trigger in `handler_input.go` + `handler_picker_response.go` |
 | fix display-width truncation / wrapping | `internal/tui/render/render.go:WrapDescList` / `palette/slash.go:truncate` (`ansi.Truncate`) |
 | add a built-in theme | `internal/tui/theme/catalog.go` |
-| change a sandbox capability / per-OS enforcement | `internal/sandbox/policy.go`, then mirror in `runner_linux.go` / `sbx_profile.go` / `landlock_linux.go` / `seccomp_linux.go` |
+| change a sandbox capability / Linux enforcement | `internal/sandbox/policy.go`, then `runner_linux.go` / `landlock_linux.go` / `seccomp_linux.go` |
 | change a sandbox profile's mounts | `internal/broker/mount_table.go` (CI-asserted) + `session.go`; profiles in `types.go` |
 | change the audit signature / verify | `internal/audit/signer.go` (`SignV2`/`VerifyV2`) + `verify.go` |
 | add a wasm host import (plugin capability) | `internal/plugins/runtime/host_imports.go` + a `host_<name>.go` + parse the gate in `host.go` |
@@ -747,7 +755,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
   anchor; `notes/journal.md` append-only log; `decisions/` ADR-style settled
   calls; `specs/open/` per-chunk specs + deferred stubs; `goals/`
   long-running `/pursue` state. The conventions for all of it are in
-  [CLAUDE.md](CLAUDE.md).
+  `CLAUDE.md`.
 
 ### Build · test · release
 
@@ -781,7 +789,7 @@ Five commitments that shape every architectural decision:
 5. **Context is governed state, not an ever-growing prompt.** Evidence-backed
    learning, scoped memory, isolated research, and bounded session state keep
    useful history available without promoting model-authored text into authority.
-   See [Adaptive context and learning](docs/adaptive-context.md).
+   See [What Survives the Window](docs/articles/adaptive-context.md).
 
 ---
 

@@ -1,13 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"path/filepath"
+
 	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/spf13/cobra"
-	"path/filepath"
 )
+
+func writeJSON(writer io.Writer, value any) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
+}
 
 func withSessionContext(cmd *cobra.Command, fn func(*sessioncontext.Service) error) error {
 	cfg, err := config.Load()

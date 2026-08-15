@@ -10,11 +10,11 @@ func TestRelationsNeverRevealHiddenEndpoint(t *testing.T) {
 	svc, _, store := fixture(t)
 	defer store.Close()
 	ctx := context.Background()
-	global, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeGlobal, Summary: "global"}, "alice", "agent", "g")
+	global, err := svc.Create(ctx, testMemory(ScopeGlobal, ScopeBinding{}, "global", ""), "alice", "agent", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := svc.Create(ctx, Artifact{Kind: KindMemory, Scope: ScopeSession, Binding: ScopeBinding{AnchorSessionID: "s1"}, Summary: "private session"}, "alice", "agent", "s")
+	session, err := svc.Create(ctx, testMemory(ScopeSession, ScopeBinding{AnchorSessionID: "s1"}, "private session", ""), "alice", "agent", "s")
 	if err != nil {
 		t.Fatal(err)
 	}

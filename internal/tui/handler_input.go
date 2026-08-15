@@ -243,11 +243,6 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 					m.renderBlocks()
 				}
 				m.layout()
-			case keys.TaskView:
-				if err := m.openTaskPicker(); err != nil {
-					m.appendBlock(block{kind: "system", body: err.Error()})
-					m.renderBlocks()
-				}
 			case keys.ThemeSwitch:
 				m.openThemePicker()
 				m.layout()
@@ -622,6 +617,37 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 		m.filePicker.Close()
 	}
 	tuiTrace("input submit", "state", int(m.state), "chars", len(text), "probe_pending", m.providerProbePending)
+	if !strings.HasPrefix(text, "/") && (m.applicationCommandRunning || m.applicationWorkerHandoffRunning) {
+		// A lifecycle-application command may be a staged setup flow which
+		// ultimately acquires worker ownership. Starting an ordinary provider
+		// turn while that signed callback is still deciding would race the
+		// command's durable handoff. Keep the draft untouched until the command
+		// either completes or fails. Slash commands remain available for
+		// explicit operator control; session-changing commands have their own
+		// in-flight guards.
+		m.appendBlock(block{kind: "system", body: "application command or worker handoff is still running; this draft remains in the editor"})
+		m.renderBlocks()
+		return m, nil, true
+	}
+	if !strings.HasPrefix(text, "/") && m.applicationWorkerRecoveryPending {
+		// The exact broker session may already have an active durable owner, but
+		// the asynchronous projection has not yet established which one. Keep
+		// the draft untouched; neither ordinary provider dispatch nor speculative
+		// capture is allowed until found/not-found resolves authoritatively.
+		m.appendBlock(block{kind: "system", body: "durable application worker recovery is still pending; this draft remains in the editor"})
+		m.renderBlocks()
+		return m, nil, true
+	}
+	if !strings.HasPrefix(text, "/") && (m.applicationFailureSources[applicationFailureSessionHandoff] != nil || m.applicationFailureSources[applicationFailureWorkerHandoff] != nil || m.applicationFailureSources[applicationFailureWorkerRecovery] != nil) {
+		m.appendBlock(block{kind: "system", body: "durable application session or worker ownership is unresolved; this draft remains in the editor"})
+		m.renderBlocks()
+		return m, nil, true
+	}
+	if !strings.HasPrefix(text, "/") && (m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning) {
+		m.appendBlock(block{kind: "system", body: "application input persistence is still in flight; this draft remains in the editor"})
+		m.renderBlocks()
+		return m, nil, true
+	}
 	// Enter while a turn is still streaming: queue the prompt for
 	// after-done instead of silently dropping it (the old behaviour)
 	// or abruptly cancelling (bad UX). The user's block is appended
@@ -640,6 +666,13 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 			m.slash.Close()
 			m.slashInline = false
 			return m, m.handleSlash(text), true
+		}
+		// An application-owned worker run owns recurrence, so ordinary input
+		// must first become a broker record for that exact run. Capture errors,
+		// oversize input, and backpressure keep the draft visible and never fall
+		// through to the ordinary steer/queue paths below.
+		if m.applicationOwnsOperatorInput() {
+			return m, m.captureApplicationOperatorInput(text), true
 		}
 		// Verification has no model/tool boundary where a steer could be
 		// injected. Treat ordinary Enter as an explicit next-turn queue so the
@@ -702,6 +735,9 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 		m.slashInline = false
 		return m, m.handleSlash(text), true
 	}
+	if m.applicationOwnsOperatorInput() {
+		return m, m.captureApplicationOperatorInput(text), true
+	}
 	// EP-0038 §F: /session attach RW — route input to agent inbox.
 	if m.attach.agentID != "" {
 		agentID := m.attach.agentID
@@ -747,10 +783,11 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 	// more context. The draft text stays in the input so the
 	// recovery flow doesn't lose it.
 	if m.aboveHardThreshold() {
-		if m.hasAutoCompactBackgroundPlugin() {
+		if pluginIdentity := m.autoCompactBackgroundPluginIdentity(); pluginIdentity != "" {
 			m.recoveryPrompt = text
-			m.recoveryPluginName = "auto-compact"
+			m.recoveryPluginName = pluginIdentity
 			m.recoveryPluginActive = true
+			m.recoveryApplicationWorker = m.applicationOwnsOperatorInput()
 			body := fmt.Sprintf(
 				"context at %.0f%% (hard threshold %.0f%%) — running bundled auto-compact before replaying your prompt in a child session.",
 				100*m.contextFraction(), 100*m.ctxHardThreshold)

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
+	stadoruntime "github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/palette"
@@ -101,6 +104,24 @@ func TestSkillSlash_DispatchInvokesSkill(t *testing.T) {
 	}
 }
 
+func TestSkillSlash_OwnerPrecedesStaleAlias(t *testing.T) {
+	root := t.TempDir()
+	body := "Use the skill owner, not the stale alias."
+	writeRawSkill(t, root, "owner.md", "---\nname: owner\nslash: owned\n---\n"+body)
+	m := newSkillSlashModel(t, root)
+	m.cfg = &config.Config{Aliases: config.Aliases{"owned": "/help"}}
+
+	before := len(m.msgs)
+	m.handleSlash("/owned")
+	if len(m.msgs) != before+1 {
+		t.Fatalf("stale alias shadowed skill owner: msgs %d → %d", before, len(m.msgs))
+	}
+	last := m.msgs[len(m.msgs)-1]
+	if len(last.Content) == 0 || last.Content[0].Text == nil || last.Content[0].Text.Text != body {
+		t.Fatalf("skill owner injected %+v, want %q", last, body)
+	}
+}
+
 // TestSkillSlash_UnknownStillErrors: a /<name> that isn't a registered
 // skill shortcut still falls through to the unknown-command error.
 func TestSkillSlash_UnknownStillErrors(t *testing.T) {
@@ -145,6 +166,30 @@ func TestSkillSlash_BuiltinCollisionRejected(t *testing.T) {
 	// The non-colliding skill still registers.
 	if m.skillSlash["okcmd"] != "okskill" {
 		t.Errorf("non-colliding slash: okcmd not registered: %+v", m.skillSlash)
+	}
+}
+
+func TestSuperviseCommandIsDynamicallyOwned(t *testing.T) {
+	if IsReservedSlashName("/supervise") {
+		t.Fatal("/supervise remains reserved after lifecycle-application cutover")
+	}
+	if palette.CheckSlashCollision("/supervise") {
+		t.Fatal("/supervise remains in the static palette after lifecycle-application cutover")
+	}
+	loaded := &stadoruntime.LoadedLifecycleApplication{
+		Identity: plugins.RuntimeIdentity{Canonical: "github.com/foobarto/stado-plugins/supervise@v0.1.0"},
+		Manifest: plugins.Manifest{Commands: []plugins.CommandDef{{Name: "supervise", Description: "quality gate"}}},
+	}
+	m := newSkillSlashModel(t, t.TempDir())
+	m.applicationCommands = map[string]*stadoruntime.LoadedLifecycleApplication{"supervise": loaded}
+	m.registerSkillSlashCommands(func(string) {})
+	if !dynamicHasCommand("/supervise") {
+		t.Fatalf("admitted application command is not dynamically discoverable: %+v", palette.DynamicCommands())
+	}
+	m.applicationCommands = nil
+	m.registerSkillSlashCommands(func(string) {})
+	if dynamicHasCommand("/supervise") {
+		t.Fatalf("removed application left stale dynamic command: %+v", palette.DynamicCommands())
 	}
 }
 

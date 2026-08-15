@@ -12,21 +12,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/foobarto/stado/internal/artifactprompt"
-	"github.com/foobarto/stado/internal/artifacts"
-	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
-	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/research"
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/stateprompt"
 	"github.com/foobarto/stado/internal/streambudget"
@@ -35,90 +28,37 @@ import (
 	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 func (m *Model) turnSystemPrompt(userPrompt string) string {
-	mem := m.turnMemoryContext(userPrompt)
+	system, _, _ := m.turnSystemPromptWithQualityFacts(userPrompt)
+	return system
+}
+
+// turnSystemPromptWithQualityFacts composes the ordinary prompt and returns
+// the two volatile, explicitly untrusted observations made available to a
+// TUI-hosted append-only lifecycle contributor (EP-0060/0064). Other surfaces
+// do not call this seam and therefore do not imply lifecycle-app parity.
+func (m *Model) turnSystemPromptWithQualityFacts(userPrompt string) (string, string, string) {
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+	state, _ := stateprompt.Build(m.cfg.StateDir(), sessionID)
 	var sys string
 	if m.persona != nil {
-		sys = personas.AssembleSystem(m.persona, m.systemPrompt, mem, "")
+		sys = personas.AssembleSystem(m.persona, m.systemPrompt, "", state)
 	} else {
 		sys = instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
 			Provider: m.providerDisplayName(),
 			Model:    m.model,
-			Memory:   mem,
 		})
-	}
-	// EP-0045: only advertise the skill listing when model invocation is
-	// actually available — at least one model-visible skill AND skills__load
-	// not denied via [tools].disabled. Gated identically to the per-turn
-	// autoload in toolSurfaceForTurn so the two never disagree.
-	if m.skillModelInvocationEnabled() {
-		if listing := skills.FormatModelListing(m.skills); listing != "" {
-			if sys != "" {
-				sys += "\n\n"
-			}
-			sys += listing
+		if strings.TrimSpace(state) != "" {
+			sys = strings.TrimSpace(sys) + "\n\n" + strings.TrimSpace(state)
 		}
 	}
-	return sys
-}
-
-func (m *Model) turnMemoryContext(userPrompt string) string {
-	if m.cfg == nil || !m.cfg.Memory.Enabled {
-		return ""
-	}
-	sessionID := ""
-	var ancestors []string
-	if m.session != nil {
-		sessionID = m.session.ID
-		trajectory.Recorder{StateDir: m.cfg.StateDir(), SessionID: sessionID, Principal: trajectory.LocalPrincipal()}.EnsureObjective(userPrompt)
-		// EP-15 session-scope inheritance: this session sees the session-scoped
-		// memories of the sessions it forked from. The sidecar is already open
-		// on the model, so resolve ancestry directly. Best-effort: on failure
-		// fall back to exact-session matching.
-		if anc, err := runtime.SessionAncestors(m.session.Sidecar, m.cfg.WorktreeDir(), sessionID); err != nil {
-			tuiTrace("memory session ancestry failed", "error", err.Error())
-		} else {
-			ancestors = anc
-		}
-	}
-	ctx := m.rootCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	body, err := memory.PromptContext(ctx, memory.PromptContextOptions{
-		Enabled:          m.cfg.Memory.Enabled,
-		StateDir:         m.cfg.StateDir(),
-		Workdir:          m.cwd,
-		SessionID:        sessionID,
-		SessionAncestors: ancestors,
-		Prompt:           userPrompt,
-		MaxItems:         m.cfg.Memory.EffectiveMaxItems(),
-		BudgetTokens:     m.cfg.Memory.EffectiveBudgetTokens(),
-	})
-	if err != nil {
-		tuiTrace("memory prompt context failed", "error", err.Error())
-		body = ""
-	}
-	repoID := ""
-	if root := memory.RepoRootFor(m.cwd); root != "" {
-		repoID, _ = stadogit.RepoID(root)
-	}
-	modern, modernErr := artifactprompt.Build(ctx, artifactprompt.Options{StateDir: m.cfg.StateDir(), RepoID: repoID, SessionID: sessionID, Ancestors: ancestors, Prompt: userPrompt, MaxItems: m.cfg.Memory.EffectiveMaxItems(), BudgetTokens: m.cfg.Memory.EffectiveBudgetTokens()})
-	if modernErr != nil {
-		tuiTrace("artifact prompt context failed", "error", modernErr.Error())
-	}
-	state, _ := stateprompt.Build(m.cfg.StateDir(), sessionID)
-	fast := strings.TrimSpace(body+modern) != ""
-	guide := guidance.Build(guidance.Options{StateDir: m.cfg.StateDir(), SessionID: sessionID, Prompt: userPrompt, FastContext: fast, Interactive: true, ToolAvailable: func(name string) bool {
-		if m.executor == nil || m.executor.Registry == nil {
-			return false
-		}
-		_, ok := m.executor.Registry.Get(name)
-		return ok
-	}})
-	return strings.TrimSpace(strings.Join([]string{body, modern, state, guide}, "\n\n"))
+	return sys, userPrompt, state
 }
 
 func latestUserPrompt(msgs []agent.Message) string {
@@ -421,6 +361,18 @@ func (m *Model) startStream() tea.Cmd {
 		"model", m.model,
 		"messages", len(m.msgs))
 	defer done("state", int(m.state))
+	if m.applicationFailure != nil {
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "turn blocked by fail-closed lifecycle application: " + m.applicationFailure.Error()})
+		m.renderBlocks()
+		return nil
+	}
+	if err := runtime.CheckScheduling(m.rootCtx, m.broker); err != nil {
+		m.state = stateIdle
+		m.appendBlock(block{kind: "system", body: "turn blocked by broker scheduling: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
 	if !m.ensureProvider() {
 		return nil
 	}
@@ -452,6 +404,19 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnThinking = ""
 	m.turnThinkSig = ""
 	m.turnToolCalls = nil
+	m.turnUsage = agent.Usage{}
+	m.turnTreeBefore = plumbing.ZeroHash
+	if len(m.lifecycleApplications) > 0 && m.session != nil {
+		head, err := m.session.TreeHead()
+		if err != nil {
+			m.state = stateError
+			m.errorMsg = err.Error()
+			m.appendBlock(block{kind: "system", body: "application turn anchor failed: " + err.Error()})
+			m.renderBlocks()
+			return nil
+		}
+		m.turnTreeBefore = head
+	}
 	// Codex validated finding (post-#46): clear turnCancelled at
 	// the start of every new operator-initiated turn. The actual
 	// gate lives in onToolsExecuted (refuses to startStream when
@@ -473,11 +438,13 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnStart = time.Now()
 	m.streamMu.Unlock()
 
+	turnTools := m.toolSurfaceForTurn()
+	systemPrompt, currentInput, fastContext := m.turnSystemPromptWithQualityFacts(latestUserPrompt(m.msgs))
 	req := agent.TurnRequest{
 		Model:    m.model,
 		Messages: m.msgs,
-		Tools:    m.toolDefs(),
-		System:   m.turnSystemPrompt(latestUserPrompt(m.msgs)),
+		Tools:    toolDefsForSurface(turnTools),
+		System:   systemPrompt,
 		// EP-0036: sampling from config [sampling] section (nil-safe).
 		Temperature: func() *float64 {
 			if m.cfg != nil {
@@ -499,8 +466,13 @@ func (m *Model) startStream() tea.Cmd {
 		}(),
 	}
 	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
+	m.turnToolInstances = make(map[string]tool.Tool, len(turnTools))
+	m.turnApplicationToolProjectionGeneration = m.applicationToolProjectionGeneration.Load()
 	for _, t := range req.Tools {
 		m.turnAllowed[t.Name] = struct{}{}
+	}
+	for _, candidate := range turnTools {
+		m.turnToolInstances[candidate.Name()] = candidate
 	}
 	// Cache-breakpoint placement — DESIGN §"Prompt-cache awareness".
 	// One ephemeral breakpoint on the last prior message, so every turn
@@ -520,8 +492,16 @@ func (m *Model) startStream() tea.Cmd {
 	//     receives. Message history is intentionally NOT mutable here
 	//     (append-only / prompt-cache invariant) — system+model knobs only.
 	if m.lifecycleHooks.HasPoint(hooks.PointPreLLM) {
-		pre := hooks.PreLLM(len(m.msgs), req.Model, req.System, len(req.Messages), len(req.Tools))
-		decision, out := m.lifecycleHooks.Fire(m.rootCtx, hooks.PointPreLLM, pre)
+		pre := hooks.PreLLMWithQualityFacts(len(m.msgs), req.Model, req.System, len(req.Messages), len(req.Tools), currentInput, fastContext)
+		hookContext := m.rootCtx
+		if hookContext == nil {
+			hookContext = context.Background()
+		}
+		// Registry and session-surface imports must observe the exact live TUI
+		// ceiling during the callback. The controller remains native; WASM sees
+		// only the bounded catalog projection (EP-0066).
+		hookContext = tool.WithToolSurfaceController(hookContext, newModelToolSurfaceController(m))
+		decision, out := m.lifecycleHooks.Fire(hookContext, hooks.PointPreLLM, pre)
 		switch decision.Decision {
 		case hooks.DecisionDeny:
 			cancel()
@@ -758,6 +738,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvDone:
 		if ev.Usage != nil {
+			m.turnUsage = *ev.Usage
 			m.metrics.RecordTurnUsage(m.rootCtx, m.turnProvider, m.turnModel,
 				ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.CacheReadTokens)
 			m.usage.InputTokens = ev.Usage.InputTokens
@@ -1090,21 +1071,30 @@ func (m *Model) onTurnComplete() tea.Cmd {
 }
 
 func (m *Model) finishTurnWithoutTools() tea.Cmd {
+	if command := m.applicationTurnBoundary(nil, applicationBoundaryFinishTurn); command != nil {
+		return command
+	}
+	return m.finishTurnWithoutToolsAfterApplications()
+}
+
+func (m *Model) finishTurnWithoutToolsAfterApplications() tea.Cmd {
+	m.closeTurnWithoutTools()
+	if m.queuedPrompt != "" {
+		return m.promoteQueuedPrompt()
+	}
+	return nil
+}
+
+func (m *Model) closeTurnWithoutTools() {
 	if m.session != nil {
 		if err := m.session.NextTurn(); err != nil {
 			m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
 		}
 	}
+	m.applicationIteration = 0
 	m.state = stateIdle
 	m.finalizeStreamingBlocks()
 	m.renderBlocks()
-	if cmd := m.runPendingLearn(); cmd != nil {
-		return cmd
-	}
-	if m.queuedPrompt != "" {
-		return m.promoteQueuedPrompt()
-	}
-	return nil
 }
 
 func (m *Model) resolveSteeringAtTurnEnd() {
@@ -1145,8 +1135,58 @@ func (m *Model) turnAllowsTool(name string) bool {
 	if len(m.turnAllowed) == 0 {
 		return false
 	}
-	_, ok := m.turnAllowed[name]
-	return ok
+	if _, ok := m.turnAllowed[name]; !ok {
+		return false
+	}
+	if m.turnToolInstances == nil {
+		// Older focused tests construct only turnAllowed. That remains valid
+		// for ordinary tools, but application-owned tools always require an
+		// exact per-turn adapter binding.
+		if m.executor != nil && m.executor.Registry != nil {
+			if current, found := m.executor.Registry.Get(name); found && runtime.ToolMetadataFor(current).LifecycleApplication != "" {
+				return false
+			}
+		}
+		return true
+	}
+	expected, ok := m.turnToolInstances[name]
+	if !ok || m.executor == nil || m.executor.Registry == nil {
+		return false
+	}
+	current, ok := m.executor.Registry.Get(name)
+	if !ok || current != expected {
+		return false
+	}
+	metadata := runtime.ToolMetadataFor(expected)
+	if metadata.LifecycleApplication == "" {
+		return true
+	}
+	if m.applicationToolProjectionGeneration.Load() != m.turnApplicationToolProjectionGeneration {
+		return false
+	}
+	if metadata.ApplicationWorker != "" {
+		application := m.ownedApplicationWorker()
+		if application == nil || metadata.ApplicationWorker != application.Identity.Namespace || !applicationOwnsModelTool(application, expected) {
+			return false
+		}
+		for _, currentlyPermitted := range m.applicationWorkerTools(m.mode) {
+			if currentlyPermitted == expected {
+				return true
+			}
+		}
+		return false
+	}
+	if metadata.ApplicationSession != "" {
+		if m.applicationSessionToolOwner(expected) == nil {
+			return false
+		}
+		for _, currentlyPermitted := range m.applicationSessionTools(m.mode) {
+			if currentlyPermitted == expected {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *Model) rejectUnavailableTool(call agent.ToolUseBlock) {
@@ -1200,59 +1240,44 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			}}
 		}
 	}
+	executor := m.executor
+	var applicationGuard func(context.Context) error
+	var applicationTool tool.Tool
+	if expected := m.turnToolInstances[call.Name]; expected != nil && runtime.ToolMetadataFor(expected).LifecycleApplication != "" {
+		applicationTool = expected
+		projectionGeneration := m.turnApplicationToolProjectionGeneration
+		metadata := runtime.ToolMetadataFor(expected)
+		if metadata.ApplicationWorker != "" {
+			run := runtime.ApplicationWorkerRun{}
+			if m.loop != nil {
+				run = m.loop.workerRun
+			}
+			controller, _ := m.broker.(runtime.ApplicationWorkerRunController)
+			applicationGuard = func(ctx context.Context) error {
+				if m.applicationToolProjectionGeneration.Load() != projectionGeneration {
+					return errors.New("application worker tool projection changed after provider turn")
+				}
+				return validateApplicationWorkerExecution(ctx, executor, controller, call.Name, expected, run)
+			}
+		} else if metadata.ApplicationSession != "" {
+			owner := m.applicationSessionToolOwner(expected)
+			var anchor pluginRuntime.ApplicationAnchor
+			if owner != nil && owner.Application != nil {
+				anchor = owner.Application.Anchor
+			}
+			applicationGuard = func(context.Context) error {
+				if m.applicationToolProjectionGeneration.Load() != projectionGeneration {
+					return errors.New("application session tool projection changed after provider turn")
+				}
+				return validateApplicationSessionExecution(executor, call.Name, expected, owner, anchor)
+			}
+		}
+	}
 	// Tools operate on the user's launch CWD, not the session audit
 	// worktree. Same model as `stado run` default. The worktree is
 	// where turn-boundary tree commits live (m.session.WorktreePath); it
 	// is NOT the agent's working directory.
-	spawn := m.buildSubagentSpawner()
-	var fleetBridge *runtime.FleetBridgeAdapter
-	if runner, ok := m.buildSubagentRunner(); ok && m.fleet != nil {
-		fleetBridge = &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: runner, RootCtx: m.rootCtx}
-		if m.cfg != nil && m.session != nil {
-			if _, err := runtime.ConfigureRetainedBridge(m.rootCtx, m.cfg, m.session, fleetBridge); err != nil {
-				fleetBridge = nil
-			}
-		}
-	}
-	host := hostAdapter{
-		workdir:         m.cwd,
-		readLog:         m.executor.ReadLog,
-		runner:          m.executor.Runner,
-		executorSandbox: m.executorSandbox,
-		approval: tuiApprovalBridge{
-			model: m,
-		},
-		choice: tuiChoiceBridge{
-			model: m,
-		},
-		print: tuiPrintBridge{
-			model: m,
-		},
-		render: tuiRenderBridge{
-			model: m,
-		},
-		spawn:       spawn,
-		fleetBridge: fleetBridge,
-		research:    m.buildResearchRunner(),
-		activate: func(name string) {
-			if m.activatedTools == nil {
-				m.activatedTools = map[string]bool{}
-			}
-			m.activatedTools[name] = true
-		},
-		deactivate: func(name string) {
-			if m.activatedTools != nil {
-				delete(m.activatedTools, name)
-			}
-		},
-		progress: func(plugin, text string) {
-			// Surface as a sidebar log entry tagged PROGRESS. The
-			// PROGRESS prefix forces visibility regardless of
-			// --sidebar-debug (plugin author chose to emit this).
-			m.pushLogLine("PROGRESS [" + plugin + "] " + text)
-		},
-		pty: m.ptyManager,
-	}
+	host := m.newPluginHostAdapter()
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
 	m.toolMu.Lock()
@@ -1281,7 +1306,20 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			}
 			m.toolMu.Unlock()
 		}()
-		res, err := m.executor.Run(runtime.WithSkillCatalog(ctx, m.skills), call.Name, call.Input, host)
+		if applicationGuard != nil {
+			if err := applicationGuard(ctx); err != nil {
+				return toolResultMsg{result: agent.ToolResultBlock{ToolUseID: call.ID, Content: err.Error(), IsError: true}}
+			}
+		}
+		callCtx := runtime.WithSkillCatalog(ctx, m.skills)
+		callCtx = tool.WithToolSurfaceController(callCtx, newModelToolSurfaceController(m))
+		var res tool.Result
+		var err error
+		if applicationTool != nil {
+			res, err = executor.RunExpected(callCtx, call.Name, applicationTool, call.Input, host)
+		} else {
+			res, err = executor.Run(callCtx, call.Name, call.Input, host)
+		}
 		content := res.Content
 		isErr := res.Error != ""
 		if err != nil {
@@ -1319,6 +1357,22 @@ func (m *Model) buildSubagentRunner() (runtime.SubagentRunner, bool) {
 	if m.cfg == nil || m.session == nil || m.provider == nil {
 		return runtime.SubagentRunner{}, false
 	}
+	onEvent := func(ev runtime.SubagentEvent) {
+		if m.program != nil {
+			m.program.Send(subagentEventMsg{ev: ev})
+		}
+		// EP-0034 phase B will fan SubagentEvents into
+		// runtime.Fleet.UpdateProgress so the /fleet modal
+		// shows live LastTool/LastText. Phase A (this
+		// release) populates SessionID + terminal Status
+		// from Fleet.runGoroutine on goroutine return —
+		// adequate for "see what's running, see what
+		// finished," misses "see what running agent X is
+		// currently doing." See docs/eps/0034 D5.
+	}
+	if publisher, ok := m.broker.(runtime.ApplicationEventPublisher); ok {
+		onEvent = runtime.AgentDownEventCallback(m.session.ID, publisher, onEvent)
+	}
 	runner := runtime.SubagentRunner{
 		Config:                   m.cfg,
 		Parent:                   m.session,
@@ -1333,59 +1387,16 @@ func (m *Model) buildSubagentRunner() (runtime.SubagentRunner, bool) {
 		Metrics:                  m.metrics,
 		Broker:                   m.broker,
 		ResolveSource:            runtime.ResolveTreeSource(m.session, m.cfg.WorktreeDir()),
-		OnEvent: func(ev runtime.SubagentEvent) {
-			if m.program != nil {
-				m.program.Send(subagentEventMsg{ev: ev})
+		ResolveProviderModel: func(_ context.Context, providerName, modelName string) (agent.Provider, string, error) {
+			provider, err := buildProviderByName(m.cfg, providerName)
+			if err != nil {
+				return nil, "", err
 			}
-			// EP-0034 phase B will fan SubagentEvents into
-			// runtime.Fleet.UpdateProgress so the /fleet modal
-			// shows live LastTool/LastText. Phase A (this
-			// release) populates SessionID + terminal Status
-			// from Fleet.runGoroutine on goroutine return —
-			// adequate for "see what's running, see what
-			// finished," misses "see what running agent X is
-			// currently doing." See docs/eps/0034 D5.
+			return provider, modelName, nil
 		},
+		OnEvent: onEvent,
 	}
 	return runner, true
-}
-
-func (m *Model) buildResearchRunner() func(context.Context, string, string) (any, error) {
-	if m.provider == nil || m.cfg == nil || m.session == nil {
-		return nil
-	}
-	provider, model, stateDir, sessionID := m.provider, m.model, m.cfg.StateDir(), m.session.ID
-	repoID := ""
-	if root := memory.RepoRootFor(m.cwd); root != "" {
-		repoID, _ = stadogit.RepoID(root)
-	}
-	ancestors, _ := runtime.SessionAncestors(m.session.Sidecar, m.cfg.WorktreeDir(), sessionID)
-	worktreeRoot := m.cfg.WorktreeDir()
-	return func(ctx context.Context, kind, query string) (any, error) {
-		switch kind {
-		case "memory":
-			store, err := wal.OpenShared(filepath.Join(stateDir, "broker", "events"))
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = store.Close() }()
-			svc := artifacts.NewService(store, nil)
-			corpus := research.MemoryCorpus{Service: svc, Context: artifacts.QueryContext{Principal: trajectory.LocalPrincipal(), CanonicalRepoID: repoID, SessionID: sessionID, AncestorSessionIDs: ancestors}, Kinds: []artifacts.Kind{artifacts.KindMemory, artifacts.KindLesson}}
-			return research.Agent{Provider: provider, Model: model, Corpus: corpus, Kind: "memory"}.Run(ctx, query)
-		case "session":
-			authorized := map[string]string{}
-			ids := append([]string{sessionID}, ancestors...)
-			for _, id := range ids {
-				if stadogit.ValidateSessionID(id) == nil {
-					authorized[id] = filepath.Join(worktreeRoot, id)
-				}
-			}
-			corpus := research.SessionCorpus{Authorized: authorized, MaxMessages: 20}
-			return research.Agent{Provider: provider, Model: model, Corpus: corpus, Kind: "session"}.Run(ctx, query)
-		default:
-			return nil, fmt.Errorf("unknown research kind %q", kind)
-		}
-	}
 }
 
 // toolDefs builds the tool-definition list for the current turn request. An
@@ -1402,7 +1413,10 @@ func (m *Model) buildResearchRunner() func(context.Context, string, string) (any
 // doesn't see the mutating tools as available, so it produces analysis
 // rather than asking to execute.
 func (m *Model) toolDefs() []agent.ToolDef {
-	surface := m.toolSurfaceForTurn()
+	return toolDefsForSurface(m.toolSurfaceForTurn())
+}
+
+func toolDefsForSurface(surface []tool.Tool) []agent.ToolDef {
 	out := make([]agent.ToolDef, 0, len(surface))
 	for _, t := range surface {
 		schema, _ := json.Marshal(t.Schema())
@@ -1434,24 +1448,27 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 	// this turn. Read live off m.persona so a /persona switch re-scopes on
 	// the next turn for free — no registry rebuild, no shared-cfg mutation.
 	extra := m.persona.EffectiveTools()
-	// EP-0045: promote skills__load onto the slate only when the session has
-	// a model-invocable skill and the tool isn't denied (same gate as the
-	// system-prompt listing in turnSystemPrompt).
-	if m.skillModelInvocationEnabled() {
-		extra = append(extra, "skills__load")
-	}
 	autoloaded := runtime.AutoloadedToolsWithExtra(m.executor.Registry, eff, extra)
-	pool := autoloaded
-	if len(m.activatedTools) > 0 {
+	pool := withoutLifecycleApplicationTools(autoloaded)
+	m.activatedToolsMu.RLock()
+	activated := make(map[string]bool, len(m.activatedTools))
+	for name, active := range m.activatedTools {
+		activated[name] = active
+	}
+	m.activatedToolsMu.RUnlock()
+	if len(activated) > 0 {
 		seen := map[string]bool{}
 		for _, t := range autoloaded {
 			seen[t.Name()] = true
 		}
-		for name := range m.activatedTools {
+		for name := range activated {
 			if seen[name] {
 				continue
 			}
 			if t, ok := m.executor.Registry.Get(name); ok {
+				if runtime.ToolMetadataFor(t).LifecycleApplication != "" {
+					continue
+				}
 				pool = append(pool, t)
 				seen[name] = true
 			}
@@ -1478,61 +1495,41 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 		}
 		pool = out
 	}
+	seen := make(map[string]bool, len(pool))
+	for _, candidate := range pool {
+		seen[candidate.Name()] = true
+	}
+	for _, candidate := range m.applicationWorkerTools(m.mode) {
+		if !seen[candidate.Name()] {
+			pool = append(pool, candidate)
+			seen[candidate.Name()] = true
+		}
+	}
+	for _, candidate := range m.applicationSessionTools(m.mode) {
+		if !seen[candidate.Name()] {
+			pool = append(pool, candidate)
+			seen[candidate.Name()] = true
+		}
+	}
+	sort.Slice(pool, func(i, j int) bool { return pool[i].Name() < pool[j].Name() })
 	return pool
 }
 
-// absorbToolActivations scans tool results from the just-completed turn
-// and adds activations for tools.describe results. The result-blocks only
-// carry tool_use_id; we look up the corresponding ToolUseBlock in the
-// most recent assistant message to find the call name. EP-0037 lazy-load.
-func (m *Model) absorbToolActivations(results []agent.ToolResultBlock) {
-	if len(results) == 0 || len(m.msgs) == 0 {
-		return
-	}
-	// Find the last assistant message with tool calls (must be the
-	// one whose results we're processing).
-	var calls []agent.ToolUseBlock
-	for i := len(m.msgs) - 1; i >= 0; i-- {
-		if m.msgs[i].Role != agent.RoleAssistant {
-			continue
-		}
-		for _, b := range m.msgs[i].Content {
-			if b.ToolUse != nil {
-				calls = append(calls, *b.ToolUse)
-			}
-		}
-		break
-	}
-	if len(calls) == 0 {
-		return
-	}
-	idToName := make(map[string]string, len(calls))
-	for _, c := range calls {
-		idToName[c.ID] = c.Name
-	}
-	for _, r := range results {
-		if r.IsError {
-			continue
-		}
-		name, ok := idToName[r.ToolUseID]
-		if !ok {
-			continue
-		}
-		switch name {
-		case "tools__describe":
-			if m.activatedTools == nil {
-				m.activatedTools = map[string]bool{}
-			}
-			runtime.AbsorbActivatedFromDescribe(r.Content, m.activatedTools)
+func withoutLifecycleApplicationTools(input []tool.Tool) []tool.Tool {
+	out := make([]tool.Tool, 0, len(input))
+	for _, candidate := range input {
+		if runtime.ToolMetadataFor(candidate).LifecycleApplication == "" {
+			out = append(out, candidate)
 		}
 	}
+	return out
 }
 
 func (m *Model) visibleTools() []tool.Tool {
 	if m.executor == nil {
 		return nil
 	}
-	all := m.executor.Registry.All()
+	all := withoutLifecycleApplicationTools(m.executor.Registry.All())
 	var pool []tool.Tool
 	if m.mode != modePlan && m.mode != modeBTW {
 		pool = all
@@ -1549,17 +1546,20 @@ func (m *Model) visibleTools() []tool.Tool {
 	// (which was already applied at executor-build time using the disk
 	// config). Overrides only ever subtract from `pool` — they can't
 	// expose tools that aren't in the executor's registry.
-	if m.sessionToolOverrides.isZero() {
-		return pool
-	}
-	out := make([]tool.Tool, 0, len(pool))
-	for _, t := range pool {
-		if m.sessionToolOverrideHidesTool(t.Name()) {
-			continue
+	if !m.sessionToolOverrides.isZero() {
+		out := make([]tool.Tool, 0, len(pool))
+		for _, t := range pool {
+			if m.sessionToolOverrideHidesTool(t.Name()) {
+				continue
+			}
+			out = append(out, t)
 		}
-		out = append(out, t)
+		pool = out
 	}
-	return out
+	pool = append(pool, m.applicationWorkerTools(m.mode)...)
+	pool = append(pool, m.applicationSessionTools(m.mode)...)
+	sort.Slice(pool, func(i, j int) bool { return pool[i].Name() < pool[j].Name() })
+	return pool
 }
 
 // compactRequest / compactReplace are thin aliases so the code sites
@@ -1620,27 +1620,9 @@ func (m *Model) renderContextStatus() string {
 		sb.WriteString(fmt.Sprintf("session: %s\n", m.session.ID))
 	}
 
-	// Cost / budget. Cost is always shown; budget caps only when set.
+	// Cost is observational. Budget enforcement below is token-only.
 	sb.WriteString(fmt.Sprintf("cost: $%.4f\n", m.usage.CostUSD))
-	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
-		w := "(unset)"
-		if m.budgetWarnUSD > 0 {
-			w = fmt.Sprintf("$%.2f", m.budgetWarnUSD)
-		}
-		h := "(unset)"
-		if m.budgetHardUSD > 0 {
-			h = fmt.Sprintf("$%.2f", m.budgetHardUSD)
-		}
-		sb.WriteString(fmt.Sprintf("budget: warn=%s · hard=%s", w, h))
-		if m.budgetAcked {
-			sb.WriteString(" · ack")
-		}
-		sb.WriteString("\n")
-	}
-	// Token caps. Shown only when configured — USD-only users don't
-	// need the extra line, but token-budget users (local runners with
-	// CostUSD always 0) must see their usage and caps here too, not
-	// just in /budget. Mirrors budgetExceeded's precedence set.
+	// Token caps are shown only when configured.
 	if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
 		m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
 		m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
@@ -1936,41 +1918,45 @@ func compactionTitle(summary string) string {
 	return s
 }
 
-// installedAutoCompact returns the `auto-compact-<version>` directory
-// name when a plugin matching that naming pattern is installed under
-// $XDG_DATA_HOME/stado/plugins/, or "" otherwise. Used by the
-// hard-threshold advisory to offer `/plugin:auto-compact-<ver> compact`
-// as a one-click recovery when the plugin is available.
-//
-// Picks the lexicographically-latest version if multiple are
-// installed — simple heuristic that matches install-order in
-// practice (version bumps go forward).
+// installedAutoCompact returns the exact canonical source identity selected
+// for the sole installed source namespace displaying the auto-compact alias.
+// The display name is discovery metadata only: multiple source namespaces
+// fail closed, while multiple versions of one source use its exact active
+// marker (or highest signed semver).
 func (m *Model) installedAutoCompact() string {
 	cfg, err := config.Load()
 	if err != nil {
 		return ""
 	}
-	// EP-0035: search all plugin roots (global + project .stado/plugins/).
-	var entries []string
+	byNamespace := make(map[string][]plugins.InstalledPackage)
+	rootByNamespace := make(map[string]string)
 	for _, root := range cfg.AllPluginDirs() {
-		dirs, err2 := plugins.ListInstalledDirs(root)
-		if err2 == nil {
-			entries = append(entries, dirs...)
+		packages, listErr := plugins.ListInstalledPackages(root)
+		if listErr != nil {
+			return ""
+		}
+		for _, pkg := range packages {
+			if pkg.Manifest.Name != "auto-compact" {
+				continue
+			}
+			byNamespace[pkg.Identity.Namespace] = append(byNamespace[pkg.Identity.Namespace], pkg)
+			if previous, ok := rootByNamespace[pkg.Identity.Namespace]; ok && previous != root {
+				return ""
+			}
+			rootByNamespace[pkg.Identity.Namespace] = root
 		}
 	}
-	if err != nil {
+	if len(byNamespace) != 1 {
 		return ""
 	}
-	latest := ""
-	for _, name := range entries {
-		if !strings.HasPrefix(name, "auto-compact-") {
-			continue
+	for namespace, candidates := range byNamespace {
+		pkg, ok, pickErr := plugins.PickActivePackage(rootByNamespace[namespace], namespace, candidates)
+		if pickErr != nil || !ok {
+			return ""
 		}
-		if name > latest {
-			latest = name
-		}
+		return pkg.Identity.Canonical
 	}
-	return latest
+	return ""
 }
 
 // aboveHardThreshold reports whether the current turn's running
@@ -2071,8 +2057,7 @@ func (m *Model) firePostLLMHook() {
 // on every Usage update.
 //
 // Token caps matter here because local-runner setups (Ollama / LM
-// Studio / vLLM) report CostUSD == 0; a USD-only gate left those users
-// with no proactive advisory before the hard cap blocked their turn.
+// The warning uses the same token counters on local and remote providers.
 // budgetWarnDescription mirrors budgetBreachDescription's precedence so
 // the warn block names whichever cap actually fired.
 func (m *Model) maybeEmitBudgetWarning() {
@@ -2093,18 +2078,13 @@ func (m *Model) maybeEmitBudgetWarning() {
 
 // budgetWarnDescription names the first warn cap that has been crossed
 // and a hint pointing at the matching hard cap, in the same precedence
-// order as budgetWarning/budgetBreachDescription (USD first, then
-// combined tokens, then per-direction). Returns ("", "") when nothing
+// order as budgetWarning/budgetBreachDescription (combined tokens, then
+// per-direction). Returns ("", "") when nothing
 // is over its warn cap. The crossed string is phrased as a full clause
-// ("cost $X crossed warn cap $Y" / "tokens N crossed warn cap M") so
+// ("tokens N crossed warn cap M") so
 // maybeEmitBudgetWarning can render it verbatim.
 func (m *Model) budgetWarnDescription() (crossed, hint string) {
 	switch {
-	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
-		crossed = fmt.Sprintf("cost $%.2f crossed warn cap $%.2f", m.usage.CostUSD, m.budgetWarnUSD)
-		if m.budgetHardUSD > 0 {
-			hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
-		}
 	case m.budgetWarnTokens > 0 && m.totalTokens() >= m.budgetWarnTokens:
 		crossed = fmt.Sprintf("tokens %s crossed warn cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetWarnTokens))
 		if m.budgetHardTokens > 0 {

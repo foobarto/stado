@@ -96,7 +96,12 @@ func providedHostImports(ctx context.Context) (map[string]bool, error) {
 	}
 	defer func() { _ = rt.Close(ctx) }()
 
-	host := pluginRuntime.NewHost(plugins.Manifest{Name: "abi-verifier"}, "", nil)
+	manifest := plugins.Manifest{Name: "abi-verifier", Version: "dev"}
+	identity, err := plugins.RuntimeIdentityForBundledSource("abi-verifier", manifest)
+	if err != nil {
+		return nil, fmt.Errorf("verify host identity: %w", err)
+	}
+	host := pluginRuntime.NewHostWithIdentity(manifest, identity, "", nil)
 	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 		return nil, fmt.Errorf("verify install host imports: %w", err)
 	}
@@ -142,12 +147,16 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 	}
 	stateDir := cfg.StateDir()
 	pluginsDir := filepath.Join(stateDir, "plugins")
-	groups, err := groupInstalledByName(pluginsDir)
+	packages, err := plugins.ListInstalledPackages(pluginsDir)
 	if err != nil {
 		return nil, fmt.Errorf("enumerate installed plugins: %w", err)
 	}
-	if len(groups) == 0 {
+	if len(packages) == 0 {
 		return nil, nil
+	}
+	groups := make(map[string][]plugins.InstalledPackage)
+	for _, pkg := range packages {
+		groups[pkg.Identity.Namespace] = append(groups[pkg.Identity.Namespace], pkg)
 	}
 
 	// Build the host-import set once for the whole verify pass.
@@ -160,23 +169,17 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		provided = nil
 	}
 
-	ts := plugins.NewTrustStore(stateDir)
-
 	rt := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig())
 	defer func() { _ = rt.Close(ctx) }()
 
 	var issues []ABIIssue
-	for name, versions := range groups {
-		version := pickActiveVersion(stateDir, name, versions)
-		if version == "" {
+	for namespace, candidates := range groups {
+		selected, ok, selectErr := plugins.PickActivePackage(pluginsDir, namespace, candidates)
+		if selectErr != nil || !ok {
 			continue
 		}
-		dir := filepath.Join(pluginsDir, name+"-"+version)
-		mf, sig, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			continue
-		}
-		if err := ts.VerifyManifest(mf, sig); err != nil {
+		dir, mf, sig := selected.Dir, &selected.Manifest, selected.Signature
+		if err := VerifyInstalledPlugin(ctx, cfg, dir, mf, sig); err != nil {
 			continue
 		}
 		wasmPath := filepath.Join(dir, "plugin.wasm")
@@ -204,24 +207,17 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		compiled, err := rt.CompileModule(ctx, verifiedBytes)
 		if err != nil {
 			issues = append(issues, ABIIssue{
-				Plugin:       name,
-				Version:      version,
+				Plugin:       selected.Identity.Canonical,
+				Version:      mf.Version,
 				CompileError: err.Error(),
 			})
 			continue
 		}
 		exports := compiled.ExportedFunctions()
 		var missingExports []string
-		if _, ok := exports["stado_alloc"]; !ok {
-			missingExports = append(missingExports, "stado_alloc")
-		}
-		if _, ok := exports["stado_free"]; !ok {
-			missingExports = append(missingExports, "stado_free")
-		}
-		for _, def := range mf.Tools {
-			expName := "stado_tool_" + def.Name
-			if _, ok := exports[expName]; !ok {
-				missingExports = append(missingExports, expName)
+		for _, name := range requiredInstalledPluginExports(mf) {
+			if _, ok := exports[name]; !ok {
+				missingExports = append(missingExports, name)
 			}
 		}
 
@@ -244,8 +240,8 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		if len(missingExports) > 0 || len(removedImports) > 0 {
 			sort.Strings(missingExports)
 			issues = append(issues, ABIIssue{
-				Plugin:             name,
-				Version:            version,
+				Plugin:             selected.Identity.Canonical,
+				Version:            mf.Version,
 				MissingExports:     missingExports,
 				RemovedHostImports: removedImports,
 			})
@@ -258,4 +254,12 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		return issues[i].Plugin < issues[j].Plugin
 	})
 	return issues, nil
+}
+
+func requiredInstalledPluginExports(manifest *plugins.Manifest) []string {
+	exports := []string{"stado_alloc", "stado_free"}
+	for _, def := range manifest.Tools {
+		exports = append(exports, "stado_tool_"+def.ExportName())
+	}
+	return exports
 }

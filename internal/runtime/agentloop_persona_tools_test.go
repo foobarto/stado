@@ -40,7 +40,7 @@ func TestAgentLoop_PromotesPersonaToolsToSurface(t *testing.T) {
 	}
 	var promote string
 	for _, tl := range reg.All() {
-		if !baseNames[tl.Name()] && !IsMetaTool(tl.Name()) {
+		if !baseNames[tl.Name()] {
 			promote = tl.Name()
 			break
 		}

@@ -1,0 +1,26 @@
+{
+  "schema": "stado.dev/session-context-facts/v1",
+  "as_of_sequence": 42,
+  "digest": "b453021f34eecdfe652a07e17085eda5ae3922a9f85e3fb7aa2766a6627345c9",
+  "signals": [
+    {
+      "id": "signal-fixture",
+      "type": "repeated_tool_failure",
+      "detector_version": 1,
+      "confidence": "high",
+      "detected_sequence": 37,
+      "created_at": "2026-08-14T12:00:00Z",
+      "expires_at": "2026-08-21T12:00:00Z"
+    }
+  ],
+  "signals_truncated": false,
+  "children": [
+    {
+      "id": "child-fixture",
+      "status": "running",
+      "generation": 1
+    }
+  ],
+  "children_truncated": false,
+  "unread_messages": 1
+}

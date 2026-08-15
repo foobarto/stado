@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 
 	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
 )
@@ -60,7 +61,28 @@ func buildBrokerService(cfg *config.Config) (*broker.Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open broker-decision log: %w", err)
 	}
-	return broker.NewService(policy, writer), nil
+	svc := broker.NewService(policy, writer)
+	store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+	if err != nil {
+		return nil, fmt.Errorf("open broker artifact WAL: %w", err)
+	}
+	if err := svc.ConfigureArtifactStore(store, brokerInstalledPluginVerifier{cfg: cfg}); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("configure broker artifact authority: %w", err)
+	}
+	if err := svc.ConfigureLegacyMemoryMigration(cfg.StateDir()); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("configure legacy memory migration: %w", err)
+	}
+	if err := svc.ConfigureSessionLineageVerifier(newBrokerSessionLineageVerifier(cfg)); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("configure broker session lineage authority: %w", err)
+	}
+	if err := svc.ConfigureSessionEvidenceSource(brokerSessionEvidenceSource{cfg: cfg}); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("configure broker session evidence authority: %w", err)
+	}
+	return svc, nil
 }
 
 // openBrokerDecisionLog opens (or creates) the broker-decision log

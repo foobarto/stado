@@ -47,8 +47,3 @@ linters:
         linters:
           - errcheck
           - unused
-      # Platform-specific stubs appear unused on the other OS; they're
-      # selected via build tags.
-      - path: cmd/stado/agents_(windows|unix)\.go
-        linters:
-          - unused

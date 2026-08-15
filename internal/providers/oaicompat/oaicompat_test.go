@@ -284,6 +284,32 @@ func TestConvertMessages_ToolResultFlow(t *testing.T) {
 	}
 }
 
+func TestBuildRequest_ReasoningEffortRequiresCapability(t *testing.T) {
+	req := agent.TurnRequest{Model: "m", ReasoningEffort: "max"}
+	raw, err := buildRequest(req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["reasoning_effort"]; ok {
+		t.Fatalf("unsupported reasoning_effort was emitted: %#v", got["reasoning_effort"])
+	}
+
+	raw, err = buildRequest(req, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["reasoning_effort"] != "max" {
+		t.Fatalf("reasoning_effort = %#v", got["reasoning_effort"])
+	}
+}
+
 func TestBuildUserMessage_Multimodal(t *testing.T) {
 	blocks := []agent.Block{
 		{Text: &agent.TextBlock{Text: "look at this"}},

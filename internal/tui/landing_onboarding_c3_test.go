@@ -152,7 +152,7 @@ func TestLanding_FooterSurvivesAt80x24(t *testing.T) {
 	warn := strings.Join([]string{
 		"stado: warn: [sandbox] mode = \"external\" but no wrapper evidence detected for this entry point.",
 		"stado: warn: only `stado run` validates external-mode wrapping today; TUI / session resume / headless do not.",
-		"stado: warn: launch this entry point under your wrapper (bwrap/firejail/sandbox-exec/container), or set mode = \"wrap\" to have stado re-exec itself. Suppress with STADO_SUPPRESS_UNSANDBOXED_WARNING=1.",
+		"stado: warn: launch this entry point under your Linux wrapper (bwrap/firejail/container), or set mode = \"wrap\" to have stado re-exec itself. Suppress with STADO_SUPPRESS_UNSANDBOXED_WARNING=1.",
 	}, "\n")
 	for _, h := range []int{22, 23, 24} {
 		m := newPickerTestModel(t, "anthropic")

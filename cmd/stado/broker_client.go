@@ -16,16 +16,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/brokercredential"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginruntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
@@ -65,6 +70,12 @@ func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string, 
 	if err != nil {
 		return fmt.Errorf("stado: %w", err)
 	}
+	credentialStore, err := brokercredential.New(cfg.StateDir())
+	if err != nil {
+		_ = bs.Close()
+		return fmt.Errorf("stado: durable broker session credentials: %w", err)
+	}
+	bs.logicalCredentials = credentialStore
 	var banner strings.Builder
 	bs.AnnounceSandboxMode(&banner, "stado")
 	notices = append(notices, splitBannerLines(banner.String())...)
@@ -111,38 +122,488 @@ type BrokerSession struct {
 
 	// client is the daemon connection that holds this session.
 	// Closed by Close() after issuing session.terminate.
-	client     *daemon.Client
-	ownsClient bool
+	client                  *daemon.Client
+	controllerToken         string
+	ownsClient              bool
+	applicationMu           sync.RWMutex
+	applicationGeneration   uint64
+	applicationLeases       uint64
+	applicationClosePending bool
+	applicationClosed       bool
+	logicalMu               sync.Mutex
+	scheduleMu              sync.Mutex
+	lastControlSequence     uint64
+	logicalCredentials      *brokercredential.Store
+	durableSubject          string
+	heartbeatStop           chan struct{}
+	heartbeatDone           chan struct{}
 }
 
-// Close issues broker.v1.session.terminate against the session and
-// closes the underlying daemon connection. Idempotent: safe to call
-// even when Skipped, when the session was never created, or after
-// a previous Close. Returns the underlying error from terminate
-// only (connection-close errors are logged via stderr and swallowed
-// to keep entry-point shutdown paths uncomplicated).
+var _ runtime.BrokerSessionTransitioner = (*BrokerSession)(nil)
+var _ runtime.BrokerLogicalSessionTransitioner = (*BrokerSession)(nil)
+var _ runtime.BrokerLogicalSessionHandoff = (*BrokerSession)(nil)
+var _ runtime.ApplicationWorkerRunController = (*BrokerSession)(nil)
+
+type brokerArtifactBridge struct {
+	client *daemon.Client
+	token  string
+}
+
+type brokerEvidenceBridge struct {
+	client *daemon.Client
+	token  string
+}
+
+type brokerApplicationBridge struct {
+	client *daemon.Client
+	token  string
+}
+
+type brokerApplicationEventBridge struct {
+	client *daemon.Client
+	token  string
+}
+
+func (s *BrokerSession) BindArtifacts(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginruntime.ArtifactBridgeBinding, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return pluginruntime.ArtifactBridgeBinding{}, errors.New("artifact broker unavailable for this session")
+	}
+	var result broker.ArtifactBindResult
+	if err := s.client.Call(ctx, broker.MethodArtifactBind, broker.ArtifactBindParams{
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+		Identity: identity, Manifest: manifest, ToolName: toolName,
+	}, &result); err != nil {
+		return pluginruntime.ArtifactBridgeBinding{}, err
+	}
+	return pluginruntime.ArtifactBridgeBinding{
+		Bridge: &brokerArtifactBridge{client: s.client, token: result.BindingToken},
+		Caller: pluginruntime.ArtifactCallerContext{
+			Principal: result.Principal, CanonicalRepoID: result.CanonicalRepoID,
+			SessionID: result.SessionID, SessionGeneration: result.SessionGeneration,
+			AncestorSessionIDs: append([]string(nil), result.AncestorSessionIDs...),
+		},
+	}, nil
+}
+
+func (s *BrokerSession) BindEvidence(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginruntime.EvidenceBridgeBinding, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return pluginruntime.EvidenceBridgeBinding{}, errors.New("evidence broker unavailable for this session")
+	}
+	var result broker.ArtifactBindResult
+	params := broker.ArtifactBindParams{SessionID: s.SessionID, ControllerToken: s.controllerToken, Identity: identity, Manifest: manifest, ToolName: toolName}
+	if err := s.client.Call(ctx, broker.MethodEvidenceBind, broker.EvidenceBindParams(params), &result); err != nil {
+		return pluginruntime.EvidenceBridgeBinding{}, err
+	}
+	return pluginruntime.EvidenceBridgeBinding{Bridge: &brokerEvidenceBridge{client: s.client, token: result.BindingToken}}, nil
+}
+
+func (b *brokerEvidenceBridge) CallEvidence(ctx context.Context, operation string, payload []byte) ([]byte, error) {
+	if b == nil || b.client == nil || b.token == "" {
+		return nil, errors.New("evidence broker binding unavailable")
+	}
+	var response json.RawMessage
+	if err := b.client.Call(ctx, broker.MethodEvidenceCall, broker.EvidenceCallParams{
+		BindingToken: b.token, Operation: operation, Payload: json.RawMessage(payload),
+	}, &response); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), response...), nil
+}
+
+func (s *BrokerSession) BindApplication(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginruntime.ApplicationBinding, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return pluginruntime.ApplicationBinding{}, errors.New("application broker unavailable for this session")
+	}
+	var result broker.ApplicationBindResult
+	if err := s.client.Call(ctx, broker.MethodApplicationBind, broker.ApplicationBindParams{
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+		Identity: identity, Manifest: manifest,
+	}, &result); err != nil {
+		return pluginruntime.ApplicationBinding{}, err
+	}
+	s.applicationMu.Lock()
+	s.applicationGeneration = result.SessionGeneration
+	s.applicationMu.Unlock()
+	caller := pluginruntime.ArtifactCallerContext{
+		Principal: result.Principal, CanonicalRepoID: result.CanonicalRepoID,
+		SessionID: result.SessionID, SessionGeneration: result.SessionGeneration,
+		AncestorSessionIDs: append([]string(nil), result.AncestorSessionIDs...),
+	}
+	return pluginruntime.ApplicationBinding{
+		Anchor: pluginruntime.ApplicationAnchor{
+			SessionID: result.SessionID, SessionGeneration: result.SessionGeneration,
+			CanonicalRepoID: result.CanonicalRepoID,
+		},
+		Artifact: pluginruntime.ArtifactBridgeBinding{
+			Bridge: &brokerArtifactBridge{client: s.client, token: result.BindingToken}, Caller: caller,
+		},
+		Evidence:    pluginruntime.EvidenceBridgeBinding{Bridge: &brokerEvidenceBridge{client: s.client, token: result.BindingToken}},
+		Application: &brokerApplicationBridge{client: s.client, token: result.BindingToken},
+		Controller: &brokerApplicationControllerBridge{
+			client: s.client, sessionID: result.SessionID,
+			controllerToken: s.controllerToken, bindingToken: result.BindingToken,
+		},
+		Events: &brokerApplicationEventBridge{client: s.client, token: result.BindingToken},
+	}, nil
+}
+
+func (b *brokerApplicationBridge) CallApplication(ctx context.Context, operation, requestID string, payload []byte) ([]byte, error) {
+	if b == nil || b.client == nil || b.token == "" {
+		return nil, errors.New("application broker binding unavailable")
+	}
+	var response json.RawMessage
+	if err := b.client.Call(ctx, broker.MethodApplicationCall, broker.ApplicationCallParams{
+		BindingToken: b.token, RequestID: requestID, Operation: operation,
+		Payload: json.RawMessage(payload),
+	}, &response); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), response...), nil
+}
+
+func (b *brokerApplicationEventBridge) Pending(ctx context.Context, limit int) ([]pluginruntime.ApplicationEvent, error) {
+	if b == nil || b.client == nil || b.token == "" {
+		return nil, errors.New("application event binding unavailable")
+	}
+	var wire []broker.ApplicationEventResult
+	if err := b.client.Call(ctx, broker.MethodApplicationEventsNext, broker.ApplicationEventsNextParams{BindingToken: b.token, Limit: limit}, &wire); err != nil {
+		return nil, err
+	}
+	out := make([]pluginruntime.ApplicationEvent, 0, len(wire))
+	for _, event := range wire {
+		out = append(out, pluginruntime.ApplicationEvent{
+			Kind: event.Kind, BrokerSeq: event.WALSequence,
+			EvidenceRefs: append([]string(nil), event.EvidenceRefs...), Data: append(json.RawMessage(nil), event.Data...),
+		})
+	}
+	return out, nil
+}
+
+func (b *brokerApplicationEventBridge) Acknowledge(ctx context.Context, sequence uint64) error {
+	if b == nil || b.client == nil || b.token == "" || sequence == 0 {
+		return errors.New("application event acknowledgement unavailable")
+	}
+	var result json.RawMessage
+	return b.client.Call(ctx, broker.MethodApplicationEventsAck, broker.ApplicationEventsAckParams{
+		BindingToken: b.token, RequestID: fmt.Sprintf("ack:%d", sequence), Sequence: sequence,
+	}, &result)
+}
+
+func (s *BrokerSession) PublishApplicationEvent(ctx context.Context, event runtime.HostApplicationEvent) (uint64, error) {
+	if s == nil || s.Skipped || s.client == nil {
+		return 0, errors.New("application event publisher unavailable for this session")
+	}
+	s.applicationMu.RLock()
+	sessionID, admittedGeneration := s.SessionID, s.applicationGeneration
+	s.applicationMu.RUnlock()
+	if sessionID == "" {
+		return 0, errors.New("application event publisher unavailable for this session")
+	}
+	if strings.TrimSpace(event.IdempotencyKey) == "" {
+		return 0, errors.New("application event idempotency key is required")
+	}
+	if event.ExpectedSessionID != "" && event.ExpectedSessionID != sessionID {
+		return 0, errors.New("application event session changed")
+	}
+	expectedGeneration := event.ExpectedGeneration
+	if expectedGeneration == 0 {
+		expectedGeneration = admittedGeneration
+	}
+	var result broker.ApplicationEventResult
+	if err := s.client.Call(ctx, broker.MethodApplicationEventPublish, broker.ApplicationEventPublishParams{
+		SessionID: sessionID, ControllerToken: s.controllerToken, ExpectedGeneration: expectedGeneration,
+		RequestID: event.IdempotencyKey, ID: event.ID,
+		Kind: event.Kind, Data: event.Data, EvidenceRefs: event.EvidenceRefs,
+	}, &result); err != nil {
+		return 0, err
+	}
+	return result.WALSequence, nil
+}
+
+// ApplicationEventContext returns the native-held broker scope most recently
+// admitted for this session's lifecycle applications. The controller token is
+// intentionally not part of this projection and never reaches WASM.
+func (s *BrokerSession) ApplicationEventContext() runtime.ApplicationEventContext {
+	if s == nil {
+		return runtime.ApplicationEventContext{}
+	}
+	s.applicationMu.RLock()
+	sessionID, generation := s.SessionID, s.applicationGeneration
+	s.applicationMu.RUnlock()
+	return runtime.ApplicationEventContext{SessionID: sessionID, Generation: generation}
+}
+
+// LeaseApplicationEventContext retains this exact authenticated session and
+// generation while an asynchronous native observation is outstanding. Closing
+// a superseded TUI peer becomes deferred, not redirected: the old peer can
+// publish its child's terminal facts, then its last release terminates it.
+func (s *BrokerSession) LeaseApplicationEventContext() (runtime.ApplicationEventContext, func(), error) {
+	if s == nil {
+		return runtime.ApplicationEventContext{}, nil, errors.New("application event publisher unavailable for this session")
+	}
+	s.applicationMu.Lock()
+	if s.Skipped || s.client == nil || s.SessionID == "" || s.applicationGeneration == 0 || s.applicationClosePending || s.applicationClosed {
+		s.applicationMu.Unlock()
+		return runtime.ApplicationEventContext{}, nil, errors.New("application event publisher unavailable for this session")
+	}
+	scope := runtime.ApplicationEventContext{SessionID: s.SessionID, Generation: s.applicationGeneration}
+	s.applicationLeases++
+	s.applicationMu.Unlock()
+
+	var once sync.Once
+	return scope, func() {
+		once.Do(s.releaseApplicationEventContext)
+	}, nil
+}
+
+func (s *BrokerSession) releaseApplicationEventContext() {
+	if s == nil {
+		return
+	}
+	s.logicalMu.Lock()
+	s.applicationMu.Lock()
+	if s.applicationLeases > 0 {
+		s.applicationLeases--
+	}
+	var state brokerSessionCloseState
+	var closeNow bool
+	if s.applicationLeases == 0 && s.applicationClosePending {
+		state, closeNow = s.beginCloseLocked()
+	}
+	s.applicationMu.Unlock()
+	s.logicalMu.Unlock()
+	if closeNow {
+		if err := finishBrokerSessionClose(state); err != nil {
+			fmt.Fprintf(os.Stderr, "stado: deferred broker session.terminate: %v\n", err)
+		}
+	}
+}
+
+func (s *BrokerSession) CheckSchedule(ctx context.Context) (runtime.ScheduleStatus, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return runtime.ScheduleStatus{State: runtime.ScheduleActive}, nil
+	}
+	s.scheduleMu.Lock()
+	defer s.scheduleMu.Unlock()
+	var projection broker.SessionScheduleResult
+	if err := s.client.Call(ctx, broker.MethodSessionSchedule, broker.SessionScheduleParams{
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+	}, &projection); err != nil {
+		return runtime.ScheduleStatus{}, err
+	}
+	consumedBefore := s.lastControlSequence
+	status := s.scheduleStatusFromProjection(projection)
+	if status.State == runtime.SchedulePaused || status.State == runtime.ScheduleStopped {
+		var consumed broker.SessionScheduleResult
+		if err := s.client.Call(ctx, broker.MethodSessionScheduleConsume, broker.SessionScheduleConsumeParams{
+			SessionID: s.SessionID, ControllerToken: s.controllerToken, Sequence: status.Sequence,
+		}, &consumed); err != nil {
+			// Do not locally consume a result the broker failed to durably apply.
+			s.lastControlSequence = consumedBefore
+			return runtime.ScheduleStatus{}, err
+		}
+	}
+	return status, nil
+}
+
+func (s *BrokerSession) ActiveApplicationWorkerRun(ctx context.Context) (runtime.ApplicationWorkerRun, bool, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return runtime.ApplicationWorkerRun{}, false, nil
+	}
+	var projection broker.SessionScheduleResult
+	if err := s.client.Call(ctx, broker.MethodSessionSchedule, broker.SessionScheduleParams{
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+	}, &projection); err != nil {
+		return runtime.ApplicationWorkerRun{}, false, err
+	}
+	if projection.ActiveWorkerRun == nil {
+		return runtime.ApplicationWorkerRun{}, false, nil
+	}
+	run := projection.ActiveWorkerRun
+	return runtime.ApplicationWorkerRun{
+		SessionID: run.SessionID, Generation: run.Generation, PluginID: run.PluginID,
+		RunID: run.RunID, Version: run.Version, WALSequence: run.WALSequence,
+		Objective: run.Objective, Prompt: run.Prompt,
+		Conflict: runtime.ApplicationWorkerRunConflict(run.Conflict), Status: runtime.ApplicationWorkerRunStatus(run.Status),
+		TerminalReason: run.TerminalReason, TerminalSequence: run.TerminalSequence,
+	}, true, nil
+}
+
+func (s *BrokerSession) scheduleStatusFromProjection(projection broker.SessionScheduleResult) runtime.ScheduleStatus {
+	consumed := s.lastControlSequence
+	latest := consumed
+	if projection.LatestPause != nil {
+		latest = max(latest, projection.LatestPause.WALSequence)
+	}
+	if projection.LatestStop != nil {
+		latest = max(latest, projection.LatestStop.WALSequence)
+	}
+	if projection.LatestCompletion != nil {
+		latest = max(latest, projection.LatestCompletion.WALSequence)
+	}
+	// Stop is the strongest unconsumed terminal request. Successful completion
+	// comes next because it is an accepted transition, then pause. Advancing to
+	// the newest sequence consumes lower-priority facts atomically.
+	if projection.LatestStop != nil && projection.LatestStop.WALSequence > consumed {
+		s.lastControlSequence = latest
+		return runtime.ScheduleStatus{
+			State: runtime.ScheduleStopped, ReasonCode: projection.LatestStop.ReasonCode,
+			Reason: projection.LatestStop.Reason, Sequence: projection.LatestStop.WALSequence,
+		}
+	}
+	if projection.LatestCompletion != nil && projection.LatestCompletion.WALSequence > consumed {
+		s.lastControlSequence = latest
+		return runtime.ScheduleStatus{
+			State: runtime.ScheduleCompleted, Reason: projection.LatestCompletion.Summary,
+			Sequence: projection.LatestCompletion.WALSequence,
+		}
+	}
+	if projection.LatestPause != nil && projection.LatestPause.WALSequence > consumed {
+		s.lastControlSequence = latest
+		return runtime.ScheduleStatus{
+			State: runtime.SchedulePaused, ReasonCode: projection.LatestPause.ReasonCode,
+			Reason: projection.LatestPause.Reason, Sequence: projection.LatestPause.WALSequence,
+		}
+	}
+	if len(projection.ReviewingOperatorInputs) > 0 {
+		input := projection.ReviewingOperatorInputs[0]
+		return runtime.ScheduleStatus{
+			State: runtime.ScheduleHeld, ReasonCode: "operator-input.reviewing",
+			Reason: "a signed application is reviewing captured operator input", Sequence: input.WALSequence,
+		}
+	}
+	if len(projection.ActiveHolds) > 0 {
+		hold := projection.ActiveHolds[0]
+		return runtime.ScheduleStatus{
+			State: runtime.ScheduleHeld, ReasonCode: hold.ReasonCode,
+			Reason: hold.Reason, Until: hold.LeaseUntil, Sequence: hold.WALSequence,
+		}
+	}
+	return runtime.ScheduleStatus{State: runtime.ScheduleActive, Sequence: projection.AsOfSequence}
+}
+
+func (b *brokerArtifactBridge) call(ctx context.Context, method, requestID string, payload []byte) ([]byte, error) {
+	if b == nil || b.client == nil || b.token == "" {
+		return nil, errors.New("artifact broker binding unavailable")
+	}
+	var response json.RawMessage
+	if err := b.client.Call(ctx, method, broker.ArtifactCallParams{
+		BindingToken: b.token, RequestID: requestID, Payload: json.RawMessage(payload),
+	}, &response); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), response...), nil
+}
+
+func (b *brokerArtifactBridge) Propose(ctx context.Context, _ pluginruntime.ArtifactCaller, requestID string, payload []byte) ([]byte, error) {
+	return b.call(ctx, broker.MethodArtifactPropose, requestID, payload)
+}
+
+func (b *brokerArtifactBridge) Query(ctx context.Context, _ pluginruntime.ArtifactCaller, requestID string, payload []byte) ([]byte, error) {
+	return b.call(ctx, broker.MethodArtifactQuery, requestID, payload)
+}
+
+func (b *brokerArtifactBridge) Edit(ctx context.Context, _ pluginruntime.ArtifactCaller, requestID string, payload []byte) ([]byte, error) {
+	return b.call(ctx, broker.MethodArtifactEdit, requestID, payload)
+}
+
+func (b *brokerArtifactBridge) Observe(ctx context.Context, _ pluginruntime.ArtifactCaller, requestID string, payload []byte) ([]byte, error) {
+	return b.call(ctx, broker.MethodArtifactObserve, requestID, payload)
+}
+
+type brokerSessionCloseState struct {
+	client          *daemon.Client
+	sessionID       string
+	controllerToken string
+	ownsClient      bool
+	durable         bool
+	heartbeatStop   chan struct{}
+	heartbeatDone   chan struct{}
+}
+
+// Close issues broker.v1.session.terminate against the session. Only the root
+// handle (ownsClient) closes the underlying daemon connection; independently
+// owned peers retire their exact session/controller while leaving the shared
+// transport usable by the root and sibling peers. A session with outstanding
+// application-event leases is retired from its caller immediately but remains
+// authenticated until the final lease publishes or abandons its bounded
+// observation. Idempotent: safe to call even when Skipped, when the session was
+// never created, or after a previous Close. Returns the synchronous terminate
+// error only; a deferred terminate error is reported when the last lease
+// releases.
 func (s *BrokerSession) Close() error {
 	if s == nil || s.Skipped {
 		return nil
 	}
-	if s.client == nil {
+	s.logicalMu.Lock()
+	s.applicationMu.Lock()
+	if s.applicationClosed || s.client == nil || s.SessionID == "" {
+		s.applicationMu.Unlock()
+		s.logicalMu.Unlock()
 		return nil
 	}
+	if s.applicationLeases > 0 {
+		s.applicationClosePending = true
+		s.applicationMu.Unlock()
+		s.logicalMu.Unlock()
+		return nil
+	}
+	state, closeNow := s.beginCloseLocked()
+	s.applicationMu.Unlock()
+	s.logicalMu.Unlock()
+	if !closeNow {
+		return nil
+	}
+	return finishBrokerSessionClose(state)
+}
+
+// beginCloseLocked detaches all authority before performing daemon I/O. This
+// keeps concurrent Close calls idempotent and prevents a publisher from racing
+// a terminal request with credentials that are already being retired.
+func (s *BrokerSession) beginCloseLocked() (brokerSessionCloseState, bool) {
+	if s.applicationClosed || s.client == nil || s.SessionID == "" {
+		return brokerSessionCloseState{}, false
+	}
+	state := brokerSessionCloseState{
+		client: s.client, sessionID: s.SessionID,
+		controllerToken: s.controllerToken, ownsClient: s.ownsClient,
+		durable: s.durableSubject != "", heartbeatStop: s.heartbeatStop, heartbeatDone: s.heartbeatDone,
+	}
+	if s.heartbeatStop != nil {
+		close(s.heartbeatStop)
+	}
+	s.heartbeatStop = nil
+	s.heartbeatDone = nil
+	s.applicationClosed = true
+	s.applicationClosePending = false
+	s.SessionID = ""
+	s.applicationGeneration = 0
+	s.controllerToken = ""
 	if s.ownsClient {
-		defer func() {
-			_ = s.client.Close()
-			s.client = nil
-		}()
+		s.client = nil
 	}
-	if s.SessionID == "" {
+	return state, true
+}
+
+func finishBrokerSessionClose(state brokerSessionCloseState) error {
+	if state.client == nil || state.sessionID == "" {
 		return nil
+	}
+	if state.ownsClient {
+		defer func() { _ = state.client.Close() }()
+	}
+	if state.heartbeatDone != nil {
+		<-state.heartbeatDone
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), brokerAttachTimeout)
 	defer cancel()
-	err := s.client.Call(ctx, broker.MethodSessionTerminate, broker.SessionTerminateParams{
-		SessionID: s.SessionID,
-	}, nil)
-	s.SessionID = ""
+	method := broker.MethodSessionTerminate
+	params := any(broker.SessionTerminateParams{SessionID: state.sessionID, ControllerToken: state.controllerToken})
+	if state.durable {
+		method = broker.MethodSessionDetach
+		params = broker.SessionDetachParams{SessionID: state.sessionID, ControllerToken: state.controllerToken}
+	}
+	err := state.client.Call(ctx, method, params, nil)
 	if err == nil {
 		return nil
 	}
@@ -175,8 +636,8 @@ func (s *BrokerSession) SetTaint(ctx context.Context, taint runtime.ContextTaint
 	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
 	defer cancel()
 	return s.client.Call(callCtx, broker.MethodSessionTaint, broker.SessionTaintParams{
-		SessionID: s.SessionID,
-		Taint:     string(taint),
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+		Taint: string(taint),
 	}, nil)
 }
 
@@ -203,24 +664,22 @@ func (s *BrokerSession) CreateSubagent(ctx context.Context, req runtime.BrokerSu
 	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
 	defer cancel()
 	err := s.client.Call(callCtx, broker.MethodSessionCreate, broker.SessionCreateParams{
-		Purpose:         broker.PurposeSubagent,
-		Profile:         s.Profile,
-		ParentSessionID: s.SessionID,
-		Role:            req.Role,
-		Mode:            req.Mode,
-		WriteScope:      req.WriteScope,
+		Purpose: broker.PurposeSubagent, Profile: s.Profile,
+		ParentSessionID: s.SessionID, ParentControllerToken: s.controllerToken,
+		Role: req.Role, Mode: req.Mode, WriteScope: req.WriteScope,
 	}, &result)
 	if err != nil {
 		return nil, err
 	}
 	return &BrokerSession{
-		SessionID:    result.SessionID,
-		Purpose:      broker.PurposeSubagent,
-		Profile:      s.Profile,
-		TraceRef:     result.TraceRef,
-		Ceiling:      result.Ceiling,
-		WorktreePath: result.CWD,
-		client:       s.client,
+		SessionID:       result.SessionID,
+		controllerToken: result.ControllerToken,
+		Purpose:         broker.PurposeSubagent,
+		Profile:         s.Profile,
+		TraceRef:        result.TraceRef,
+		Ceiling:         result.Ceiling,
+		WorktreePath:    result.CWD,
+		client:          s.client,
 	}, nil
 }
 
@@ -245,14 +704,297 @@ func (s *BrokerSession) CreatePeer(ctx context.Context, cwd string) (runtime.Bro
 	defer cancel()
 	if err := s.client.Call(callCtx, broker.MethodSessionCreate, broker.SessionCreateParams{
 		Purpose: broker.PurposeMainChat, Profile: s.Profile, CWD: cwd,
+		ParentSessionID: s.SessionID, ParentControllerToken: s.controllerToken,
 	}, &result); err != nil {
 		return nil, err
 	}
 	return &BrokerSession{
-		SessionID: result.SessionID, Purpose: result.Purpose, Profile: s.Profile,
+		SessionID: result.SessionID, controllerToken: result.ControllerToken,
+		Purpose: result.Purpose, Profile: s.Profile,
 		TraceRef: result.TraceRef, Ceiling: result.Ceiling,
 		WorktreePath: result.CWD, client: s.client,
 	}, nil
+}
+
+// OpenLogicalSession creates or adopts the exact durable broker scope for one
+// git conversation. The recovery bearer is read/written only by the native
+// orchestrator; WASM and model-visible payloads never receive it.
+func (s *BrokerSession) OpenLogicalSession(ctx context.Context, cwd, subject string) (runtime.BrokerController, error) {
+	if s == nil {
+		return nil, errors.New("durable broker peer: parent connection unavailable")
+	}
+	if s.Skipped {
+		return &BrokerSession{
+			Purpose: broker.PurposeMainChat, Profile: s.Profile,
+			Skipped: true, SkipReason: s.SkipReason, Ceiling: s.Ceiling,
+		}, nil
+	}
+	if s.client == nil || s.SessionID == "" {
+		return nil, errors.New("durable broker peer: parent connection closed")
+	}
+	if s.logicalCredentials == nil {
+		return nil, errors.New("durable broker peer: credential store unavailable")
+	}
+	credential, loadErr := s.logicalCredentials.Load(subject)
+	create := errors.Is(loadErr, brokercredential.ErrNotFound)
+	if loadErr != nil && !create {
+		return nil, fmt.Errorf("durable broker peer: load credential: %w", loadErr)
+	}
+	reserveCredential := func() (broker.SessionAdoptionCredential, error) {
+		var reserved broker.SessionReserveResult
+		reserveCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+		defer cancel()
+		if err := s.client.Call(reserveCtx, broker.MethodSessionReserve, broker.SessionReserveParams{
+			ParentSessionID: s.SessionID, ParentControllerToken: s.controllerToken,
+			Subject: subject, CWD: cwd,
+		}, &reserved); err != nil {
+			return broker.SessionAdoptionCredential{}, err
+		}
+		credential := broker.SessionAdoptionCredential{
+			Subject: reserved.Subject, Ticket: reserved.Ticket, ResumeSecret: reserved.ResumeSecret,
+		}
+		if reserved.Subject != subject || !reserved.ExpiresAt.After(time.Now()) || broker.ValidateSessionAdoptionCredential(credential) != nil {
+			return broker.SessionAdoptionCredential{}, errors.New("broker returned an invalid durable-session reservation")
+		}
+		if err := s.logicalCredentials.Save(credential); err != nil {
+			return broker.SessionAdoptionCredential{}, fmt.Errorf("persist reserved credential: %w", err)
+		}
+		return credential, nil
+	}
+	if create {
+		reserved, err := reserveCredential()
+		if err != nil {
+			return nil, fmt.Errorf("durable broker peer: reserve credential: %w", err)
+		}
+		credential = reserved
+	}
+	var result broker.SessionHandleResult
+	call := func(method string, params any) error {
+		callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+		defer cancel()
+		return s.client.Call(callCtx, method, params, &result)
+	}
+	if !create {
+		err := call(broker.MethodSessionAdopt, broker.SessionAdoptParams{
+			Subject: credential.Subject, Ticket: credential.Ticket,
+			ResumeSecret: credential.ResumeSecret, CWD: cwd,
+		})
+		if err == nil {
+			if result.Subject != subject || result.AdoptionTicket != credential.Ticket || result.ResumeSecret != credential.ResumeSecret {
+				_ = detachLogicalSession(s.client, result.SessionID, result.ControllerToken)
+				return nil, errors.New("durable broker peer: adoption response changed the exact subject or recovery bearer")
+			}
+		} else if !unrecordedLogicalCredential(err) {
+			return nil, err
+		} else {
+			create = true
+		}
+	}
+	if create {
+		createParams := func() broker.SessionCreateParams {
+			return broker.SessionCreateParams{
+				Purpose: broker.PurposeMainChat, Profile: s.Profile, CWD: cwd, Subject: subject,
+				AdoptionTicket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+				ParentSessionID: s.SessionID, ParentControllerToken: s.controllerToken,
+			}
+		}
+		if err := call(broker.MethodSessionCreate, createParams()); err != nil {
+			var rpcErr *daemon.Error
+			if !errors.As(err, &rpcErr) || rpcErr.Code != daemon.ErrCodeBrokerSessionScopeCredential {
+				return nil, err
+			}
+			// A pre-staged reservation may expire while the client is down, or be
+			// bound to the process-local parent lost in a daemon restart. It has no
+			// application state, so obtain and atomically replace it once.
+			reserved, reserveErr := reserveCredential()
+			if reserveErr != nil {
+				return nil, fmt.Errorf("durable broker peer: renew expired reservation: %w", reserveErr)
+			}
+			credential = reserved
+			if err := call(broker.MethodSessionCreate, createParams()); err != nil {
+				return nil, err
+			}
+		}
+		if result.Subject != subject || result.AdoptionTicket != credential.Ticket || result.ResumeSecret != credential.ResumeSecret {
+			_ = retireUnstoredLogicalSession(s.client, result)
+			return nil, errors.New("durable broker peer: broker returned mismatched logical subject or recovery bearer")
+		}
+	}
+	peer := &BrokerSession{
+		SessionID: result.SessionID, controllerToken: result.ControllerToken,
+		Purpose: result.Purpose, Profile: s.Profile, TraceRef: result.TraceRef,
+		Ceiling: result.Ceiling, WorktreePath: result.CWD, client: s.client,
+		logicalCredentials: s.logicalCredentials, durableSubject: subject,
+	}
+	peer.startHeartbeat()
+	return peer, nil
+}
+
+// ReserveLogicalSessionHandoff durably binds an automatic-recovery child to
+// this exact source controller and turn, then pre-stages the stable recovery
+// bearer under the child subject. A failed stage never reaches commit, so the
+// source remains authoritative.
+func (s *BrokerSession) ReserveLogicalSessionHandoff(ctx context.Context, childSubject, sourceTurnRef string) (runtime.LogicalSessionHandoffReservation, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" || s.durableSubject == "" || s.logicalCredentials == nil {
+		return runtime.LogicalSessionHandoffReservation{}, errors.New("durable broker handoff unavailable")
+	}
+	s.logicalMu.Lock()
+	defer s.logicalMu.Unlock()
+	var reserved broker.SessionSubjectHandoffReservation
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	if err := s.client.Call(callCtx, broker.MethodSessionHandoffReserve, broker.SessionHandoffReserveParams{
+		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+		ChildSubject: childSubject, SourceTurnRef: sourceTurnRef,
+	}, &reserved); err != nil {
+		return runtime.LogicalSessionHandoffReservation{}, err
+	}
+	if reserved.ID == "" || reserved.SourceSubject != s.durableSubject || reserved.ChildSubject != childSubject ||
+		reserved.SourceTurnRef != sourceTurnRef || !reserved.ExpiresAt.After(time.Now()) {
+		return runtime.LogicalSessionHandoffReservation{}, errors.New("broker returned a mismatched logical-session handoff reservation")
+	}
+	staged, err := s.logicalCredentials.StageHandoff(s.durableSubject, childSubject)
+	if err != nil {
+		return runtime.LogicalSessionHandoffReservation{}, fmt.Errorf("pre-stage child recovery credential: %w", err)
+	}
+	if staged.Subject != childSubject || broker.ValidateSessionAdoptionCredential(staged) != nil {
+		return runtime.LogicalSessionHandoffReservation{}, errors.New("pre-staged child recovery credential is invalid")
+	}
+	return runtime.LogicalSessionHandoffReservation{
+		ID: reserved.ID, SourceSubject: reserved.SourceSubject, ChildSubject: reserved.ChildSubject,
+		SourceTurnRef: reserved.SourceTurnRef, ExpiresAt: reserved.ExpiresAt,
+	}, nil
+}
+
+// CommitLogicalSessionHandoff moves the existing broker scope and updates this
+// native controller in place. The child credential was written before this
+// call; after a successful RPC, even a process crash can reopen the child.
+func (s *BrokerSession) CommitLogicalSessionHandoff(ctx context.Context, reservation runtime.LogicalSessionHandoffReservation) error {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" || s.durableSubject == "" || s.logicalCredentials == nil {
+		return errors.New("durable broker handoff unavailable")
+	}
+	s.logicalMu.Lock()
+	defer s.logicalMu.Unlock()
+	if reservation.ID == "" || reservation.SourceSubject != s.durableSubject || reservation.ChildSubject == "" ||
+		reservation.SourceTurnRef == "" || !reservation.ExpiresAt.After(time.Now()) {
+		return errors.New("durable broker handoff reservation is stale or mismatched")
+	}
+	credential, err := s.logicalCredentials.Load(reservation.ChildSubject)
+	if err != nil {
+		return fmt.Errorf("load pre-staged child recovery credential: %w", err)
+	}
+	oldToken, oldSubject := s.controllerToken, s.durableSubject
+	stop, done := s.heartbeatStop, s.heartbeatDone
+	if stop != nil {
+		close(stop)
+		s.heartbeatStop, s.heartbeatDone = nil, nil
+	}
+	if done != nil {
+		<-done
+	}
+	params := broker.SessionHandoffCommitParams{
+		SessionID: s.SessionID, ControllerToken: oldToken, HandoffID: reservation.ID,
+		ChildSubject: reservation.ChildSubject, Ticket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+	}
+	var result broker.SessionHandleResult
+	commit := func() error {
+		result = broker.SessionHandleResult{}
+		callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+		defer cancel()
+		return s.client.Call(callCtx, broker.MethodSessionHandoffCommit, params, &result)
+	}
+	err = commit()
+	if err != nil {
+		var rpcErr *daemon.Error
+		if errors.As(err, &rpcErr) {
+			s.startHeartbeat()
+			return err
+		}
+		// The request may have committed even though its reply was lost. Replay
+		// the exact prior-controller+bearer reservation once; the broker rotates
+		// away the lost controller and returns a fresh one.
+		firstErr := err
+		if err = commit(); err != nil {
+			// Ambiguous means neither source nor child may run locally. Do not
+			// restart the source heartbeat with a possibly invalid token.
+			s.controllerToken = ""
+			s.durableSubject = reservation.ChildSubject
+			return fmt.Errorf("logical-session handoff commit outcome is ambiguous: %w", errors.Join(firstErr, err))
+		}
+	}
+	if result.SessionID != s.SessionID || result.Subject != reservation.ChildSubject || result.ControllerToken == "" ||
+		result.ControllerToken == oldToken || result.AdoptionTicket != credential.Ticket || result.ResumeSecret != credential.ResumeSecret {
+		// A syntactically successful reply is still authoritative evidence that
+		// the source may have moved. Do not revive its heartbeat or leave a
+		// usable source controller when the response cannot be trusted.
+		s.controllerToken = ""
+		s.durableSubject = reservation.ChildSubject
+		return errors.New("broker returned a mismatched committed logical-session handoff; controller is fail-closed")
+	}
+	s.controllerToken = result.ControllerToken
+	s.durableSubject = reservation.ChildSubject
+	s.startHeartbeat()
+	// The old file is no longer authority. Best-effort removal reduces stale
+	// operator confusion; failure is harmless because broker subject matching
+	// permanently fences old-subject adoption.
+	_ = s.logicalCredentials.Remove(oldSubject)
+	return nil
+}
+
+func unrecordedLogicalCredential(err error) bool {
+	var rpcErr *daemon.Error
+	return errors.As(err, &rpcErr) && (rpcErr.Code == daemon.ErrCodeBrokerSessionNotFound ||
+		rpcErr.Code == daemon.ErrCodeBrokerSessionScopeCredential)
+}
+
+const brokerSessionHeartbeatInterval = 10 * time.Second
+
+func (s *BrokerSession) startHeartbeat() {
+	if s == nil || s.client == nil || s.durableSubject == "" || s.SessionID == "" {
+		return
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	s.heartbeatStop, s.heartbeatDone = stop, done
+	client, sessionID, controllerToken := s.client, s.SessionID, s.controllerToken
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(brokerSessionHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				callCtx, cancel := context.WithTimeout(context.Background(), brokerAttachTimeout)
+				_ = client.Call(callCtx, broker.MethodSessionHeartbeat, broker.SessionHeartbeatParams{
+					SessionID: sessionID, ControllerToken: controllerToken,
+				}, nil)
+				cancel()
+			}
+		}
+	}()
+}
+
+func retireUnstoredLogicalSession(client *daemon.Client, result broker.SessionHandleResult) error {
+	if client == nil || result.SessionID == "" || result.ControllerToken == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), brokerAttachTimeout)
+	defer cancel()
+	return client.Call(ctx, broker.MethodSessionTerminate, broker.SessionTerminateParams{
+		SessionID: result.SessionID, ControllerToken: result.ControllerToken,
+	}, nil)
+}
+
+func detachLogicalSession(client *daemon.Client, sessionID, controllerToken string) error {
+	if client == nil || sessionID == "" || controllerToken == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), brokerAttachTimeout)
+	defer cancel()
+	return client.Call(ctx, broker.MethodSessionDetach, broker.SessionDetachParams{
+		SessionID: sessionID, ControllerToken: controllerToken,
+	}, nil)
 }
 
 // brokerAttachOptIn reports whether the broker attach is enabled
@@ -329,14 +1071,15 @@ func attachToBroker(ctx context.Context, purpose broker.Purpose, profile broker.
 	}
 
 	return &BrokerSession{
-		SessionID:    result.SessionID,
-		Purpose:      result.Purpose,
-		Profile:      profile,
-		TraceRef:     result.TraceRef,
-		Ceiling:      result.Ceiling,
-		WorktreePath: result.CWD,
-		client:       cl,
-		ownsClient:   true,
+		SessionID:       result.SessionID,
+		controllerToken: result.ControllerToken,
+		Purpose:         result.Purpose,
+		Profile:         profile,
+		TraceRef:        result.TraceRef,
+		Ceiling:         result.Ceiling,
+		WorktreePath:    result.CWD,
+		client:          cl,
+		ownsClient:      true,
 	}, nil
 }
 

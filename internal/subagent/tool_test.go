@@ -36,6 +36,43 @@ func TestDecodeRequestHistoricalModelAndRetention(t *testing.T) {
 		t.Fatalf("req=%+v", req)
 	}
 }
+
+func TestDecodeRequestProviderReasoningProfile(t *testing.T) {
+	raw := json.RawMessage(`{
+		"prompt":"review the exact turn",
+		"provider":" anthropic ",
+		"model":" claude-sonnet-4-6 ",
+		"thinking":" on ",
+		"thinking_budget_tokens":12000,
+		"reasoning_effort":" high ",
+		"token_budget":20000
+	}`)
+	req, err := DecodeRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Provider != "anthropic" || req.Model != "claude-sonnet-4-6" || req.Thinking != "on" ||
+		req.ThinkingBudgetTokens != 12000 || req.ReasoningEffort != "high" {
+		t.Fatalf("provider profile = %#v", req)
+	}
+}
+
+func TestDecodeRequestRejectsInvalidProviderReasoningProfile(t *testing.T) {
+	tests := []string{
+		`{"prompt":"x","provider":"anthropic"}`,
+		`{"prompt":"x","thinking":"sometimes"}`,
+		`{"prompt":"x","thinking_budget_tokens":2000001}`,
+		`{"prompt":"x","thinking_budget_tokens":101,"token_budget":100}`,
+		`{"prompt":"x","reasoning_effort":"unbounded"}`,
+		`{"prompt":"x","provider":"bad\u0000name","model":"m"}`,
+	}
+	for _, raw := range tests {
+		if _, err := DecodeRequest(json.RawMessage(raw)); err == nil {
+			t.Fatalf("accepted invalid provider profile %s", raw)
+		}
+	}
+}
+
 func TestDecodeRequestRejectsMutableOrAmbiguousSource(t *testing.T) {
 	for _, raw := range []string{`{"prompt":"x","source":{"session_id":"s","at":"tip"}}`, `{"prompt":"x","source":{"at":"turns/1"}}`, `{"prompt":"x","execution":"maybe"}`} {
 		if _, err := DecodeRequest(json.RawMessage(raw)); err == nil {
@@ -152,7 +189,7 @@ func TestNormalizeWriteScopeRejectsUnsafeEntries(t *testing.T) {
 	}{
 		{name: "empty", scope: "", wantErr: "empty"},
 		{name: "absolute", scope: "/etc/passwd", wantErr: "absolute"},
-		{name: "windows absolute", scope: "C:/Users/foo", wantErr: "absolute"},
+		{name: "drive absolute", scope: "C:/Users/foo", wantErr: "absolute"},
 		{name: "parent traversal", scope: "../x", wantErr: ".."},
 		{name: "interior traversal", scope: "foo/../bar", wantErr: ".."},
 		{name: "git metadata", scope: ".git/config", wantErr: ".git"},

@@ -37,8 +37,6 @@ func TestConfigShow_HumanOutputHasKeySections(t *testing.T) {
 		"theme",
 		"thinking_display",
 		"tool_display",
-		"[memory]",
-		"budget_tokens",
 		"[context]",
 		"soft_threshold",
 		"hard_threshold",

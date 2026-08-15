@@ -5,27 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
-
-// TestClassOf_BuiltIns: post-Step-7 of EP-no-internal-tools, only
-// `tasks` remains as a non-plugin native tool with a static class
-// entry. fs.* and readctx.read register their classes via
-// newBundledWasmTool calls in bundled_plugin_tools.go.
-func TestClassOf_BuiltIns(t *testing.T) {
-	r := NewRegistry()
-	r.Register(tasktool.Tool{})
-
-	cases := map[string]tool.Class{
-		"tasks": tool.ClassStateMutating,
-	}
-	for name, want := range cases {
-		if got := r.ClassOf(name); got != want {
-			t.Errorf("ClassOf(%q) = %v, want %v", name, got, want)
-		}
-	}
-}
 
 func TestClassOf_UnknownTool(t *testing.T) {
 	r := NewRegistry()

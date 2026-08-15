@@ -95,9 +95,9 @@ func TestBuildSandboxedCmd_NilPolicyRunsUnsandboxed(t *testing.T) {
 		t.Fatal("buildSandboxedCmd returned nil cmd")
 	}
 	// The command's Path/Args reflect the literal argv with no
-	// bwrap / sandbox-exec wrapper prefixed. If the policy were
+	// bwrap / firejail wrapper prefixed. If the policy were
 	// auto-applied, cmd.Path would point at /usr/bin/bwrap (or
-	// /usr/bin/sandbox-exec on macOS) and the original argv would
+	// /usr/bin/firejail) and the original argv would
 	// be inside cmd.Args after the runner's flags.
 	if !strings.HasSuffix(cmd.Path, "/echo") && cmd.Path != "/bin/echo" {
 		t.Errorf("nil-policy exec.Cmd.Path = %q; expected the literal argv[0] (no runner wrapper)", cmd.Path)
@@ -113,7 +113,7 @@ func TestBuildSandboxedCmd_NilPolicyRunsUnsandboxed(t *testing.T) {
 // intent — the existing implementation correctly errors.
 func TestBuildSandboxedCmd_PolicyWithoutRunnerErrors(t *testing.T) {
 	// We can't easily mock sandbox.Detect, so this test only fires
-	// on hosts where Detect returns "none" (no bwrap, no sandbox-exec).
+	// on hosts where Detect returns "none" (no bwrap or firejail).
 	// Skip cleanly elsewhere.
 	if hasSandboxRunner() {
 		t.Skip("native sandbox runner available; this branch only fires when none detected")
@@ -123,7 +123,7 @@ func TestBuildSandboxedCmd_PolicyWithoutRunnerErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when policy requested but no runner available")
 	}
-	if !strings.Contains(err.Error(), "no native sandbox runner") {
+	if !strings.Contains(err.Error(), "no Linux sandbox runner") {
 		t.Errorf("error should mention missing runner; got %q", err.Error())
 	}
 }
@@ -482,12 +482,12 @@ func TestResolveSandboxPolicy_GuestCanOnlyTighten(t *testing.T) {
 // the policy is misconfigured (FSRead missing /bin, Net=DenyAll
 // silently), the cmd either fails to execvp or hangs.
 //
-// Skips cleanly when bwrap / sandbox-exec aren't available — keeps
+// Skips cleanly when bwrap / firejail aren't available — keeps
 // the test environment-agnostic. The exit code, stdout match, and
 // completion within a few seconds are the load-bearing assertions.
 func TestNewDefaultSandboxPolicy_ActuallyRunsBash(t *testing.T) {
 	if !hasSandboxRunner() {
-		t.Skip("native sandbox runner not detected; integration test requires bwrap or sandbox-exec")
+		t.Skip("native sandbox runner not detected; integration test requires bwrap or firejail")
 	}
 	policy := NewDefaultSandboxPolicy("/tmp").(*sandboxPolicy)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -582,7 +582,7 @@ func TestNewDefaultSandboxPolicy_NoAgentWhenUnset(t *testing.T) {
 }
 
 // hasSandboxRunner returns true when the host has a real sandbox
-// runner detected (bwrap on Linux, sandbox-exec on macOS). Used to
+// Linux runner detected (bwrap or firejail). Used to
 // skip tests that depend on the absence of a runner.
 func hasSandboxRunner() bool {
 	// Re-import sandbox.Detect indirectly via buildSandboxedCmd: if

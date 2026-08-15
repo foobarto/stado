@@ -1,0 +1,76 @@
+{
+  "name": "stado-builtin-tool-fs",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:.", "fs:write:."],
+  "tools": [
+    {
+      "name": "fs__edit",
+      "description": "Apply content-anchored (hashline) edits to a file. Anchored edits target a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / EOF), prepend (before pos / BOF), and replace_text (find an EXACTLY UNIQUE substring \"text\" and swap it for \"replacement\"; rejected if missing or non-unique). Anchored edits apply bottom-up; replace_text cannot be mixed with anchored ops in one call.",
+      "export": "edit",
+      "class": "Mutating",
+      "schema": "{\"properties\":{\"edits\":{\"description\":\"Hashline edits, applied bottom-up\",\"items\":{\"properties\":{\"end\":{\"description\":\"End anchor for a range replace (inclusive), same form as pos\",\"type\":\"string\"},\"lines\":{\"description\":\"Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"op\":{\"description\":\"Operation\",\"enum\":[\"replace\",\"append\",\"prepend\",\"replace_text\"],\"type\":\"string\"},\"pos\":{\"description\":\"LINE#HASH anchor from read output, e.g. 11#KT\",\"type\":\"string\"},\"replacement\":{\"description\":\"replace_text only: what to swap \\\"text\\\" for\",\"type\":\"string\"},\"text\":{\"description\":\"replace_text only: the EXACTLY UNIQUE substring to find (may span lines)\",\"type\":\"string\"}},\"required\":[\"op\"],\"type\":\"object\"},\"type\":\"array\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"edits\"],\"type\":\"object\"}",
+      "categories": ["filesystem", "code-edit"],
+      "capabilities": ["fs:read:.", "fs:write:."]
+    },
+    {
+      "name": "fs__glob",
+      "description": "Find files matching a glob pattern. Walks recursively from path (default cwd).",
+      "export": "glob",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"path\":{\"description\":\"Walk root (default '.')\",\"type\":\"string\"},\"pattern\":{\"description\":\"Glob pattern (e.g. *.go)\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}",
+      "categories": ["filesystem"],
+      "capabilities": ["fs:read:."]
+    },
+    {
+      "name": "fs__grep",
+      "description": "Search file contents with regex. Walks recursively from path (default cwd).",
+      "export": "grep",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"path\":{\"description\":\"Walk root (default '.')\",\"type\":\"string\"},\"pattern\":{\"description\":\"Regex pattern\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}",
+      "categories": ["filesystem", "code-search"],
+      "capabilities": ["fs:read:."]
+    },
+    {
+      "name": "fs__ls",
+      "description": "List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns the formatted ls output.",
+      "export": "ls",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"hidden\":{\"description\":\"Include dot-files (default false)\",\"type\":\"boolean\"},\"path\":{\"description\":\"Directory to list (default '.')\",\"type\":\"string\"}},\"type\":\"object\"}",
+      "categories": ["filesystem"],
+      "capabilities": ["exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."]
+    },
+    {
+      "name": "fs__read",
+      "description": "Read a file. Each line is prefixed \"LINE#HASH:\" (1-indexed line number + 2-char content hash); copy those LINE#HASH anchors into the edit tool's pos/end. Optional offset/length for raw partial byte reads (no prefixes).",
+      "export": "read",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"length\":{\"description\":\"Max bytes to read\",\"type\":\"integer\"},\"offset\":{\"description\":\"Byte offset (default 0)\",\"type\":\"integer\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}",
+      "categories": ["filesystem"],
+      "capabilities": ["fs:read:."]
+    },
+    {
+      "name": "fs__write",
+      "description": "Write content to a file (creates or truncates).",
+      "export": "write",
+      "class": "Mutating",
+      "schema": "{\"properties\":{\"content\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"],\"type\":\"object\"}",
+      "categories": ["filesystem", "code-edit"],
+      "capabilities": ["fs:write:."]
+    },
+    {
+      "name": "readctx__read",
+      "description": "Read a file with a window of context around a target line.",
+      "export": "read_context",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"line\":{\"description\":\"Center line (1-indexed)\",\"type\":\"integer\"},\"path\":{\"type\":\"string\"},\"range\":{\"description\":\"Total lines to show (default 20)\",\"type\":\"integer\"}},\"required\":[\"path\"],\"type\":\"object\"}",
+      "categories": ["filesystem"],
+      "capabilities": ["fs:read:."]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-fs"
+}

@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/personas"
@@ -163,6 +162,11 @@ func (s *Server) peerDone() <-chan struct{} {
 }
 
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
+	// EP-0064: ACP does not yet own the complete persistent application
+	// composition. Fail before opening the protocol/session surface.
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, nil, runtime.ApplicationSurfaceACP); err != nil {
+		return fmt.Errorf("acp: %w", err)
+	}
 	s.conn = NewConn(r, w)
 	defer s.closeSessionBrokers()
 	return s.conn.Serve(ctx, s.dispatch)
@@ -303,6 +307,13 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 	persona, perr := s.resolveSessionPersona(p.Persona)
 	if perr != nil {
 		return nil, perr
+	}
+	var personaPlugins []string
+	if persona != nil {
+		personaPlugins = persona.Plugins
+	}
+	if err := runtime.RequireLifecycleApplicationSurface(s.Cfg, personaPlugins, runtime.ApplicationSurfaceACP); err != nil {
+		return nil, &RPCError{Code: CodeInvalidParams, Message: "acp session/new: " + err.Error()}
 	}
 
 	// Resume target precedence: per-call param > operator-set CLI
@@ -557,9 +568,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	}
 	sysPrompt = harness.Prepend(sysPrompt, workdir, harnessMode)
 
-	// EP-0045: load the effective skill catalog (cwd ∪ persona) so the
-	// model-facing listing + skills__load work on the ACP surface, matching
-	// `stado run`. Non-fatal on load error.
+	// EP-0045: bind the effective skill catalog (cwd ∪ persona) as exact
+	// host context facts for an installed WASM skill application. This keeps
+	// ACP aligned with run/TUI without native prompt injection.
 	effectiveSkills, skErr := runtime.EffectiveSkills(workdir, sess.persona)
 	if skErr != nil {
 		fmt.Fprintf(os.Stderr, "stado acp: skills load: %v\n", skErr)
@@ -579,7 +590,6 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
 		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
-		MemoryContext:        s.memoryPromptContext(pctx, workdir, p.SessionID, p.Prompt),
 		OnSubagentEvent: func(ev runtime.SubagentEvent) {
 			s.emitSubagentUpdate(p.SessionID, ev)
 		},
@@ -643,21 +653,13 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 				readLog:         exec.ReadLog,
 				runner:          exec.Runner,
 				executorSandbox: executorSandbox,
+				provider:        prov,
+				defaultModel:    s.Cfg.Defaults.Model,
 			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
 	}
-	opts.GuidanceContext = func() string {
-		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
-			if opts.Executor == nil || opts.Executor.Registry == nil {
-				return false
-			}
-			_, ok := opts.Executor.Registry.Get(name)
-			return ok
-		}})
-	}
-
 	priorLen := len(localMsgs)
 	text, msgs, loopErr := runtime.AgentLoop(pctx, opts)
 

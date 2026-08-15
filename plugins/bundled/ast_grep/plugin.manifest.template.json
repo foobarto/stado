@@ -1,0 +1,22 @@
+{
+  "name": "stado-builtin-tool-astgrep",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["bundled-bin:astgrep", "exec:proc:ast-grep", "fs:read:.", "fs:write:."],
+  "tools": [
+    {
+      "name": "astgrep__search",
+      "description": "Structural code search and rewrite via ast-grep (tree-sitter patterns).",
+      "export": "search",
+      "class": "Mutating",
+      "schema": "{\"properties\":{\"lang\":{\"description\":\"Language (e.g. 'go', 'python', 'js')\",\"type\":\"string\"},\"path\":{\"description\":\"Search root (default cwd)\",\"type\":\"string\"},\"pattern\":{\"description\":\"ast-grep pattern, e.g. 'fmt.Println($X)'\",\"type\":\"string\"},\"rewrite\":{\"description\":\"Rewrite template; when set, files are updated in place\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"}",
+      "categories": ["code-search", "code-edit"],
+      "capabilities": ["fs:read:.", "fs:write:.", "exec:proc:ast-grep", "bundled-bin:astgrep"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-astgrep"
+}

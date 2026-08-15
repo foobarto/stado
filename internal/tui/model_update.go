@@ -16,15 +16,12 @@ package tui
 //                              when a picker is open)
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 )
 
@@ -53,11 +50,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onVerifyResult(m, msg)
 	case btwResultMsg:
 		return onBtwResult(m, msg)
-	case learnResultMsg:
-		return onLearnResult(m, msg)
-	case learnManageResultMsg:
-		return onLearnManageResult(m, msg)
-
 	case logTailMsg:
 		return onLogTail(m, msg)
 	case localFallbackReadyMsg:
@@ -70,6 +62,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onMonitorDone(m, msg)
 	case backgroundTickResultMsg:
 		return onBackgroundTickResult(m, msg)
+	case applicationCommandResultMsg:
+		return onApplicationCommandResult(m, msg)
+	case applicationWorkerRunLookupMsg:
+		return onApplicationWorkerRunLookup(m, msg)
+	case applicationWorkerRunActivationMsg:
+		return onApplicationWorkerRunActivation(m, msg)
+	case applicationWorkerRunCancellationMsg:
+		return onApplicationWorkerRunCancellation(m, msg)
+	case applicationWorkerRunRecoveryMsg:
+		return onApplicationWorkerRunRecovery(m, msg)
+	case applicationInputCaptureMsg:
+		return onApplicationInputCapture(m, msg)
+	case applicationInputStateMsg:
+		return onApplicationInputState(m, msg)
+	case applicationInputDeliveryMsg:
+		return onApplicationInputDelivery(m, msg)
+	case applicationBoundaryMsg:
+		return onApplicationBoundaryResult(m, msg)
+	case applicationPollTickMsg:
+		return m, m.pollLifecycleApplicationEvents()
+	case applicationPollResultMsg:
+		return onApplicationPollResult(m, msg)
 	case recoveryTimeoutMsg:
 		return onRecoveryTimeout(m, msg)
 	case localHintMsg:
@@ -411,45 +425,6 @@ func yesKey(msg tea.KeyPressMsg) bool {
 
 func noKey(msg tea.KeyPressMsg) bool {
 	return msg.Text == "n" || msg.Text == "N"
-}
-
-func (m *Model) appendSubagentNotice(content string) {
-	var res subagent.Result
-	if err := json.Unmarshal([]byte(content), &res); err != nil || res.ChildSession == "" {
-		return
-	}
-	m.recordSubagentResult(res)
-	status := res.Status
-	if status == "" {
-		status = "completed"
-	}
-	body := fmt.Sprintf("spawn_agent %s → %s", status, res.ChildSession)
-	if res.Error != "" {
-		body += "\n  error: " + trimSeed(res.Error, 160)
-	}
-	if res.Worktree != "" {
-		body += "\n  worktree: " + res.Worktree
-	}
-	if len(res.ChangedFiles) > 0 {
-		body += fmt.Sprintf("\n  changed: %d file(s)", len(res.ChangedFiles))
-	}
-	if len(res.ScopeViolations) > 0 {
-		body += fmt.Sprintf("\n  scope violations: %d", len(res.ScopeViolations))
-	}
-	body += "\n  attach:  stado session attach " + res.ChildSession
-	if len(res.ChangedFiles) > 0 {
-		parentID := "<parent-session-id>"
-		if m.session != nil && m.session.ID != "" {
-			parentID = m.session.ID
-		}
-		adopt := "\n  adopt:   stado session adopt " + parentID + " " + res.ChildSession
-		if res.ForkTree != "" {
-			adopt += " --fork-tree " + res.ForkTree
-		}
-		adopt += " --apply"
-		body += adopt
-	}
-	m.appendBlock(block{kind: "system", body: body})
 }
 
 // acceptFilePickerSelection replaces the @<query> fragment in the

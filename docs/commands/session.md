@@ -183,7 +183,7 @@ stado tool run --session <id> <tool> [json-args]
 ```
 
 The example `plugins/bundled/auto-compact/` plugin uses
-`session:read`, `llm:invoke`, and `session:fork` to create a compacted
+`session:read`, `provider:invoke:30000`, and `session:fork` to create a compacted
 child session without mutating the parent. The same source also backs
 the bundled default background plugin that the TUI/headless server load
 automatically.
@@ -210,12 +210,14 @@ adaptive harness:
 - `session state` shows the compact objective, current work, blockers, next
   action, child status, and verification projection.
 - `session signals` shows active deterministic mistake/correction signals that
-  may be reviewed by `stado learn`.
+  may be reviewed by the future signed `/learn` TUI lifecycle application.
 - `session journal` shows up to 200 canonical chronology entries.
 
 Host facts and model assertions remain distinct. Model-authored state and
 journal text are quoted context, not instructions or authority, and signals do
-not become durable lessons without a separate review and interactive approval.
+not become durable lessons without a separate review. Fresh activation also
+requires a separately trusted EP-59 presenter; an interactive callback alone is
+not approval authority.
 
 ### `session gc [--apply]`
 
@@ -255,7 +257,7 @@ git checkout feature/react-refactor  # in your repo
 
 Relevant `config.toml` sections:
 
-- `[budget]` — warn/hard caps on cumulative cost and tokens (see
+- `[budget]` — warn/hard caps on cumulative tokens (see
   [budget.md](../features/budget.md)).
 - `[context]` — soft/hard context-window thresholds.
 - `[tools]` — trim the bundled tool surface (see

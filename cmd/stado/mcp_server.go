@@ -15,7 +15,7 @@ package main
 // runner-plumb-through):
 //
 // The legacy in-process bash tool consulted Runner() on the host to
-// confine itself with bubblewrap / sandbox-exec. That tool is gone —
+// confine itself with bubblewrap or firejail. That tool is gone —
 // `bash` is now the wasm tool `shell.exec`, which routes through
 // stado_exec. The original 2026-05-09 review caught a comment here
 // claiming Runner() still confined bash; it didn't, because the wasm
@@ -26,7 +26,7 @@ package main
 // pluginRuntime.NewDefaultSandboxPolicy. host_proc.go:resolveSandboxPolicy
 // applies this default when the wasm guest doesn't supply its own.
 // Net effect: bash invocations through MCP run under bwrap /
-// sandbox-exec by default (PID + uid namespace isolation).
+// a Linux containment runner by default.
 //
 // Host-as-ceiling (post-2026-05-09 redesign): when a guest supplies
 // its own `sandbox` field, the resolver intersects host and guest —
@@ -55,13 +55,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/llmtool"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -118,37 +118,14 @@ var mcpServerCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("mcp-server: registry: %w", err)
 			}
-			// llm.invoke — MCP-server-only tool exposing stado's
-			// configured provider with persona selection. Deliberately
-			// not in BuildRegistryWithPlugins because it doesn't belong
-			// on the agent registry (model uses stado_agent_* for
-			// sub-LLM delegation, not a model-facing llm.invoke tool).
-			reg.Register(llmtool.Tool{
-				Provider:       func() (agent.Provider, error) { return tui.BuildProvider(cfg) },
-				DefaultModel:   cfg.Defaults.Model,
-				DefaultPersona: mcpServerPersona,
-				CWD:            mustCwd(),
-				ConfigDir:      config.ConfigDir(),
-			})
-			// Codex C1/I-c P1 — re-apply the tool filter after the
-			// mcp-server-only llm.invoke registration so [tools].enabled
-			// + [tools].disabled actually scope it. BuildRegistryWithPlugins
-			// runs ApplyToolFilter as its last step, so the registration
-			// above lands AFTER the filter pass; pre-fix
-			// `[tools].disabled=["llm.invoke"]` couldn't remove it (a
-			// config-bypass shaped the same as the bugs PR #50 closed).
-			// The filter is idempotent over already-filtered registries,
-			// so running it a second time is safe and removes only the
-			// freshly-registered llm.invoke if the operator denylisted /
-			// allowlisted it.
-			runtime.ApplyToolFilter(reg, cfg)
-
 			srv := server.NewMCPServer("stado", stadoVersion())
 			runner := executorSandbox.Runner(sandbox.Detect())
 			host := stadoMCPHost{
 				workdir:         mustCwd(),
 				runner:          runner,
 				executorSandbox: executorSandbox,
+				providerFactory: func() (agent.Provider, error) { return tui.BuildProvider(cfg) },
+				defaultModel:    cfg.Defaults.Model,
 				// Server-lifetime PTY manager — shell.spawn → shell.read
 				// across MCP calls share state. Reaped on server exit.
 				pty: pty.NewManager(),
@@ -203,7 +180,7 @@ var mcpServerCmd = &cobra.Command{
 // plugin-run with --with-tool-host). MCP clients now show up in the
 // audit trail with `tool.name` + `tool.outcome` + `tool.duration_ms`
 // like any other caller. The wasm shell path picks up bwrap /
-// sandbox-exec confinement via the host's DefaultSandboxPolicy.
+// Linux confinement via the host's DefaultSandboxPolicy.
 func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, executor *tools.Executor) {
 	mcpTool := mcp.NewToolWithRawSchema(t.Name(), t.Description(), rawSchema(t.Schema()))
 	name := t.Name()
@@ -266,12 +243,14 @@ func rawSchema(m map[string]any) json.RawMessage {
 // calls don't have a running session to dedup against. The Runner()
 // method makes the bash tool sandbox-aware (it does an interface
 // type-assert to find this method); without Runner() exposed, bash
-// would run unsandboxed even on hosts where bwrap/sandbox-exec is
+// would run unsandboxed even on hosts where bwrap/firejail is
 // available — silent and bad.
 type stadoMCPHost struct {
 	workdir         string
 	runner          sandbox.Runner
 	executorSandbox runtime.ExecutorSandbox
+	providerFactory func() (agent.Provider, error)
+	defaultModel    string
 	// pty is a server-lifetime PTY manager shared across every tool
 	// dispatch so shell.spawn → shell.read / write succeed
 	// across calls. Without this each bundled-plugin runtime would
@@ -298,7 +277,7 @@ func (h stadoMCPHost) PTYManager() any { return h.pty }
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider. Plugins
 // calling stado_exec / stado_proc_spawn from MCP without supplying
 // their own `sandbox` field get the host-default protective policy
-// (PID + uid namespace isolation via bwrap / sandbox-exec, plus the
+// (process containment via bwrap/firejail, plus the
 // FSRead/FSWrite/Net values defined by NewDefaultSandboxPolicy).
 //
 // Plugins supplying an explicit `sandbox` field intersect with this
@@ -306,6 +285,21 @@ func (h stadoMCPHost) PTYManager() any { return h.pty }
 // resolver lives at host_proc.go:resolveSandboxPolicy + intersectPolicies.
 func (h stadoMCPHost) DefaultSandboxPolicy() any {
 	return h.executorSandbox.DefaultSandboxPolicy(h.workdir)
+}
+
+// PluginProviderBridge supplies only the provider primitive to an admitted
+// WASM plugin. The runtime passes the loader-authenticated canonical identity;
+// the guest has no identity, credential, provider, or budget fields to forge.
+// Each MCP tool call receives an owned provider which is closed after the
+// semantic facts are captured.
+func (h stadoMCPHost) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" {
+		return nil, fmt.Errorf("mcp provider bridge: plugin identity unavailable")
+	}
+	if h.providerFactory == nil {
+		return nil, fmt.Errorf("mcp provider bridge: provider factory unavailable")
+	}
+	return pluginRuntime.NewOwnedProviderBridge(h.providerFactory, h.defaultModel), nil
 }
 
 func mustCwd() string {
@@ -327,13 +321,6 @@ func stadoVersion() string {
 	return "dev"
 }
 
-var mcpServerPersona string
-
 func init() {
-	mcpServerCmd.Flags().StringVar(&mcpServerPersona, "persona", "",
-		"Persona that supplies the operating manual when stado's LLM is "+
-			"invoked through MCP (via the `llm.invoke` tool, agent.spawn, "+
-			"etc.). Empty = [defaults].persona from config, or bundled "+
-			"default. Per-call args still override.")
 	rootCmd.AddCommand(mcpServerCmd)
 }

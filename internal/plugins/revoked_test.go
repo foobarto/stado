@@ -108,7 +108,8 @@ func TestVerifyManifest_revokedFingerprintRejectedEvenIfPinned(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed trust store: %v", err)
 	}
-	err := ts.VerifyManifest(&Manifest{AuthorPubkeyFpr: revokedFpr}, "")
+	m := &Manifest{Name: "revoked", AuthorPubkeyFpr: revokedFpr}
+	err := ts.VerifyManifestPackage(testTrustNamespace(m), m, "")
 	if err == nil {
 		t.Fatal("expected revoked error, got nil")
 	}
@@ -122,7 +123,8 @@ func TestVerifyManifest_revokedFingerprintRejectedEvenIfPinned(t *testing.T) {
 func TestTrustVerified_revokedFingerprintRejected_storeUnchanged(t *testing.T) {
 	ts := NewTrustStore(t.TempDir())
 	const revokedFpr = "6c48b56f20c9c344"
-	_, err := ts.TrustVerified("", "", &Manifest{AuthorPubkeyFpr: revokedFpr}, "")
+	m := &Manifest{Name: "revoked", AuthorPubkeyFpr: revokedFpr}
+	_, err := ts.TrustVerifiedPackage("", "", testTrustNamespace(m), m, "")
 	if err == nil {
 		t.Fatal("expected revoked error, got nil")
 	}

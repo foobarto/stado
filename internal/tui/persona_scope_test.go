@@ -145,7 +145,7 @@ func TestPersonaScope_PromotesToolsToSurface(t *testing.T) {
 	}
 	var promote string
 	for _, tl := range reg.All() {
-		if !baseNames[tl.Name()] && !rt.IsMetaTool(tl.Name()) {
+		if !baseNames[tl.Name()] {
 			promote = tl.Name()
 			break
 		}

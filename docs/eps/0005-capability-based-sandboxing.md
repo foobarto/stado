@@ -2,10 +2,11 @@
 ep: 5
 title: Capability-Based Sandboxing
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
+status: Superseded
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
+superseded-by: ["EP-0065"]
 see-also: ["EP-0006", "EP-0009", "EP-0010", "EP-0012", "EP-0037", "EP-0038"]
 history:
   - date: 2026-04-23
@@ -15,9 +16,12 @@ history:
     status: Implemented
     version: v0.1.0
     note: Capability-based policy, Linux/macOS enforcement, and explicit degraded-mode behavior are shipped.
+  - date: 2026-08-14
+    status: Superseded
+    note: EP-0065 retains the capability model and Linux enforcement while replacing the cross-platform/degraded-platform product contract with a Linux-only current and v1 scope.
 ---
 
-> **Relationships:** **See also:** [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
+> **Relationships:** **Superseded by:** [EP-0065](./0065-linux-only-platform-scope.md) · **See also:** [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0010](./0010-interop-surfaces-mcp-acp-headless.md), [EP-0012](./0012-release-integrity-and-distribution.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)
 
 # EP-5: Capability-Based Sandboxing
 
@@ -132,5 +136,5 @@ represented honestly in UX and documentation.
 - [EP-9: Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md)
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
 - [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
-- [DESIGN.md](../../DESIGN.md#sandbox-internalsandbox)
+- [DESIGN.md — Linux containment](../../DESIGN.md#linux-containment)
 - [docs/features/sandboxing.md](../features/sandboxing.md)

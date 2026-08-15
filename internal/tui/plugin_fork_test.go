@@ -53,6 +53,9 @@ func newForkTestModel(t *testing.T) *Model {
 	if _, err := parent.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := parent.NextTurn(); err != nil {
+		t.Fatal(err)
+	}
 
 	rnd, err := render.New(theme.Default())
 	if err != nil {
@@ -129,6 +132,7 @@ func TestPluginForkAt_NoSessionErrors(t *testing.T) {
 // block with the new session ID shows up in m.blocks.
 func TestPluginForkMsg_RendersUserVisibleBlock(t *testing.T) {
 	m := newForkTestModel(t)
+	peer := attachForkRecoveryBroker(m)
 
 	_, _ = m.Update(pluginForkMsg{
 		plugin:    "auto-compactor",
@@ -146,6 +150,9 @@ func TestPluginForkMsg_RendersUserVisibleBlock(t *testing.T) {
 			t.Errorf("block missing %q: %q", want, last.body)
 		}
 	}
+	if peer.handoffReserves != 0 || peer.handoffCommits != 0 {
+		t.Fatalf("ordinary plugin fork moved durable scope: reserves=%d commits=%d", peer.handoffReserves, peer.handoffCommits)
+	}
 }
 
 type forkRecoveryProvider struct{}
@@ -158,11 +165,18 @@ func (forkRecoveryProvider) StreamTurn(context.Context, agent.TurnRequest) (<-ch
 	return ch, nil
 }
 
+func attachForkRecoveryBroker(m *Model) *transitionTestPeer {
+	peer := &transitionTestPeer{cwd: m.cwd, subject: m.session.ID}
+	m.broker = peer
+	return peer
+}
+
 func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	m := newForkTestModel(t)
+	attachForkRecoveryBroker(m)
 	m.provider = forkRecoveryProvider{}
 	m.buildProvider = func() (agent.Provider, error) { return m.provider, nil }
 	m.recoveryPrompt = "retry this in the child"
@@ -175,7 +189,8 @@ func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config load: %v", err)
 	}
-	child, err := runtime.ForkPluginSession(cfg, m.session, "", "condensed conversation", "auto-compact")
+	atTurnRef := string(stadogit.TurnTagRef(m.session.ID, m.session.Turn()))
+	child, err := runtime.ForkPluginSession(cfg, m.session, atTurnRef, "condensed conversation", "auto-compact")
 	if err != nil {
 		t.Fatalf("fork child: %v", err)
 	}
@@ -183,7 +198,7 @@ func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 	_, cmd := m.Update(pluginForkMsg{
 		plugin:    "auto-compact",
 		childID:   child.ID,
-		atTurnRef: "",
+		atTurnRef: atTurnRef,
 		seed:      "condensed conversation",
 	})
 	if cmd == nil {
@@ -223,9 +238,10 @@ func TestPluginForkMsg_RestoresRecoveryPromptWhenBrokerResetFails(t *testing.T) 
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	m := newForkTestModel(t)
+	peer := attachForkRecoveryBroker(m)
 	m.provider = forkRecoveryProvider{}
 	m.buildProvider = func() (agent.Provider, error) { return m.provider, nil }
-	m.broker = failingTaintBroker{err: fmt.Errorf("broker unavailable")}
+	peer.taintErr = fmt.Errorf("broker unavailable")
 	m.recoveryPrompt = "retry this in the child"
 	m.recoveryPluginName = "auto-compact"
 	m.recoveryPluginActive = true
@@ -236,13 +252,14 @@ func TestPluginForkMsg_RestoresRecoveryPromptWhenBrokerResetFails(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := runtime.ForkPluginSession(cfg, m.session, "", "condensed conversation", "auto-compact")
+	atTurnRef := string(stadogit.TurnTagRef(m.session.ID, m.session.Turn()))
+	child, err := runtime.ForkPluginSession(cfg, m.session, atTurnRef, "condensed conversation", "auto-compact")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, cmd := m.Update(pluginForkMsg{
-		plugin: "auto-compact", childID: child.ID, seed: "condensed conversation",
+		plugin: "auto-compact", childID: child.ID, atTurnRef: atTurnRef, seed: "condensed conversation",
 	})
 	if cmd != nil {
 		t.Fatal("failed broker reset returned a stream command")
@@ -260,6 +277,7 @@ func TestPluginForkMsg_PreservesQueuedFollowupAndDraftAfterReplay(t *testing.T) 
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	m := newForkTestModel(t)
+	attachForkRecoveryBroker(m)
 	m.provider = forkRecoveryProvider{}
 	m.buildProvider = func() (agent.Provider, error) { return m.provider, nil }
 	m.recoveryPrompt = "retry this in the child"
@@ -272,13 +290,14 @@ func TestPluginForkMsg_PreservesQueuedFollowupAndDraftAfterReplay(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := runtime.ForkPluginSession(cfg, m.session, "", "condensed conversation", "auto-compact")
+	atTurnRef := string(stadogit.TurnTagRef(m.session.ID, m.session.Turn()))
+	child, err := runtime.ForkPluginSession(cfg, m.session, atTurnRef, "condensed conversation", "auto-compact")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, cmd := m.Update(pluginForkMsg{
-		plugin: "auto-compact", childID: child.ID, seed: "condensed conversation",
+		plugin: "auto-compact", childID: child.ID, atTurnRef: atTurnRef, seed: "condensed conversation",
 	})
 	if cmd == nil {
 		t.Fatal("successful replay did not return a stream command")

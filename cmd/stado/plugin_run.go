@@ -17,7 +17,8 @@ import (
 var pluginRunBuildProvider = tui.BuildProvider
 
 // buildPluginRunBridge constructs the SessionBridge that session-aware plugin
-// capabilities (session:read, session:fork, llm:invoke) rely on. The query
+// capabilities (session:read, session:fork) rely on. The bridge can also
+// provide the separately capability-gated provider primitive. The query
 // string is either a session ID or a partial-prefix; resolution + opening
 // happen here so callers receive a ready-to-use bridge.
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {
@@ -43,7 +44,7 @@ func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, plugin
 		if needProvider {
 			return nil, "", fmt.Errorf("tool run --session: provider: %w", err)
 		}
-		note = "stado tool run --session: provider unavailable; llm:invoke is disabled and token_count will report 0"
+		note = "stado tool run --session: provider unavailable; provider:invoke is disabled and token_count will report 0"
 		prov = nil
 	}
 

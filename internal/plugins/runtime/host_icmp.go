@@ -12,9 +12,8 @@
 // Capability: net:icmp.
 //
 // Privilege: tries an unprivileged ICMP socket first
-// (IPPROTO_ICMP + SOCK_DGRAM, available on Linux when
-// `net.ipv4.ping_group_range` covers the running uid; macOS
-// supports it without sysctl since 10.10). Falls back to raw
+// (IPPROTO_ICMP + SOCK_DGRAM, available when Linux
+// `net.ipv4.ping_group_range` covers the running uid). Falls back to raw
 // (SOCK_RAW + IPPROTO_ICMP) when unprivileged is rejected;
 // raw needs CAP_NET_RAW or root. Returns a clear "operation not
 // permitted" error when neither path works.

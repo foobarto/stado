@@ -21,6 +21,13 @@ autoload only when `[plugins] allow_project_plugins = true` in user config.
 Background plugin IDs in `[plugins].background` are user-only (stripped
 from project config).
 
+“Background plugins” here means the legacy tick-only form. Headless is not a
+lifecycle-application host in v0.80/v1: a configured lifecycle manifest
+(including one selected by a session persona) is rejected before provider or
+session work. `plugin.run` also rejects lifecycle manifests because an
+ephemeral tool call cannot share the required persistent command/tool/hook/event
+instance. Use the interactive TUI for application-backed workflows.
+
 ## Usage
 
 ```sh
@@ -87,7 +94,8 @@ Omit `--fork-tree` only when the notification has no `forkTree`.
 - `session.compact` applies immediately; unlike TUI `/compact`, it has
   no preview/edit/confirm loop.
 - `plugin.run` requires a live headless session because session-aware
-  plugins need a provider and session bridge.
+  ordinary plugins need a provider and session bridge. Lifecycle applications
+  are explicitly unavailable through this method.
 
 ## See also
 

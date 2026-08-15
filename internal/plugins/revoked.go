@@ -59,9 +59,8 @@ func IsRevoked(fpr string) (bool, string) {
 //
 // Follows this package's `<stage>:` error-prefix convention so users can
 // tell at a glance which stage rejected — `verify:` for the user-facing
-// revoked error (matching VerifyManifest / TrustVerified); `plugins:` for
-// the internal-error caller-bug message (matching requires.go's
-// ParseRequire). Different stages, same convention. (Note: the rest of
+// revoked error and `plugins:` for the internal-error caller-bug message.
+// (Note: the rest of
 // this package uses the singular `plugin:` for many other errors —
 // trust.go's parsePubkey, manifest.go's load/parse — so the convention
 // isn't perfectly uniform across the file.)

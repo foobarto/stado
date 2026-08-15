@@ -34,42 +34,18 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	// CSI could drive those straight into the tool panel's lipgloss render.
 	// SanitizeForTerminal keeps legitimate \n / \t / \r (tool output is
 	// multi-line prose) while stripping the escape vectors. The same
-	// sanitized content feeds appendSubagentNotice, whose JSON fields
-	// (error / worktree / child session) are rendered into a system block —
-	// sanitizing first preserves valid JSON structure while scrubbing any
-	// escape inside the string values.
 	content := textutil.SanitizeForTerminal(msg.result.Content)
 	// Update the matching tool block with the result.
-	toolName := ""
 	for i := range m.blocks {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
-			toolName = m.blocks[i].toolName
-			// skills__load (EP-0045): the tool panel only needs the short
-			// confirmation, but the full body-bearing result must survive in
-			// pendingResults so the batch handler (onToolsExecuted →
-			// absorbSkillLoads) can inject the body as a user message — same
-			// effect as a user `/skill:`. So trim for DISPLAY only; persist
-			// the raw result below. (The prior bug trimmed pendingResults at
-			// store-time, discarding the body before injection — model
-			// invocation was a TUI no-op.)
-			display := content
-			if toolName == "skills__load" && !msg.result.IsError {
-				if _, trimmed := runtime.AbsorbSkillLoad(content); trimmed != content {
-					display = trimmed
-				}
-			}
-			m.blocks[i].toolResult = display
+			m.blocks[i].toolResult = content
 			m.blocks[i].streaming = false // result in hand — auto mode collapses it
 			m.invalidateBlockCache(i)
 			break
 		}
 	}
-	if toolName == "agent__spawn" && !msg.result.IsError {
-		m.appendSubagentNotice(content)
-	}
-	// Persist the raw result (faithful tool output for the model + audit) —
-	// absorbSkillLoads trims any skills__load body in onToolsExecuted, after
-	// extracting it for injection.
+	// Persist the ordinary tool-origin result faithfully for the model and
+	// audit. No tool name is privileged into a synthetic conversation role.
 	m.pendingResults = append(m.pendingResults, msg.result)
 	m.renderBlocks()
 	return m, m.advanceToolQueue()
@@ -313,7 +289,7 @@ func onPluginRunResult(m *Model, msg pluginRunResultMsg) (tea.Model, tea.Cmd) {
 
 func onPluginFork(m *Model, msg pluginForkMsg) (tea.Model, tea.Cmd) {
 	if m.recoveryPluginActive && msg.plugin == m.recoveryPluginName {
-		return m, m.adoptForkedSession(msg.childID, msg.seed)
+		return m, m.adoptForkedSession(msg.childID, msg.atTurnRef, msg.seed)
 	}
 	// A plugin's session:fork capability just created a child session.
 	// DESIGN invariant 4: this is user-visible by default. Show both the
@@ -361,10 +337,6 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		// the audit log + history reflect what actually happened —
 		// the operator just doesn't get an autonomous follow-up.
 		if len(msg.results) > 0 {
-			// Trim any skills__load body out of the persisted tool result
-			// (the operator cancelled, so we never inject it) — but keep
-			// history well-formed so the next turn isn't an orphan tool_use.
-			m.absorbSkillLoads(msg.results)
 			blocks := make([]agent.Block, 0, len(msg.results))
 			for _, r := range msg.results {
 				cpy := r
@@ -381,11 +353,6 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.annotateLastAssistantToolResults(msg.results)
-	injections := m.absorbSkillLoads(msg.results)
-	// EP-0037 lazy-load: when the model called tools.describe, parse
-	// the result and add the described tools to this session's
-	// activation set so subsequent turns surface them.
-	m.absorbToolActivations(msg.results)
 	// Append a role=tool message with the accumulated tool results.
 	if len(msg.results) > 0 {
 		blocks := make([]agent.Block, 0, len(msg.results))
@@ -396,12 +363,6 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		toolMsg := agent.Message{Role: agent.RoleTool, Content: blocks}
 		m.msgs = append(m.msgs, toolMsg)
 		m.persistMessage(toolMsg)
-	}
-	for _, body := range injections {
-		userMsg := agent.Text(agent.RoleUser, body)
-		m.msgs = append(m.msgs, userMsg)
-		m.appendBlock(block{kind: "user", body: body})
-		m.persistMessage(userMsg)
 	}
 	if len(msg.results) > 0 && m.broker != nil {
 		if err := m.broker.SetTaint(m.rootCtx, runtime.ContextTainted); err != nil {
@@ -416,5 +377,8 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	// here so the model's next round-trip sees it alongside the results.
 	m.drainSteering()
 	m.renderBlocks()
+	if command := m.applicationTurnBoundary(msg.results, applicationBoundaryContinueTools); command != nil {
+		return m, command
+	}
 	return m, m.startStream()
 }

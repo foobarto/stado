@@ -20,7 +20,7 @@ screen"** — not "what state the Model is in." Scenarios that don't
 have a visual signal beyond what teatest already asserts should NOT
 be added here.
 
-## Existing scenarios (24 sub-scenarios across 14 top-level functions — all passing as of 2026-05-09)
+## Existing scenarios (26 sub-scenarios across 20 top-level functions, plus one diagnostic)
 
 | # | Test | What | Time |
 |---|------|------|------|
@@ -34,18 +34,19 @@ be added here.
 | 8 | `TestBridgeE2E_Stado_QuitConfirmCentering` | Ctrl+D popup centered at 80×24 / 120×40 / 160×50 (3 sub-tests). | ~9s |
 | 9 | `TestBridgeE2E_Stado_ApprovalDrawer` | `/tool approval_demo` drawer with title + body + Allow + Deny labels. | ~3s |
 | 10 | `TestBridgeE2E_Stado_ChoiceDrawerMultiSelect` | `/tool choose_demo` multi-select: 3 labels + checkboxes; Space toggles `[ ]` ↔ `[x]`. | ~3s |
-| 11 | `TestBridgeE2E_Stado_SlashFilter` | `/sid` narrows inline suggestions to /sidebar (excludes /theme). | ~4s |
-| 12 | `TestBridgeE2E_Stado_PaletteFilter` | Ctrl+P then `the` narrows palette to /theme (excludes /sidebar). | ~3s |
-| 13 | `TestBridgeE2E_Stado_LandingReflow` | Bare landing reflow at 80×24 / 120×40 / 160×50 (3 sub-tests). | ~9s |
-| 14 | `TestBridgeE2E_Stado_StreamingTextDelta` | Stub LLM provider; submit prompt, assert streamed deltas reach xterm.js. | ~3.7s |
-| 15 | `TestBridgeE2E_Stado_QueuedPrompt` | Submit during streaming; assert queued prompt visible alongside in-flight stream. | ~3.8s |
-| 16 | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | Submit; after sidebar reveal, Ctrl+T hides + restores it (Repo marker tracks). | ~3.7s |
-| 17 | `TestBridgeE2E_Stado_MarkdownRendering` | Assistant block with markdown heading + bold materialises in glamour-rendered output. | ~3.6s |
-| 18 | `TestBridgeE2E_Stado_PlanDoModeToggle` | Tab toggles Do→Plan→Do; status-bar mode marker text tracks. | ~3.7s |
+| 11 | `TestBridgeE2E_Stado_VerifyCommand` | `/verify status|off|on` reflects configured completion gates. | ~4s |
+| 12 | `TestBridgeE2E_Stado_SuperviseWizard` | `/supervise` renders event/user/standard defaults, opens advanced settings, and dismisses with Esc. | ~4s |
+| 13 | `TestBridgeE2E_Stado_SlashFilter` | `/sid` narrows inline suggestions to /sidebar (excludes /theme). | ~4s |
+| 14 | `TestBridgeE2E_Stado_PaletteFilter` | Ctrl+P then `the` narrows palette to /theme (excludes /sidebar). | ~3s |
+| 15 | `TestBridgeE2E_Stado_LandingReflow` | Bare landing reflow at 80×24 / 120×40 / 160×50 (3 sub-tests). | ~9s |
+| 16 | `TestBridgeE2E_Stado_StreamingTextDelta` | Stub LLM provider; submit prompt, assert streamed deltas reach xterm.js. | ~3.7s |
+| 17 | `TestBridgeE2E_Stado_QueuedPrompt` | Submit during streaming; assert queued prompt visible alongside in-flight stream. | ~3.8s |
+| 18 | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | Submit; after sidebar reveal, Ctrl+T hides + restores it (Repo marker tracks). | ~3.7s |
+| 19 | `TestBridgeE2E_Stado_MarkdownRendering` | Assistant block with markdown heading + bold materialises in glamour-rendered output. | ~3.6s |
+| 20 | `TestBridgeE2E_Stado_PlanDoModeToggle` | Tab toggles Do→Plan→Do; status-bar mode marker text tracks. | ~3.7s |
 
-**Suite total:** ~24 sub-scenarios across 14 top-level functions
-(plus the diagnostic). Walltime ~76s end-to-end (14s headroom
-against the goal's 90s budget). Opt-in via
+**Suite total:** 26 sub-scenarios across 20 top-level functions
+(plus the diagnostic), approximately 80 seconds end-to-end. Opt-in via
 `STADO_PTY_BRIDGE_E2E=1`.
 
 **Surfaces validated:** landing screen + reflow, Ctrl+P + Esc

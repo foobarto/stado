@@ -33,6 +33,10 @@ type stubTool struct {
 	effect func(worktree string) (tool.Result, error)
 }
 
+type dispatchGateFunc func(context.Context) error
+
+func (f dispatchGateFunc) BeforeTool(ctx context.Context) error { return f(ctx) }
+
 func (s stubTool) Name() string           { return s.name }
 func (s stubTool) Description() string    { return "stub" }
 func (s stubTool) Schema() map[string]any { return map[string]any{"type": "object"} }
@@ -64,6 +68,55 @@ func newExecutorFixture(t *testing.T) (*Executor, *stadogit.Session, string) {
 }
 
 // ---- tests ----
+
+func TestExecutorDispatchGateRunsBeforeTool(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ran := false
+	ex.Registry.Register(stubTool{
+		name: "blocked", class: tool.ClassNonMutating,
+		effect: func(string) (tool.Result, error) {
+			ran = true
+			return tool.Result{Content: "unexpected"}, nil
+		},
+	})
+	blocked := errors.New("durable hold")
+	ex.DispatchGate = dispatchGateFunc(func(context.Context) error { return blocked })
+	result, err := ex.Run(context.Background(), "blocked", json.RawMessage(`{}`), stubHost{workdir: wt})
+	if !errors.Is(err, blocked) || result.Error != blocked.Error() || ran {
+		t.Fatalf("result=%+v err=%v ran=%v", result, err, ran)
+	}
+}
+
+func TestExecutorRunExpectedCarriesExactInstanceThroughDispatch(t *testing.T) {
+	registry := NewRegistry()
+	executor := &Executor{Registry: registry}
+	expectedRan := false
+	replacementRan := false
+	expected := &stubTool{name: "application__control", class: tool.ClassStateMutating, effect: func(string) (tool.Result, error) {
+		expectedRan = true
+		return tool.Result{Content: "expected"}, nil
+	}}
+	replacement := &stubTool{name: expected.name, class: tool.ClassNonMutating, effect: func(string) (tool.Result, error) {
+		replacementRan = true
+		return tool.Result{Content: "replacement"}, nil
+	}}
+
+	registry.Register(expected)
+	registry.Register(replacement)
+	result, err := executor.RunExpected(context.Background(), expected.name, expected, json.RawMessage(`{}`), stubHost{})
+	if err == nil || !strings.Contains(err.Error(), "instance changed") || result.Error == "" {
+		t.Fatalf("stale instance result=%+v err=%v", result, err)
+	}
+	if expectedRan || replacementRan {
+		t.Fatalf("stale exact dispatch ran a tool: expected=%v replacement=%v", expectedRan, replacementRan)
+	}
+
+	registry.Register(expected)
+	result, err = executor.RunExpected(context.Background(), expected.name, expected, json.RawMessage(`{}`), stubHost{})
+	if err != nil || result.Content != "expected" || !expectedRan || replacementRan {
+		t.Fatalf("exact dispatch result=%+v err=%v expected=%v replacement=%v", result, err, expectedRan, replacementRan)
+	}
+}
 
 func TestExecutor_NonMutating_OnlyTraceCommit(t *testing.T) {
 	ex, sess, wt := newExecutorFixture(t)
@@ -138,6 +191,48 @@ func TestExecutor_Mutating_CommitsBothRefs(t *testing.T) {
 	if tree.IsZero() {
 		t.Error("tree ref missing for mutating tool")
 	}
+}
+
+func TestExecutorRunWithEvidenceReturnsExactProducedCommits(t *testing.T) {
+	t.Run("trace only", func(t *testing.T) {
+		ex, sess, wt := newExecutorFixture(t)
+		ex.Registry.Register(stubTool{name: "read", class: tool.ClassNonMutating, effect: func(string) (tool.Result, error) {
+			return tool.Result{Content: "ok"}, nil
+		}})
+		_, evidence, err := ex.RunWithEvidence(context.Background(), "read", json.RawMessage(`{}`), stubHost{workdir: wt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		trace, err := sess.TraceHead()
+		want := "git:" + stadogit.TraceRef(sess.ID).String() + "@" + trace.String()
+		if err != nil || evidence.TraceRef != want || evidence.TreeRef != "" {
+			t.Fatalf("evidence=%+v trace=%s err=%v", evidence, trace, err)
+		}
+		if _, err := sess.TreeFromCommit(trace); err != nil {
+			t.Fatalf("trace evidence does not resolve: %v", err)
+		}
+	})
+
+	t.Run("trace and advanced tree", func(t *testing.T) {
+		ex, sess, wt := newExecutorFixture(t)
+		ex.Registry.Register(stubTool{name: "write", class: tool.ClassMutating, effect: func(workdir string) (tool.Result, error) {
+			return tool.Result{Content: "ok"}, os.WriteFile(filepath.Join(workdir, "evidence.txt"), []byte("fact\n"), 0o600)
+		}})
+		_, evidence, err := ex.RunWithEvidence(context.Background(), "write", json.RawMessage(`{}`), stubHost{workdir: wt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		trace, traceErr := sess.TraceHead()
+		tree, treeErr := sess.TreeHead()
+		if traceErr != nil || treeErr != nil || evidence.TraceRef != "git:"+stadogit.TraceRef(sess.ID).String()+"@"+trace.String() || evidence.TreeRef != "git:"+stadogit.TreeRef(sess.ID).String()+"@"+tree.String() {
+			t.Fatalf("evidence=%+v trace=%s tree=%s errors=%v/%v", evidence, trace, tree, traceErr, treeErr)
+		}
+		for label, hash := range map[string]plumbing.Hash{"trace": trace, "tree": tree} {
+			if _, err := sess.TreeFromCommit(hash); err != nil {
+				t.Fatalf("%s evidence does not resolve: %v", label, err)
+			}
+		}
+	})
 }
 
 // Codex validated finding (Cluster U): when a mutating tool succeeds

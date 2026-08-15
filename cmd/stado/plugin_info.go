@@ -20,7 +20,7 @@ import (
 var pluginInfoJSON bool
 
 var pluginInfoCmd = &cobra.Command{
-	Use:   "info <plugin-id>",
+	Use:   "info [project:|global:]<canonical-source|store-key>",
 	Short: "Show an installed plugin's details: tools, capabilities, author",
 	Long: "Reads the installed plugin manifest and displays tools, capabilities,\n" +
 		"author, and version in a readable format.\n\n" +
@@ -51,31 +51,29 @@ var pluginInfoCmd = &cobra.Command{
 			return printManifestInfo(cmd.OutOrStdout(), mf, info.Name, true)
 		}
 
-		// Disk-install lookup. Try operator-friendly bare-name resolution
-		// (e.g. "gtfobins" → "<plugins>/gtfobins-0.1.0") first, falling
-		// back to the literal `<name>-<version>` form so existing scripts
-		// keep working.
-		dir, ok := runtime.ResolveInstalledPluginDir(cfg, args[0])
-		if !ok {
-			var err error
-			dir, err = plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
-			if err != nil {
+		// Disk-install lookup accepts an exact source-derived store key or a
+		// friendly alias only when that alias identifies one installed source.
+		// An optional project:/global: prefix disambiguates identical rows in
+		// both roots without becoming part of authenticated package identity.
+		pkg, _, err := resolveManagedInstalledPackage(cfg, args[0])
+		if err != nil {
+			if !os.IsNotExist(err) {
 				return err
 			}
-		}
-		if _, err := os.Stat(dir); err != nil {
 			return fmt.Errorf("plugin %q not installed — run `stado plugin list` to see installed plugins", args[0])
 		}
-		mf, _, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			return fmt.Errorf("read manifest: %w", err)
-		}
+		mf := &pkg.Manifest
 
 		if pluginInfoJSON {
-			out, _ := json.MarshalIndent(mf, "", "  ")
+			out, _ := json.MarshalIndent(struct {
+				Identity plugins.RuntimeIdentity `json:"identity"`
+				StoreKey string                  `json:"store_key"`
+				Manifest *plugins.Manifest       `json:"manifest"`
+			}{pkg.Identity, pkg.Record.StoreKey, mf}, "", "  ")
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
 		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Source: %s\nStore:  %s\n\n", pkg.Identity.Canonical, pkg.Record.StoreKey)
 		return printManifestInfo(cmd.OutOrStdout(), *mf, args[0], false)
 	},
 }

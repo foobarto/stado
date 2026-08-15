@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/integrations"
-	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
@@ -29,6 +29,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
+	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
 
 // slashListWidth is the live conversation-panel text width used when
@@ -90,15 +91,19 @@ func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
 	if m.fleet == nil {
 		m.fleet = runtime.NewFleet()
 	}
-	fn := m.buildSubagentSpawner()
-	if fn == nil {
+	runner, ok := m.buildSubagentRunner()
+	if !ok {
 		m.appendBlock(block{kind: "system", body: "spawn: provider not ready — wait for session init"})
 		return nil
 	}
-	spawner := spawnerFunc(fn)
+	var spawner runtime.Spawner = runner
+	if publisher, ok := m.broker.(runtime.ApplicationEventPublisher); ok {
+		spawner = runtime.ApplicationEventLeasedSpawner(spawner, publisher)
+	}
 	id, err := m.fleet.Spawn(m.rootCtx, spawner, prompt, runtime.SpawnOptions{
-		Provider: m.providerDisplayName(),
-		Model:    m.model,
+		Provider:        m.providerDisplayName(),
+		Model:           m.model,
+		ParentSessionID: m.session.ID,
 	})
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "spawn: " + err.Error()})
@@ -202,6 +207,28 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	// where /plugin and /skill silently swallowed their output.
 	defer m.renderBlocks()
 
+	// Duplicate lifecycle-application command ownership is a composition
+	// error, not a precedence contest. Block before application, skill, alias,
+	// or native dispatch so configuration order can never select a claimant or
+	// fall through to a lower-precedence command with the same spelling.
+	name := strings.TrimPrefix(parts[0], "/")
+	if _, conflicted := m.applicationCommandConflicts[name]; conflicted {
+		m.appendBlock(block{kind: "system", body: parts[0] + ": lifecycle application command ownership is ambiguous; fix the configured application collision"})
+		return nil
+	}
+
+	// An admitted signed application owns its declared command for this exact
+	// session. Resolve that ownership before user aliases so a stale hand-edited
+	// alias cannot shadow the application selected by the operator. Alias
+	// expansions are checked again below, allowing an alias to target (but never
+	// replace) an admitted command.
+	if command, handled := m.handleApplicationSlash(text, parts); handled {
+		return command
+	}
+	if handled := m.handleOwnedSkillSlash(parts); handled {
+		return nil
+	}
+
 	// F-alias: expand operator-defined slash aliases before built-in
 	// dispatch. Single-level only — an alias whose expansion starts
 	// with another alias's name does not chain (operator can write
@@ -229,6 +256,12 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	if parts[0] == "/skill" || strings.HasPrefix(parts[0], "/skill:") {
 		return m.handleSkillSlash(parts)
 	}
+	if command, handled := m.handleApplicationSlash(text, parts); handled {
+		return command
+	}
+	if handled := m.handleOwnedSkillSlash(parts); handled {
+		return nil
+	}
 	switch parts[0] {
 	case "/clear":
 		if m.verifying {
@@ -253,7 +286,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// Wiping the conversation also halts the background loop/monitor that
 		// were driving it (dead ↻ indicator + orphan monitor goroutine
 		// otherwise). Silent — the block list is blanked just below.
-		m.stopBackgroundActivity()
+		backgroundStop := m.stopBackgroundActivity()
 		m.blocks = nil
 		m.msgs = nil
 		m.queuedPrompt = ""
@@ -262,8 +295,11 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.turnText = ""
 		m.turnThinking = ""
 		m.turnToolCalls = nil
-		m.activatedTools = nil // EP-0037 lazy-load: clear per-session activations on /clear
+		m.activatedToolsMu.Lock()
+		m.activatedTools = nil
+		m.activatedToolsMu.Unlock()
 		m.renderBlocks()
+		return backgroundStop
 	case "/help":
 		m.showHelp = true
 		m.helpScroll = 0
@@ -416,21 +452,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		if len(parts) > 1 {
 			title := strings.Join(parts[1:], " ")
 			m.todos = append(m.todos, todo{Title: title, Status: "open"})
-			if err := m.createTaskFromSlash(title); err != nil {
-				m.appendBlock(block{kind: "system", body: err.Error()})
-			}
-		} else if err := m.openTaskPicker(); err != nil {
-			m.appendBlock(block{kind: "system", body: err.Error()})
-		}
-	case "/tasks", "/task":
-		if len(parts) > 2 && (parts[1] == "add" || parts[1] == "new") {
-			if err := m.createTaskFromSlash(strings.Join(parts[2:], " ")); err != nil {
-				m.appendBlock(block{kind: "system", body: err.Error()})
-			}
-		} else if len(parts) > 1 {
-			m.appendBlock(block{kind: "system", body: "usage: /tasks or /tasks add <title>"})
-		} else if err := m.openTaskPicker(); err != nil {
-			m.appendBlock(block{kind: "system", body: err.Error()})
+		} else {
+			m.appendBlock(block{kind: "system", body: "usage: /todo <title> (session-local sidebar item); persistent tasks require the explicit tasks lifecycle application"})
 		}
 	case "/approvals":
 		m.appendBlock(block{kind: "system", body: "tool-call approvals were removed; plugins can request approval explicitly via the UI approval capability"})
@@ -542,13 +565,6 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		return m.startCompaction()
 	case "/context":
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
-	case "/memory":
-		m.handleMemorySlash(parts)
-	case "/learn":
-		if len(parts) > 1 && (parts[1] == "candidates" || parts[1] == "list" || parts[1] == "show" || parts[1] == "approve") {
-			return m.manageLearn(parts)
-		}
-		return m.startLearnReview(strings.TrimSpace(strings.TrimPrefix(text, parts[0])))
 	case "/providers":
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/switch":
@@ -618,20 +634,56 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 		m.renderBlocks()
 	default:
-		// Skill-declared slash shortcut (`slash:` frontmatter)? Route to
-		// the skill-invocation path — same effect as /skill:<skillName>,
-		// no args. Checked in the default branch so a built-in case always
-		// wins (collisions are already rejected at registration time).
-		if name, ok := m.skillSlash[strings.TrimPrefix(parts[0], "/")]; ok {
-			if err := m.injectSkill(name); err != nil {
-				m.appendBlock(block{kind: "system", body: err.Error()})
-			}
-			break
-		}
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
 	return nil
+}
+
+// handleOwnedSkillSlash applies the same ownership precedence as signed
+// application commands. A hand-edited stale alias cannot shadow a currently
+// loaded skill shortcut, while an alias may still expand to that shortcut.
+func (m *Model) handleOwnedSkillSlash(parts []string) bool {
+	if len(parts) == 0 || !strings.HasPrefix(parts[0], "/") {
+		return false
+	}
+	name, ok := m.skillSlash[strings.TrimPrefix(parts[0], "/")]
+	if !ok {
+		return false
+	}
+	if err := m.injectSkill(name); err != nil {
+		m.appendBlock(block{kind: "system", body: err.Error()})
+	}
+	return true
+}
+
+// handleApplicationSlash routes one exact manifest-declared command into the
+// already-admitted persistent instance. It is called both before alias lookup
+// (ownership wins) and after expansion (aliases may target an owner). The host
+// selects the command name; only the remaining text is guest input.
+func (m *Model) handleApplicationSlash(text string, parts []string) (tea.Cmd, bool) {
+	if len(parts) == 0 || !strings.HasPrefix(parts[0], "/") {
+		return nil, false
+	}
+	name := strings.TrimPrefix(parts[0], "/")
+	application := m.applicationCommands[name]
+	if application == nil {
+		return nil, false
+	}
+	if m.applicationCommandRunning || m.applicationWorkerHandoffRunning {
+		m.appendBlock(block{kind: "system", body: "application command already running"})
+		return nil, true
+	}
+	args := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+	commandCtx := m.rootCtx
+	if commandCtx == nil {
+		commandCtx = context.Background()
+	}
+	m.applicationCommandRunning = true
+	return func() tea.Msg {
+		result, err := application.Application.RunCommand(commandCtx, name, args)
+		return applicationCommandResultMsg{name: name, application: application, result: result, err: err}
+	}, true
 }
 
 // handleSessionSlash prints the current session's id + worktree so
@@ -944,36 +996,6 @@ func projectConfigPath() (string, error) {
 	return cwd + "/.stado/config.toml", nil
 }
 
-func (m *Model) handleMemorySlash(parts []string) {
-	action := "status"
-	if len(parts) > 1 {
-		action = strings.ToLower(parts[1])
-	}
-	workdir := m.sessionActionCWD()
-	switch action {
-	case "off", "disable", "disabled":
-		if err := memory.SetSessionDisabled(workdir, true); err != nil {
-			m.appendBlock(block{kind: "system", body: "/memory: " + err.Error()})
-			return
-		}
-		m.appendBlock(block{kind: "system", body: "memory retrieval: disabled for this session"})
-	case "on", "enable", "enabled":
-		if err := memory.SetSessionDisabled(workdir, false); err != nil {
-			m.appendBlock(block{kind: "system", body: "/memory: " + err.Error()})
-			return
-		}
-		m.appendBlock(block{kind: "system", body: "memory retrieval: allowed for this session (requires [memory].enabled = true)"})
-	case "status":
-		if memory.SessionDisabled(workdir) {
-			m.appendBlock(block{kind: "system", body: "memory retrieval: disabled for this session"})
-		} else {
-			m.appendBlock(block{kind: "system", body: "memory retrieval: allowed for this session (requires [memory].enabled = true)"})
-		}
-	default:
-		m.appendBlock(block{kind: "system", body: "usage: /memory [on|off|status]"})
-	}
-}
-
 // handleRetrySlash re-generates the last assistant turn without the
 // user having to retype the prompt. Truncates m.msgs back to the
 // most recent user message (dropping the last assistant + tool-role
@@ -1044,27 +1066,14 @@ func (m *Model) handleRetrySlash() tea.Cmd {
 //	/budget ack            → set budgetAcked = true (unblocks turns)
 //	/budget reset          → clear budgetAcked so the next breach re-blocks
 //
-// Raising the actual cap numbers is deliberately not exposed as a
-// runtime mutation — the cap lives in config.toml so cost controls
-// survive a session restart.
+// Raising caps is deliberately not exposed as a runtime mutation; token
+// ceilings live in config.toml so they survive a session restart.
 func (m *Model) handleBudgetSlash(parts []string) {
 	if len(parts) == 1 {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("cost so far: $%.4f\n", m.usage.CostUSD))
-		if m.budgetWarnUSD > 0 {
-			sb.WriteString(fmt.Sprintf("warn cap (USD): $%.2f\n", m.budgetWarnUSD))
-		} else {
-			sb.WriteString("warn cap (USD): (unset)\n")
-		}
-		if m.budgetHardUSD > 0 {
-			sb.WriteString(fmt.Sprintf("hard cap (USD): $%.2f\n", m.budgetHardUSD))
-		} else {
-			sb.WriteString("hard cap (USD): (unset)\n")
-		}
-		// Token caps. Only shown when at least one is configured —
-		// USD-only users (the common case) don't need the extra noise,
-		// but token-budget users (local runners with CostUSD always 0)
-		// must see why a turn is blocked. Mirrors budgetExceeded's set.
+		sb.WriteString("cost is observational; v1 budget enforcement is token-only\n")
+		// Token caps are shown when configured. Mirrors budgetExceeded's set.
 		if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
 			m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
 			m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
@@ -1193,19 +1202,13 @@ func (m *Model) handleDescribeSlash(parts []string) {
 	m.appendBlock(block{kind: "system", body: "description set: " + text})
 }
 
-// handlePluginSlash routes `/plugin` and `/plugin:<name>[-<ver>]` forms:
+// handlePluginSlash routes exact source/store selectors and unique friendly
+// aliases. Manifest names are never authoritative:
 //
-//	/plugin                                      → list installed plugins
-//	/plugin:<name>                               → list active version's tools
-//	/plugin:<name> <tool>                        → run active version with args={}
-//	/plugin:<name>-<ver>                         → list that pinned version's tools
-//	/plugin:<name>-<ver> <tool>                  → run pinned version with args={}
-//	/plugin:<name> <tool> {"key":"val",…}        → run with supplied JSON
-//
-// Bare-name resolution uses runtime.ResolveInstalledPluginDir so the
-// active version (per `stado plugin use`, otherwise highest semver)
-// is selected. The literal `<name>-<version>` form remains for pinning
-// to a specific installed version.
+//	/plugin                                             → list installed plugins
+//	/plugin:<canonical-source|store-key>                → list tools
+//	/plugin:<canonical-source|store-key> <tool> [json]  → run tool
+//	/plugin:<unique-name[@version]> ...                 → friendly alias
 //
 // Verifies manifest signature + wasm digest against the trust store on
 // every invocation (cheap, and catches a tampered-after-install plugin
@@ -1225,7 +1228,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	// (and e.Registry) without locking, so refuse while a turn is streaming
 	// — otherwise swapping the executor/registry here races the in-flight
 	// call. The operator reloads between turns.
-	if m.state == stateStreaming {
+	if m.state == stateStreaming || m.applicationPollRunning || m.applicationCommandRunning || m.applicationWorkerHandoffRunning || m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning {
 		m.appendBlock(block{kind: "system", body: "/reload: busy — wait for the current turn to finish (a tool may be running)"})
 		return nil
 	}
@@ -1246,6 +1249,9 @@ func (m *Model) handleConfigReload() tea.Cmd {
 			ne.Registry = newReg
 			m.executor = &ne
 			runtime.PinInvokeExecutor(newReg, m.executor)
+			for _, warning := range m.rebindLifecycleApplications(m.rootCtx, newCfg) {
+				m.appendBlock(block{kind: "system", body: "/reload: " + warning})
+			}
 			tools = len(newReg.All())
 		} else {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
@@ -1277,7 +1283,6 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	m.sidebarSections = normalizeSidebarSections(newCfg.TUI.Sidebar.Sections)
 	m.footerSegments = normalizeFooterSegments(newCfg.TUI.Footer.Segments)
 	m.SetContextThresholds(newCfg.Context.SoftThreshold, newCfg.Context.HardThreshold)
-	m.SetBudget(newCfg.Budget.WarnUSD, newCfg.Budget.HardUSD)
 	m.SetBudgetTokens(newCfg.Budget.WarnTokens, newCfg.Budget.HardTokens)
 	m.SetBudgetTokensSplit(newCfg.Budget.WarnInputTokens, newCfg.Budget.HardInputTokens, newCfg.Budget.WarnOutputTokens, newCfg.Budget.HardOutputTokens)
 
@@ -1302,6 +1307,10 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "/plugin reload: no executor (run inside a session)"})
 		return nil
 	}
+	if m.applicationPollRunning || m.applicationCommandRunning || m.applicationWorkerHandoffRunning || m.applicationInputCaptureRunning || m.applicationInputDeliveryRunning {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: busy — wait for the lifecycle application callback to finish"})
+		return nil
+	}
 	// Use the full composition (MCP attach + wasm migration + overrides +
 	// tool filter), not the bare default registry — otherwise /plugin reload
 	// re-registers tools the operator disabled via [tools].enabled/disabled,
@@ -1315,6 +1324,9 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 	ne.Registry = newReg
 	m.executor = &ne
 	runtime.PinInvokeExecutor(newReg, m.executor)
+	for _, warning := range m.rebindLifecycleApplications(m.rootCtx, m.cfg) {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: " + warning})
+	}
 
 	// The plugin set may have changed (a disabled/uninstalled plugin drops
 	// out). Flush plugin-contributed chrome so a removed plugin's sidebar/
@@ -1333,32 +1345,15 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 
 	name := args[0]
 	cfg := m.cfg
-	dir, ok := runtime.ResolveInstalledPluginDir(cfg, name)
-	if !ok {
-		// Fallback: literal `<name>-<version>` form.
-		d, derr := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name)
-		if derr == nil {
-			if _, sterr := os.Stat(d); sterr == nil {
-				dir = d
-				ok = true
-			}
-		}
-	}
-	if !ok {
+	pkg, resolveErr := plugins.ResolveInstalledPackage(cfg.AllPluginDirs(), name)
+	if resolveErr != nil {
 		m.appendBlock(block{
 			kind: "system",
-			body: fmt.Sprintf("/plugin reload: %q not installed (registry rebuilt anyway)", name),
+			body: fmt.Sprintf("/plugin reload: %q unavailable: %v (registry rebuilt anyway)", name, resolveErr),
 		})
 		return nil
 	}
-	mf, _, err := plugins.LoadFromDir(dir)
-	if err != nil {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("/plugin reload: rebuilt; manifest read for %q failed: %v", name, err),
-		})
-		return nil
-	}
+	mf := &pkg.Manifest
 	toolNames := make([]string, 0, len(mf.Tools))
 	for _, t := range mf.Tools {
 		toolNames = append(toolNames, t.Name)
@@ -1399,40 +1394,22 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		})
 		return nil
 	}
+	if nameVer == "." || nameVer == ".." || strings.Contains(nameVer, "../") || strings.Contains(nameVer, `..\`) ||
+		strings.ContainsRune(nameVer, '\x00') || filepath.IsAbs(nameVer) {
+		m.appendBlock(block{kind: "system", body: "plugin: invalid plugin id"})
+		return nil
+	}
 
-	// Resolve the install directory. Two-tier order, mirroring
-	// handlePluginReload: try the literal `<name>-<version>` form
-	// across all plugin roots first; if that path doesn't exist on
-	// disk, fall back to bare-name → active-version resolution.
-	// Bare-name lookup uses the same project-before-global precedence and
-	// per-root active marker as registry construction.
-	//
-	// InstalledDirInAny only fails on syntactically invalid ids
-	// (containing path separators, ".", "..") — a missing dir falls
-	// through to roots[0]'s joined path with err=nil. So existence
-	// is checked separately below and drives the bare-name fallback.
-	pluginDir, err := plugins.InstalledDirInAny(pluginRoots, nameVer)
+	pkg, err := plugins.ResolveInstalledPackage(pluginRoots, nameVer)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("plugin: %q is not installed", nameVer)})
+			return nil
+		}
 		m.appendBlock(block{kind: "system", body: "plugin: " + err.Error()})
 		return nil
 	}
-	if _, statErr := os.Stat(pluginDir); statErr != nil {
-		if dir, ok := runtime.ResolveInstalledPluginDir(cfg, nameVer); ok {
-			pluginDir = dir
-		} else {
-			m.appendBlock(block{
-				kind: "system",
-				body: fmt.Sprintf("plugin %q not installed (run `stado plugin install <dir>` first)", nameVer),
-			})
-			return nil
-		}
-	}
-
-	mf, sig, err := plugins.LoadFromDir(pluginDir)
-	if err != nil {
-		m.appendBlock(block{kind: "system", body: "plugin load: " + err.Error()})
-		return nil
-	}
+	pluginDir, mf, sig := pkg.Dir, &pkg.Manifest, pkg.Signature
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
 	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
 	if err != nil {
@@ -1443,6 +1420,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "plugin verify: " + err.Error()})
 		return nil
 	}
+	identity := pkg.Identity
 
 	// No tool name → describe the plugin and list its tools.
 	if len(parts) < 2 {
@@ -1478,7 +1456,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m}, tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
+	return runPluginToolAsync(m.cfg, pluginDir, mf, identity, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(identity.Canonical), tuiApprovalBridge{model: m}, tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 }
 
 // toolManageVerbs is the set of /tool sub-verbs that flow to the
@@ -1594,7 +1572,7 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 	}
 
 	if ptyBoundShellToolName(registered.Name()) {
-		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		if canonical == "" {
 			canonical = registered.Name()
 		}
@@ -1609,23 +1587,24 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 
 	approval := tuiApprovalBridge{model: m}
 
-	// Bundled-tool dispatch.
-	if info, ok := bundled.LookupModuleByToolName(registered.Name()); ok {
-		wasmBytes, err := bundled.Wasm(info.Name)
+	// Bundled-tool dispatch from the same verified manifest projection used
+	// by the default registry.
+	if contract, ok, lookupErr := bundled.LookupToolContract(registered.Name()); lookupErr != nil {
+		m.appendBlock(block{kind: "system", body: "tool: bundled manifest: " + lookupErr.Error()})
+		return nil
+	} else if ok {
+		wasmBytes, err := bundled.Wasm(contract.Source)
 		if err != nil {
 			m.appendBlock(block{kind: "system", body: "tool: bundled wasm load: " + err.Error()})
 			return nil
 		}
-		bareToolDef := bundledToolDefForSlash(registered)
-		manifest := plugins.Manifest{
-			Name:         bundled.ManifestNamePrefix + "-" + info.Name,
-			Version:      info.Version,
-			Author:       info.Author,
-			Capabilities: info.Capabilities,
-			Tools:        []plugins.ToolDef{bareToolDef},
+		identity, err := plugins.RuntimeIdentityForBundledSource(contract.Source, contract.Manifest)
+		if err != nil {
+			m.appendBlock(block{kind: "system", body: "tool: bundled identity: " + err.Error()})
+			return nil
 		}
 		cwd, _ := os.Getwd()
-		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		if canonical == "" {
 			canonical = registered.Name()
 		}
@@ -1634,13 +1613,13 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			body: fmt.Sprintf("tool %s: invoking…", canonical),
 		})
 		m.renderBlocks()
-		return runPluginToolAsync(cfg, cwd, &manifest, bareToolDef, argsJSON,
-			manifest.Name, wasmBytes, m.buildPluginBridge(manifest.Name), approval,
+		return runPluginToolAsync(cfg, cwd, &contract.Manifest, identity, contract.Definition, argsJSON,
+			contract.Manifest.Name, wasmBytes, m.buildPluginBridge(identity.Canonical), approval,
 			tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 	}
 
 	// Installed-plugin tool dispatch.
-	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+	if mfst, identity, wasmPath, ok := runtime.InstalledModuleForTool(registered); ok {
 		wasmBytes, err := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
 		if err != nil {
 			m.appendBlock(block{kind: "system", body: "tool: verify: " + err.Error()})
@@ -1660,7 +1639,7 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			})
 			return nil
 		}
-		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		canonical := runtime.ToolMetadataFor(registered).Canonical
 		if canonical == "" {
 			canonical = registered.Name()
 		}
@@ -1669,9 +1648,9 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 			body: fmt.Sprintf("tool %s: invoking…", canonical),
 		})
 		m.renderBlocks()
-		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, *tdef, argsJSON,
+		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, identity, *tdef, argsJSON,
 			mfst.Name+"-"+mfst.Version, wasmBytes,
-			m.buildPluginBridge(mfst.Name), approval,
+			m.buildPluginBridge(identity.Canonical), approval,
 			tuiPrintBridge{model: m}, tuiRenderBridge{model: m}, tuiChoiceBridge{model: m})
 	}
 
@@ -1686,7 +1665,7 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 // helper: tries exact name, canonical→wire conversion, canonical-
 // metadata fallback, and a single-underscore substitution. Kept
 // inline here so the TUI doesn't take a dep on cmd/stado/main.
-func lookupToolForSlashDispatch(reg *tools.Registry, query string) (pkgToolHandle, bool) {
+func lookupToolForSlashDispatch(reg *tools.Registry, query string) (pkgtool.Tool, bool) {
 	if t, ok := reg.Get(query); ok {
 		return t, true
 	}
@@ -1698,7 +1677,7 @@ func lookupToolForSlashDispatch(reg *tools.Registry, query string) (pkgToolHandl
 		}
 	}
 	for _, candidate := range reg.All() {
-		if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
+		if runtime.ToolMetadataFor(candidate).Canonical == query {
 			return candidate, true
 		}
 	}
@@ -1710,48 +1689,11 @@ func lookupToolForSlashDispatch(reg *tools.Registry, query string) (pkgToolHandl
 	return nil, false
 }
 
-// pkgToolHandle is the minimal surface the slash dispatcher needs
-// from a registered tool. Kept as an alias so the lookup helper can
-// return without pulling pkg/tool into this file's import set
-// (which already grew enough for one commit).
-type pkgToolHandle = interface {
-	Name() string
-	Description() string
-	Schema() map[string]any
-}
-
-// bundledToolDefForSlash builds a plugins.ToolDef from a registered
-// tool. Mirrors cmd/stado/tool_run.go's toolDefFromRegistered: the
-// Name field uses the bare suffix from a wire-form name (fs__read
-// → "read") because the wasm dispatcher prepends "stado_tool_" to
-// resolve the export.
-func bundledToolDefForSlash(t pkgToolHandle) plugins.ToolDef {
-	registered := t.Name()
-	bare := registered
-	if alias, sub, ok := tools.ParseWireForm(registered); ok && alias != "" {
-		bare = sub
-	}
-	schemaJSON := "{}"
-	if schema := t.Schema(); schema != nil {
-		if b, err := json.Marshal(schema); err == nil {
-			schemaJSON = string(b)
-		}
-	}
-	return plugins.ToolDef{
-		Name:        bare,
-		Description: t.Description(),
-		Schema:      schemaJSON,
-	}
-}
-
 // ptyBoundShellToolName is the TUI-side mirror of cmd/stado's
 // ptyBoundShellTool gate. Same eight canonical / wire names; same
 // reasoning — single-dispatch /tool can't host a PTY across calls.
 func ptyBoundShellToolName(name string) bool {
-	canonical := name
-	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
-		canonical = md.Canonical
-	}
+	canonical := runtime.CanonicalToolName(name)
 	// EP-0043: shell.screenshot is folded into shell.read (mode:screen),
 	// which is gated here like the rest of the PTY family — they all need a
 	// pty.Manager that persists across calls, which a one-off /tool dispatch

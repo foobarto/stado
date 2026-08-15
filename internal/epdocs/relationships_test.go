@@ -52,6 +52,74 @@ func TestRelationshipLinksMatchFrontmatter(t *testing.T) {
 	}
 }
 
+func TestStrongRelationshipsAreReciprocal(t *testing.T) {
+	dir := filepath.Join("..", "..", "docs", "eps")
+	paths, err := filepath.Glob(filepath.Join(dir, "[0-9][0-9][0-9][0-9]-*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(paths)
+	type relations map[string]map[string]bool
+	all := make(map[string]relations)
+	for _, path := range paths {
+		base := filepath.Base(path)
+		if base == "0000-template.md" {
+			continue
+		}
+		label := "EP-" + base[:4]
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all[label] = parseRelationshipFrontmatter(t, path, string(data))
+	}
+
+	pairs := []struct {
+		forward string
+		reverse string
+	}{
+		{forward: "extends", reverse: "extended-by"},
+		{forward: "supersedes", reverse: "superseded-by"},
+	}
+	for source, rels := range all {
+		for _, pair := range pairs {
+			for target := range rels[pair.forward] {
+				if !all[target][pair.reverse][source] {
+					t.Errorf("%s %s %s, but %s lacks reciprocal %s %s",
+						source, pair.forward, target, target, pair.reverse, source)
+				}
+			}
+		}
+	}
+}
+
+func parseRelationshipFrontmatter(t *testing.T, path, data string) map[string]map[string]bool {
+	t.Helper()
+	out := make(map[string]map[string]bool)
+	lines := strings.Split(data, "\n")
+	if len(lines) == 0 || lines[0] != "---" {
+		t.Fatalf("%s: missing opening frontmatter delimiter", path)
+	}
+	for _, line := range lines[1:] {
+		if line == "---" {
+			return out
+		}
+		match := relationshipField.FindStringSubmatch(line)
+		if match == nil || match[1] != "" {
+			continue
+		}
+		field := match[2]
+		if out[field] == nil {
+			out[field] = make(map[string]bool)
+		}
+		for _, target := range parseValues(t, match[3]) {
+			out[field][target] = true
+		}
+	}
+	t.Fatalf("%s: missing closing frontmatter delimiter", path)
+	return nil
+}
+
 func TestRelationshipFieldAllowsTrailingComment(t *testing.T) {
 	match := relationshipField.FindStringSubmatch(`requires: ["EP-0001"] # dependency`)
 	if match == nil || match[2] != "requires" || match[3] != `"EP-0001"` {

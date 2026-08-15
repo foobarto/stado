@@ -36,8 +36,7 @@ type Integration struct {
 	DisplayName string
 
 	// Binaries lists candidate executable names to look for on PATH.
-	// First match wins. Common to list both `<name>` and `<name>.exe`
-	// for Windows-friendly detection (we still only test exec.LookPath).
+	// First match wins.
 	Binaries []string
 
 	// WellKnownPaths lists absolute paths (with `~/` prefix-expansion)

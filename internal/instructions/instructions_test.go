@@ -137,9 +137,6 @@ func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 		"model: qwen/qwen3.6-35b-a3b",
 		"Cairn workflow defaults:",
 		"think before coding, simplicity first, surgical changes, and goal-driven execution",
-		"If the new request is unrelated, use the shared tasks tool when available",
-		"If the tool is unavailable or the write fails, identify the request explicitly as an unpersisted deferred item",
-		"revisit only task IDs or unpersisted fallback items deferred by this conversation",
 		"Project instructions:\nalways write tests",
 	} {
 		if !strings.Contains(got, want) {
@@ -166,23 +163,6 @@ func TestComposeSystemPrompt_ExecutesCustomTemplate(t *testing.T) {
 	)
 	if got != "agent=qwen via lmstudio rules=be direct" {
 		t.Fatalf("custom template output = %q", got)
-	}
-}
-
-func TestComposeSystemPrompt_AppendsMemoryContext(t *testing.T) {
-	got := ComposeSystemPrompt(
-		`agent={{ .Model }} rules={{ .ProjectInstructions }}`,
-		"be direct",
-		RuntimeContext{Model: "qwen", Memory: "Memory snippets supplied by installed plugins.\n- [global/preference mem_1] Prefer focused tests."},
-	)
-	for _, want := range []string{
-		"agent=qwen rules=be direct",
-		"Memory snippets supplied by installed plugins.",
-		"[global/preference mem_1]",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("composed prompt missing %q:\n%s", want, got)
-		}
 	}
 }
 

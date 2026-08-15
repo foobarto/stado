@@ -108,7 +108,7 @@ func (m *Model) finishVerificationError(message string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.verifying = false
-	m.stopLoopOnError()
+	loopStop := m.stopLoopOnError()
 	m.state = stateError
 	m.errorMsg = message
 	m.steeringMsg = ""
@@ -116,7 +116,7 @@ func (m *Model) finishVerificationError(message string) (tea.Model, tea.Cmd) {
 	m.appendBlock(block{kind: "system", body: message})
 	m.finalizeStreamingBlocks()
 	m.renderBlocks()
-	return m, nil
+	return m, loopStop
 }
 
 func (m *Model) finishVerifiedTurn() (tea.Model, tea.Cmd) {

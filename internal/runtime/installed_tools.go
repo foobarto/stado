@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/foobarto/stado/internal/config"
@@ -15,27 +15,6 @@ import (
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
-
-// activeVersionMarker reads the per-plugin active-version marker
-// written by `stado plugin use <name>@<version>` (cmd/stado/
-// plugin_use_dev.go:48). Returns the trimmed version string when
-// present; "" when the marker is missing or unreadable.
-func activeVersionMarker(stateDir, pluginName string) string {
-	return plugins.ActiveVersionMarker(filepath.Join(stateDir, "plugins"), pluginName)
-}
-
-// pickActiveVersion returns which version of pluginName to register,
-// given the list of candidates found on disk. Pin precedence:
-//  1. <stateDir>/plugins/active/<name> marker file (set by
-//     `stado plugin use <name>@<version>`); only honoured when the
-//     marker's version is among candidates. Marker pointing at a
-//     version not on disk returns "" (caller logs + skips).
-//  2. Highest semver among candidates.
-//
-// Returns "" if (1) misses and candidates is empty.
-func pickActiveVersion(stateDir, pluginName string, candidates []string) string {
-	return plugins.PickActiveVersion(filepath.Join(stateDir, "plugins"), pluginName, candidates)
-}
 
 // installedPluginTool wraps an installed plugin's declared tool as
 // a wasm-backed registry entry. wasm bytes are loaded lazily on
@@ -53,11 +32,13 @@ func pickActiveVersion(stateDir, pluginName string, candidates []string) string 
 // exists so Registry.All() / tool list / tools.search reflect
 // installed plugins as first-class entries.
 type installedPluginTool struct {
-	manifest plugins.Manifest
-	def      plugins.ToolDef
-	schema   map[string]any
-	class    tool.Class
-	wasmPath string // <install-dir>/plugin.wasm
+	manifest  plugins.Manifest
+	identity  plugins.RuntimeIdentity
+	def       plugins.ToolDef
+	schema    map[string]any
+	class     tool.Class
+	wasmPath  string // <install-dir>/plugin.wasm
+	signature string
 
 	// Codex C4/Q P2 — pre-fix the cfg + invokeReg were package globals
 	// rebound by every registerInstalledPluginTools call. When a
@@ -75,17 +56,19 @@ type installedPluginTool struct {
 	invokeExec *tools.Executor
 }
 
-func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
+func newInstalledPluginTool(mf plugins.Manifest, identity plugins.RuntimeIdentity, def plugins.ToolDef, wasmPath, signature string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
 	var schema map[string]any
 	if def.Schema != "" {
 		_ = json.Unmarshal([]byte(def.Schema), &schema)
 	}
 	return &installedPluginTool{
 		manifest:  mf,
+		identity:  identity,
 		def:       def,
 		schema:    schema,
 		class:     class,
 		wasmPath:  wasmPath,
+		signature: signature,
 		cfg:       cfg,
 		invokeReg: invokeReg,
 	}
@@ -100,6 +83,15 @@ func (t *installedPluginTool) Schema() map[string]any {
 	return t.schema
 }
 func (t *installedPluginTool) Class() tool.Class { return t.class }
+
+func (t *installedPluginTool) ToolMetadata() ToolMetadata {
+	return ToolMetadata{
+		Canonical: CanonicalToolName(t.def.Name), Plugin: t.manifest.Name,
+		PackageNamespace: t.identity.Namespace,
+		Categories:       append([]string(nil), t.def.Categories...),
+		ExtraCategories:  append([]string(nil), t.def.ExtraCategories...),
+	}
+}
 
 // PluginName returns the installed plugin's manifest name (e.g.
 // "gtfobins"). Used by the TUI landing render to group autoloaded
@@ -118,15 +110,20 @@ func (t *installedPluginTool) PluginName() string { return t.manifest.Name }
 // directly) hit the sentinel and silently failed for installed
 // plugins — fixed here so all dispatch paths are uniform.
 func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if t.cfg == nil {
+		return tool.Result{Error: "installed plugin tool: no cfg bound"}, fmt.Errorf("installed %s: no cfg bound to runtime", t.manifest.Name)
+	}
+	pluginDir := filepath.Dir(t.wasmPath)
+	if err := VerifyInstalledPlugin(ctx, t.cfg, pluginDir, &t.manifest, t.signature); err != nil {
+		return tool.Result{Error: err.Error()}, fmt.Errorf("installed %s: verify current admission: %w", t.manifest.Name, err)
+	}
 	wasmBytes, err := plugins.ReadVerifiedWASM(t.manifest.WASMSHA256, t.wasmPath)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("installed %s: verify: %w", t.manifest.Name, err)
 	}
-	if t.cfg == nil {
-		return tool.Result{Error: "installed plugin tool: no cfg bound"}, fmt.Errorf("installed %s: no cfg bound to runtime", t.manifest.Name)
-	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
 		Manifest:  t.manifest,
+		Identity:  t.identity,
 		WasmBytes: wasmBytes,
 		ToolName:  t.def.Name,
 		Args:      args,
@@ -137,63 +134,17 @@ func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h t
 		// wiring pluginrun's attachLifecycleBridges pulls off h.
 		// CLI invocations route through plugin_invoke_shared.go which
 		// builds a SessionBridgeBuilder from --session.
-		InvokeRegistry: t.invokeReg,
-		InvokeExecutor: t.invokeExec,
+		InvokeRegistry:   t.invokeReg,
+		InvokeExecutor:   t.invokeExec,
+		RegistryCatalog:  NewRegistryCatalogAccess(t.invokeReg, t.identity.Namespace),
+		ContextResources: contextResourcesFromSkillContext(ctx),
 	}, h)
 }
 
-// groupInstalledByName scans pluginsDir for "<name>-<version>"
-// subdirectories and returns a map of name → versions. Entries that
-// don't match the expected pattern (no -v prefix, the "active"
-// metadata subdir, plain files) are skipped. A missing pluginsDir
-// is not an error — returns an empty map.
-func groupInstalledByName(pluginsDir string) (map[string][]string, error) {
-	out := map[string][]string{}
-	entries, err := os.ReadDir(pluginsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil
-		}
-		return nil, err
-	}
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == "active" {
-			continue
-		}
-		name, version, ok := splitInstalledID(e.Name())
-		if !ok {
-			continue
-		}
-		out[name] = append(out[name], version)
-	}
-	return out, nil
-}
-
-// splitInstalledID splits "<name>-<version>" into name + version.
-// Accepts both "name-0.1.0" and "name-v0.1.0" forms (real installs
-// use the no-v form; the v-prefixed form is what golang.org/x/mod/
-// semver expects internally — pickActiveVersion normalizes for that).
-// Splits on the last "-" followed by a digit or "v<digit>" so multi-
-// dash names like "htb-lab" round-trip correctly. Returns ok=false
-// when the suffix isn't a version-shaped string.
-func splitInstalledID(id string) (name, version string, ok bool) {
-	return plugins.SplitInstalledID(id)
-}
-
-// installedRegistryMu protects the package-level installedByTool
-// map populated by registerInstalledPluginTools and consumed by
-// LookupInstalledModule (used by cmd/stado/tool_run.go to dispatch).
 var (
-	installedRegistryMu          sync.Mutex
-	installedByTool              = map[string]installedRecord{}
 	ignoredProjectPluginWarnings sync.Map
 	installedPluginDiagnostics   sync.Map
 )
-
-type installedRecord struct {
-	Manifest plugins.Manifest
-	WasmPath string
-}
 
 // registerInstalledPluginTools enumerates installed plugins under
 // cfg.StateDir()/plugins/, picks the active version per plugin
@@ -201,33 +152,29 @@ type installedRecord struct {
 // trust store + wasm sha256, and registers each declared tool as
 // an installedPluginTool wrapper with the verified wasm path.
 //
-// Plugins failing signature or sha verification emit a stado: warn
-// line on stderr and are skipped. Tool-name collisions with already-
-// registered tools (typically bundled) emit a stado: info line at
-// registration time and overwrite (Q4 — installed wins, per
-// tools.Registry.Register semantics).
+// Plugins failing source receipt, signature, host-version, or sha verification
+// emit a warning and are skipped. Cross-source installed tool-name collisions
+// disable every participating package during complete-surface preflight.
+// Replacement of an already-registered built-in remains separately visible
+// historical policy until operator-owned exact-source overrides replace it.
 //
 // Q1/Q2/Q3/Q4 of the design.
 func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
+	registerInstalledPluginToolsForSurface(reg, cfg, nil, "")
+}
+
+func registerInstalledPluginToolsForSurface(reg *tools.Registry, cfg *config.Config, exactAgentChildTools map[string]bool, childToolOwner string) {
 	if cfg == nil {
 		return
 	}
-	stateDir := cfg.StateDir()
-	ts := plugins.NewTrustStore(stateDir)
-
-	// Codex C4/Q P2: per-tool cfg + reg storage (see installedPluginTool
-	// struct comment). Reset package-level lookup state once for this build.
-	installedRegistryMu.Lock()
-	installedByTool = map[string]installedRecord{}
-	installedRegistryMu.Unlock()
-
 	// EP-0035: search the project-local .stado/plugins/ dir in addition to the
 	// global state dir. AllPluginDirs returns [project, global] in priority
-	// order. Register in that order and skip any plugin NAME already claimed by
-	// a higher-priority dir, so a project plugin cleanly SHADOWS the global one
-	// of the same name (rather than per-tool merging the two copies). seen is
+	// order. Collect in that order and skip any canonical source namespace already
+	// claimed by a higher-priority dir, so a project copy cleanly shadows the
+	// global copy of the same source (rather than merging the two). seen is
 	// shared across dirs. Verified against the same (global) trust store.
 	seen := map[string]bool{}
+	var admitted []admittedInstalledPackage
 	projectDir := cfg.ProjectPluginsDir()
 	for _, pluginsDir := range cfg.AllPluginDirs() {
 		// Project-local plugin autoload is opt-in (Codex #4/#45): an untrusted
@@ -241,8 +188,9 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 			}
 			continue
 		}
-		registerPluginsFromDir(reg, cfg, ts, stateDir, pluginsDir, seen)
+		admitted = append(admitted, collectPluginsFromDir(cfg, pluginsDir, seen)...)
 	}
+	registerAdmittedInstalledToolsForSurface(reg, cfg, admitted, exactAgentChildTools, childToolOwner)
 }
 
 func shouldWarnIgnoredProjectPlugins(projectDir string) bool {
@@ -261,120 +209,171 @@ func emitInstalledPluginDiagnosticOnce(format string, args ...any) {
 	emitRegistryDiagnostic("%s", message)
 }
 
-// registerPluginsFromDir registers every active installed-plugin tool found
-// under pluginsDir into reg, skipping any plugin name already in seen (claimed
-// by a higher-priority dir) and marking the names it claims. stateDir is the
-// global state dir used for active-version pins (a project plugin with no
-// global pin falls back to its highest version). A missing pluginsDir is a
-// no-op.
-func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins.TrustStore, stateDir, pluginsDir string, seen map[string]bool) {
-	groups, err := groupInstalledByName(pluginsDir)
+type admittedInstalledPackage struct {
+	packageInfo plugins.InstalledPackage
+	identity    plugins.RuntimeIdentity
+	wasmPath    string
+}
+
+// collectPluginsFromDir authenticates active source-keyed packages without
+// changing the registry. Registration is deliberately a second phase so the
+// complete installed tool surface can be collision-checked before any package
+// acquires a model-visible name.
+func collectPluginsFromDir(cfg *config.Config, pluginsDir string, seen map[string]bool) []admittedInstalledPackage {
+	packages, err := plugins.ListInstalledPackages(pluginsDir)
 	if err != nil {
 		emitInstalledPluginDiagnosticOnce("stado: warn: enumerate installed plugins in %s: %v\n", pluginsDir, err)
-		return
+		return nil
 	}
-	for name, versions := range groups {
-		if seen[name] {
+	groups := make(map[string][]plugins.InstalledPackage)
+	for _, pkg := range packages {
+		groups[pkg.Identity.Namespace] = append(groups[pkg.Identity.Namespace], pkg)
+	}
+	var namespaces []string
+	for namespace := range groups {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	var admitted []admittedInstalledPackage
+	for _, namespace := range namespaces {
+		candidates := groups[namespace]
+		if seen[namespace] {
 			continue // a higher-priority dir already provided this plugin
 		}
-		// Claim the name for this dir so a lower-priority copy is skipped
+		// Claim the canonical source namespace so a lower-priority copy is skipped
 		// entirely — even if this copy fails to verify below, a project
 		// plugin authoritatively shadows the global one (no silent fallback).
-		seen[name] = true
-		markerStateDir := stateDir
-		if pluginsDir != filepath.Join(stateDir, "plugins") {
-			markerStateDir = filepath.Dir(pluginsDir)
-		}
-		version := pickActiveVersion(markerStateDir, name, versions)
-		if version == "" {
+		seen[namespace] = true
+		selected, ok, selectErr := plugins.PickActivePackage(pluginsDir, namespace, candidates)
+		if selectErr != nil {
+			emitInstalledPluginDiagnosticOnce("stado: warn: select installed source %s: %v\n", namespace, selectErr)
 			continue
 		}
-		dir := filepath.Join(pluginsDir, name+"-"+version)
-		mf, sig, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s manifest load: %v\n", name, version, err)
+		if !ok {
 			continue
 		}
-		if err := ts.VerifyManifest(mf, sig); err != nil {
-			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s signature failed: %v; not registered\n", name, version, err)
+		dir, mf, sig := selected.Dir, &selected.Manifest, selected.Signature
+		if err := VerifyInstalledPlugin(context.Background(), cfg, dir, mf, sig); err != nil {
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s signature failed: %v; not registered\n", selected.Identity.Canonical, err)
+			continue
+		}
+		identity := selected.Identity
+		if identity != selected.Identity {
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s identity changed during trust verification; not registered\n", selected.Identity.Canonical)
 			continue
 		}
 		wasmPath := filepath.Join(dir, "plugin.wasm")
 		// Re-verify wasm sha now to catch tampering between install
 		// and registration.
 		if _, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath); err != nil {
-			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s wasm verify: %v; not registered\n", name, version, err)
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s wasm verify: %v; not registered\n", selected.Identity.Canonical, err)
 			continue
 		}
-		for _, def := range mf.Tools {
+		admitted = append(admitted, admittedInstalledPackage{packageInfo: selected, identity: identity, wasmPath: wasmPath})
+	}
+	return admitted
+}
+
+// registerAdmittedInstalledTools rejects every package participating in a
+// cross-source tool-name collision. Neither filesystem/root order nor Go map
+// iteration may choose which signed implementation owns a model-visible name.
+// A collision with any already-registered bundled/native/external owner also
+// rejects the entire installed package before registration starts. The only
+// replacement path is the operator-owned exact [tools].overrides contract.
+func registerAdmittedInstalledTools(reg *tools.Registry, cfg *config.Config, admitted []admittedInstalledPackage) {
+	registerAdmittedInstalledToolsForSurface(reg, cfg, admitted, nil, "")
+}
+
+func registerAdmittedInstalledToolsForSurface(reg *tools.Registry, cfg *config.Config, admitted []admittedInstalledPackage, exactAgentChildTools map[string]bool, childToolOwner string) {
+	owners := make(map[string][]int)
+	for i := range admitted {
+		for _, def := range admitted[i].packageInfo.Manifest.Tools {
+			owners[def.Name] = append(owners[def.Name], i)
+		}
+	}
+	rejected := make(map[int]bool)
+	var names []string
+	for name := range owners {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		indices := owners[name]
+		if len(indices) < 2 {
+			continue
+		}
+		var sources []string
+		for _, index := range indices {
+			rejected[index] = true
+			sources = append(sources, admitted[index].identity.Canonical)
+		}
+		sort.Strings(sources)
+		emitInstalledPluginDiagnosticOnce("stado: warn: installed tool %s is declared by multiple authenticated sources (%v); all colliding packages are disabled\n", name, sources)
+	}
+	// Preflight against the registry as it existed before installed package
+	// admission. Reject package-atomically: registering its non-colliding tools
+	// before discovering a later collision would expose a partial signed
+	// application contract and make manifest order authoritative.
+	for i := range admitted {
+		if rejected[i] {
+			continue
+		}
+		var collisions []string
+		for _, def := range admitted[i].packageInfo.Manifest.Tools {
 			if _, exists := reg.Get(def.Name); exists {
-				emitInstalledPluginDiagnosticOnce("stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
+				collisions = append(collisions, def.Name)
 			}
-			class, err := pluginRuntime.EffectiveToolClass(def, mf.Capabilities)
+		}
+		if len(collisions) == 0 {
+			continue
+		}
+		sort.Strings(collisions)
+		rejected[i] = true
+		emitInstalledPluginDiagnosticOnce("stado: warn: installed source %s collides with existing registry owner(s) for %v; the entire package is disabled (use an explicit [tools].overrides selector to replace a tool)\n", admitted[i].identity.Canonical, collisions)
+	}
+	for i := range admitted {
+		if rejected[i] {
+			continue
+		}
+		selected := admitted[i].packageInfo
+		mf := &selected.Manifest
+		identity := admitted[i].identity
+		wasmPath := admitted[i].wasmPath
+		for _, def := range mf.Tools {
+			if def.AgentChildOnly && (!exactAgentChildTools[def.Name] || identity.Namespace != childToolOwner) {
+				continue
+			}
+			capabilities, capErr := mf.EffectiveToolCapabilities(def)
+			if capErr != nil {
+				emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s tool %s: capabilities: %v; package admission invariant violated\n",
+					selected.Identity.Canonical, def.Name, capErr)
+				continue
+			}
+			class, err := pluginRuntime.EffectiveToolClass(def, capabilities)
 			if err != nil {
-				emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to exec\n",
-					name, version, def.Name, err)
+				emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s tool %s: class resolve: %v; defaulting to exec\n",
+					selected.Identity.Canonical, def.Name, err)
 			}
-			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class, cfg, reg))
-
-			installedRegistryMu.Lock()
-			installedByTool[def.Name] = installedRecord{
-				Manifest: *mf,
-				WasmPath: wasmPath,
-			}
-			installedRegistryMu.Unlock()
+			reg.Register(newInstalledPluginTool(*mf, identity, def, wasmPath, selected.Signature, class, cfg, reg))
 		}
 	}
 }
 
-// LookupInstalledModule returns the manifest + wasm path for the
-// named installed-plugin tool. Symmetric with
-// bundled.LookupModuleByToolName. Used by cmd/stado/tool_run.go
-// to dispatch installed-plugin invocation through runPluginInvocation.
-func LookupInstalledModule(toolName string) (plugins.Manifest, string, bool) {
-	installedRegistryMu.Lock()
-	defer installedRegistryMu.Unlock()
-	rec, ok := installedByTool[toolName]
+// InstalledModuleForTool returns the authenticated module contract carried by
+// one exact registry-selected installed adapter. Object selection is the
+// authority boundary: resolving by a process-global name would let concurrent
+// registry builds cross-wire same-named packages from different config roots.
+func InstalledModuleForTool(candidate tool.Tool) (plugins.Manifest, plugins.RuntimeIdentity, string, bool) {
+	installed, ok := candidate.(*installedPluginTool)
 	if !ok {
-		return plugins.Manifest{}, "", false
+		return plugins.Manifest{}, plugins.RuntimeIdentity{}, "", false
 	}
-	return rec.Manifest, rec.WasmPath, true
+	return installed.manifest, installed.identity, installed.wasmPath, true
 }
 
-// ResolveInstalledPluginDir takes an operator-friendly bare plugin name
-// (e.g. "gtfobins") and returns the on-disk directory of its active
-// version (e.g. "<state>/plugins/gtfobins-0.1.0"). Resolution mirrors
-// registerInstalledPluginTools: groupInstalledByName + pickActiveVersion.
-//
-// Returns ok=false when the plugin isn't installed, or when an active-
-// version marker points at a version that's not on disk. No signature
-// verification — callers (e.g. plugin info) read the manifest after.
-func ResolveInstalledPluginDir(cfg *config.Config, name string) (string, bool) {
-	if cfg == nil || name == "" {
-		return "", false
-	}
-	stateDir := cfg.StateDir()
-	// EP-0035: check project-local .stado/plugins/ before the global state dir
-	// (AllPluginDirs returns [project, global]) so a project plugin wins,
-	// matching registerInstalledPluginTools' precedence.
-	for _, pluginsDir := range cfg.AllPluginDirs() {
-		groups, err := groupInstalledByName(pluginsDir)
-		if err != nil {
-			continue
-		}
-		versions, ok := groups[name]
-		if !ok {
-			continue
-		}
-		markerStateDir := stateDir
-		if pluginsDir != filepath.Join(stateDir, "plugins") {
-			markerStateDir = filepath.Dir(pluginsDir)
-		}
-		version := pickActiveVersion(markerStateDir, name, versions)
-		if version == "" {
-			continue
-		}
-		return filepath.Join(pluginsDir, name+"-"+version), true
-	}
-	return "", false
+// RuntimeIdentityForPluginDir resolves an installed plugin's signed EP-39 lock
+// identity, or an explicit source-bound local-development identity when the
+// directory was installed without a remote lock entry.
+func RuntimeIdentityForPluginDir(pluginDir string, manifest plugins.Manifest) (plugins.RuntimeIdentity, error) {
+	return plugins.RuntimeIdentityForInstalledDir(pluginDir, manifest)
 }

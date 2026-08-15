@@ -95,7 +95,7 @@ func TestPluginSlash_ListsInstalled(t *testing.T) {
 	m.handleSlash("/plugin")
 
 	body := m.blocks[len(m.blocks)-1].body
-	for _, want := range []string{"demo-0.0.1", "greet", "other", "say hi"} {
+	for _, want := range []string{"(demo)", "@0.0.1", "greet", "other", "say hi"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q: %q", want, body)
 		}
@@ -161,7 +161,7 @@ func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
 	m.handleSlash("/plugin")
 	body := m.blocks[len(m.blocks)-1].body
 
-	for _, want := range []string{"ad-attacks-0.1.0", "ad_kerberoast", "second-plugin-0.0.1", "tail_marker"} {
+	for _, want := range []string{"(ad-attacks)", "@0.1.0", "ad_kerberoast", "(second-plugin)", "tail_marker"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q (likely clipped); body length=%d", want, len(body))
 		}
@@ -198,7 +198,7 @@ func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
 // tool argument lists that plugin's tools only.
 func TestPluginSlash_PerPluginListsTools(t *testing.T) {
 	m := newPluginTestModel(t)
-	installFakePlugin(t, "demo-0.0.1", plugins.Manifest{
+	storeKey := installFakePlugin(t, "demo-source", plugins.Manifest{
 		Name:    "demo",
 		Version: "0.0.1",
 		Author:  "test",
@@ -210,7 +210,7 @@ func TestPluginSlash_PerPluginListsTools(t *testing.T) {
 	// Skip signature verification by fabricating a trust-store entry
 	// for a known-bad signature — we expect the signature check to
 	// fail and the handler to append a clear error, not a tool list.
-	m.handleSlash("/plugin:demo-0.0.1")
+	m.handleSlash("/plugin:" + storeKey)
 
 	body := m.blocks[len(m.blocks)-1].body
 	// We haven't signed the fake manifest, so VerifyManifest fails.
@@ -221,12 +221,9 @@ func TestPluginSlash_PerPluginListsTools(t *testing.T) {
 	}
 }
 
-// TestPluginSlash_BareNameResolvesToActiveVersion: `/plugin:<name>`
-// (no `-<version>` suffix) must resolve to the installed active
-// version. Previously the slash handler only accepted the literal
-// `<name>-<version>` directory id and surfaced "not installed" for
-// the bare-name form, even when the listing block (and the trailing
-// hint) advertised /plugin:<name>.
+// TestPluginSlash_BareNameResolvesToActiveVersion proves that a friendly
+// manifest-name alias may resolve only when one installed source owns it.
+// The source-derived store key remains the authoritative selector.
 func TestPluginSlash_BareNameResolvesToActiveVersion(t *testing.T) {
 	m := newPluginTestModel(t)
 	installFakePlugin(t, "demo-0.0.1", plugins.Manifest{
@@ -282,8 +279,8 @@ func TestPluginSlash_UnknownToolName(t *testing.T) {
 	// still the signature error. That's the correct ordering:
 	// don't reveal declared tool names to a caller who hasn't been
 	// gated by the trust store.
-	installFakePlugin(t, "demo-0.0.1", plugins.Manifest{Name: "demo", Version: "0.0.1"})
-	m.handleSlash("/plugin:demo-0.0.1 nonexistent {}")
+	storeKey := installFakePlugin(t, "demo-source", plugins.Manifest{Name: "demo", Version: "0.0.1"})
+	m.handleSlash("/plugin:" + storeKey + " nonexistent {}")
 	body := m.blocks[len(m.blocks)-1].body
 	if body == "" {
 		t.Fatal("expected a system block")
@@ -358,19 +355,26 @@ func TestPluginSlash_NarrowViewportHangIndent(t *testing.T) {
 	}
 }
 
-// installFakePlugin writes a plugin.manifest.json + plugin.wasm +
-// plugin.manifest.sig under $XDG_DATA_HOME/stado/plugins/<dirName>/.
+// installFakePlugin writes a plugin source fixture, then installs it under its
+// source-keyed store directory with a complete host-owned record.
 // The wasm is a trivial byte stream whose sha256 is pinned in the
 // manifest; the signature is 88 bytes of zeros — valid base64 for
 // testing the error path (signature will fail, which is what the
 // tests above intentionally exercise).
-func installFakePlugin(t *testing.T, dirName string, m plugins.Manifest) {
+func installFakePlugin(t *testing.T, sourceName string, m plugins.Manifest) string {
 	t.Helper()
-	root := filepath.Join(os.Getenv("XDG_DATA_HOME"), "stado", "plugins", dirName)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if m.Lifecycle == nil {
+		for i := range m.Tools {
+			if m.Tools[i].Capabilities == nil {
+				m.Tools[i].Capabilities = plugins.CapabilitySubset()
+			}
+		}
+	}
+	source := filepath.Join(t.TempDir(), sourceName)
+	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	wasmPath := filepath.Join(root, "plugin.wasm")
+	wasmPath := filepath.Join(source, "plugin.wasm")
 	wasm := []byte("not a real wasm")
 	if err := os.WriteFile(wasmPath, wasm, 0o644); err != nil {
 		t.Fatal(err)
@@ -382,14 +386,38 @@ func installFakePlugin(t *testing.T, dirName string, m plugins.Manifest) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "plugin.manifest.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// 64 bytes of zeros in base64 — a syntactically valid signature
 	// that will fail the Ed25519 check, which is exactly what we want
 	// to test the error-surface path.
 	sig := strings.Repeat("A", 88)
-	if err := os.WriteFile(filepath.Join(root, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	record, err := plugins.NewLocalInstallRecord(source, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(os.Getenv("XDG_DATA_HOME"), "stado", "plugins", record.StoreKey)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"plugin.wasm", "plugin.manifest.json", "plugin.manifest.sig"} {
+		contents, readErr := os.ReadFile(filepath.Join(source, filename))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := os.WriteFile(filepath.Join(root, filename), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plugins.WriteInstallRecord(root, record, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.WriteInstallReceipt(filepath.Join(os.Getenv("XDG_DATA_HOME"), "stado"), filepath.Dir(root), record); err != nil {
+		t.Fatal(err)
+	}
+	return record.StoreKey
 }

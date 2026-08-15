@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 // pluginInvokeArgs is the input to runPluginInvocation. The caller
@@ -23,9 +24,10 @@ import (
 // stdout/stderr formatting around the shared pluginrun.Run dispatch.
 type pluginInvokeArgs struct {
 	Manifest   plugins.Manifest // already loaded + verified by the caller
-	WasmBytes  []byte           // already verified against Manifest.WASMSHA256
-	ToolName   string           // tool def name (matches Manifest.Tools[i].Name)
-	ArgsJSON   string           // JSON args; "{}" when omitted
+	Identity   plugins.RuntimeIdentity
+	WasmBytes  []byte // already verified against Manifest.WASMSHA256
+	ToolName   string // tool def name (matches Manifest.Tools[i].Name)
+	ArgsJSON   string // JSON args; "{}" when omitted
 	Cfg        *config.Config
 	WorkdirArg string    // raw --workdir arg ("" = default to InstallDir)
 	InstallDir string    // for default workdir + caller logging
@@ -63,6 +65,8 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	// pass their real tool.Host carrying lifecycle bridges.
 	runner := sandbox.Detect()
 	host := newPluginRunToolHost(workdir, runner, false)
+	host.providerFactory = func() (agent.Provider, error) { return pluginRunBuildProvider(cfg) }
+	host.defaultModel = cfg.Defaults.Model
 
 	// stado_tool_invoke dispatch from this CLI invocation routes
 	// against the live BuildDefaultRegistry. Codex #071: per-call
@@ -77,6 +81,7 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 
 	args := pluginrun.RunArgs{
 		Manifest:  in.Manifest,
+		Identity:  in.Identity,
 		WasmBytes: in.WasmBytes,
 		ToolName:  in.ToolName,
 		Args:      json.RawMessage(in.ArgsJSON),
@@ -92,7 +97,8 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 				"stado-audit: secrets op=%s secret=%q plugin=%s allowed=%v reason=%s\n",
 				ev.Op, ev.Secret, ev.Plugin, ev.Allowed, ev.Reason)
 		},
-		InvokeRegistry: invokeReg,
+		InvokeRegistry:  invokeReg,
+		RegistryCatalog: runtime.NewRegistryCatalogAccess(invokeReg, in.Identity.Namespace),
 		SessionBridgeNote: func(note string) {
 			fmt.Fprintln(in.Stderr, note)
 		},

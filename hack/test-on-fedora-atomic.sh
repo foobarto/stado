@@ -53,7 +53,6 @@ if ! command -v bwrap >/dev/null; then
   echo "test-on-fedora-atomic: bwrap not found." >&2
   echo "  Install via: dnf install bubblewrap   (Fedora-derived)" >&2
   echo "                apt install bubblewrap   (Debian-derived)" >&2
-  echo "                brew install bubblewrap  (macOS — limited)" >&2
   exit 1
 fi
 

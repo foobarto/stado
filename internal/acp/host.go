@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -27,6 +28,8 @@ type acpHost struct {
 	readLog         *tools.ReadLog
 	runner          sandbox.Runner
 	executorSandbox runtime.ExecutorSandbox
+	provider        agent.Provider
+	defaultModel    string
 }
 
 func (h *acpHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -35,6 +38,13 @@ func (h *acpHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision,
 
 func (h *acpHost) Workdir() string        { return h.workdir }
 func (h *acpHost) Runner() sandbox.Runner { return h.runner }
+
+func (h *acpHost) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" || h.provider == nil {
+		return nil, errors.New("ACP provider bridge unavailable")
+	}
+	return &pluginRuntime.NativeProviderBridge{Provider: h.provider, DefaultModel: h.defaultModel}, nil
+}
 
 // DefaultSandboxPolicy makes acp an AUTONOMOUS surface for tool execution: a
 // Zed / ACP client drives the agent, not the operator at a terminal, so bash

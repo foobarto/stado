@@ -139,7 +139,7 @@ func (p *Provider) CountTokens(_ context.Context, req agent.TurnRequest) (int, e
 // to agent.Event values on the returned channel. The channel closes when the
 // turn finishes or errors.
 func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
-	body, err := buildRequest(req)
+	body, err := buildRequest(req, p.caps.SupportsReasoningEffort)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func decodeModelListJSON(r io.Reader, v any) error {
 }
 
 // buildRequest translates an agent.TurnRequest to the OAI chat-completions JSON.
-func buildRequest(req agent.TurnRequest) ([]byte, error) {
+func buildRequest(req agent.TurnRequest, supportsReasoningEffort bool) ([]byte, error) {
 	msgs, err := convertMessages(req.System, req.Messages)
 	if err != nil {
 		return nil, err
@@ -226,6 +226,9 @@ func buildRequest(req agent.TurnRequest) ([]byte, error) {
 		Tools:       tools,
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
+	}
+	if supportsReasoningEffort {
+		payload.ReasoningEffort = req.ReasoningEffort
 	}
 	return json.Marshal(payload)
 }

@@ -14,8 +14,9 @@ history:
     note: >
       Tool surface superseded by EP-0038's agent.* family (agent.spawn, agent.list,
       agent.read_messages, agent.send_message, agent.cancel). spawn_agent's native-instead-of-wasm
-      decision is reversed (the new agent surface uses session:* and llm:invoke caps the same way
-      auto-compact does). Sync-only execution becomes async-by-default with sync sugar. The
+      decision is reversed (the new agent surface uses operation-scoped agent:* and session:*
+      capabilities; auto-compact now independently uses provider:invoke:<tokens>). Sync-only
+      execution becomes async-by-default with sync sugar. The
       ownership / write_scope / adoption mechanics survive as separate concerns layered on top of
       agent.spawn (the worker contract becomes a plugin-author convention, not a runtime
       invariant). The complementary `stado session adopt` CLI flow is unchanged.

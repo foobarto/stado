@@ -2,8 +2,8 @@ package tui
 
 // title_spinner.go — animated terminal-tab title.
 //
-// Many terminal emulators (kitty, alacritty, iTerm, Ghostty, Windows
-// Terminal, GNOME Terminal, ...) display the OSC 0/2 window title in
+// Many terminal emulators (kitty, alacritty, iTerm, Ghostty, WezTerm,
+// GNOME Terminal, ...) display the OSC 0/2 window title in
 // the tab strip. We use that to give visual "I'm working on it"
 // feedback even when the user has switched to another window.
 //

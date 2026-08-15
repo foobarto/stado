@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
@@ -93,9 +92,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	// the agent loop and (below) the executor.
 	lifecycleHooks := hooks.BuildLifecycleRunner(s.Cfg)
 
-	// EP-0045: effective skill catalog (cwd ∪ persona) so the model-facing
-	// listing + skills__load work on the headless surface, matching `stado
-	// run`. Non-fatal on load error.
+	// EP-0045: bind the effective skill catalog (cwd ∪ persona) as exact
+	// host context facts for an installed WASM skill application. This keeps
+	// headless aligned with run/TUI without native prompt injection.
 	effectiveSkills, skErr := runtime.EffectiveSkills(workdir, sess.persona)
 	if skErr != nil {
 		_ = s.conn.Notify("session.update", map[string]any{
@@ -127,7 +126,6 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
 		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
-		MemoryContext:        s.memoryPromptContext(pctx, workdir, p.SessionID, p.Prompt),
 		OnEvent: func(ev agent.Event) {
 			if ev.Kind == agent.EvTextDelta && ev.Text != "" {
 				_ = s.conn.Notify("session.update", map[string]any{
@@ -188,16 +186,6 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			opts.Executor = exec
 		}
 	}
-	opts.GuidanceContext = func() string {
-		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
-			if opts.Executor == nil || opts.Executor.Registry == nil {
-				return false
-			}
-			_, ok := opts.Executor.Registry.Get(name)
-			return ok
-		}})
-	}
-
 	text, msgs, err := runtime.AgentLoop(pctx, opts)
 
 	sess.mu.Lock()

@@ -13,21 +13,25 @@ import (
 func TestNewHost_ParsesCapabilities(t *testing.T) {
 	m := plugins.Manifest{
 		Name: "demo",
+		ArtifactKinds: []plugins.ArtifactKindDef{{
+			Name: "contract", Schema: `{"type":"object"}`,
+		}},
 		Capabilities: []string{
 			"fs:read:/etc",
 			"fs:read:/home/user/projects",
 			"fs:read:.",
 			"fs:write:/tmp/work",
-			"net:api.github.com",
-			"net:http_get",
 			"exec:proc:bash",
 			"lsp:query",
-			"memory:propose",
-			"memory:read",
-			"memory:write",
+			"artifact:propose:contract",
+			"artifact:read:github.com/acme/reviewer#*",
+			"artifact:edit:contract",
+			"artifact:observe:github.com/acme/reviewer#contract",
+			"evidence:catalog:artifact",
+			"evidence:search:session",
+			"evidence:open:artifact",
+			"evidence:validate",
 			"cfg:state_dir",
-			"net:deny",  // skipped — plugin-level "deny" isn't a useful allow entry
-			"net:allow", // skipped — too permissive for plugins
 			"malformed", // no colon → skipped
 		},
 	}
@@ -41,26 +45,27 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	if len(h.FSWrite) != 1 || h.FSWrite[0] != "/tmp/work" {
 		t.Errorf("FSWrite: %v", h.FSWrite)
 	}
-	if len(h.NetHost) != 1 || h.NetHost[0] != "api.github.com" {
-		t.Errorf("NetHost: %v", h.NetHost)
-	}
-	if !h.NetHTTPGet {
-		t.Error("NetHTTPGet should be enabled")
-	}
 	if !h.ExecProc || len(h.ExecProcGlobs) != 1 || h.ExecProcGlobs[0] != "bash" {
 		t.Errorf("exec:proc:bash not parsed: ExecProc=%v Globs=%v", h.ExecProc, h.ExecProcGlobs)
 	}
 	if !h.LSPQuery {
 		t.Error("LSPQuery should be enabled")
 	}
-	if !h.MemoryPropose || !h.MemoryRead || !h.MemoryWrite {
-		t.Errorf("memory caps not parsed: propose=%v read=%v write=%v", h.MemoryPropose, h.MemoryRead, h.MemoryWrite)
+	if len(h.ArtifactPropose) != 1 || h.ArtifactPropose[0] != "contract" ||
+		len(h.ArtifactRead) != 1 || len(h.ArtifactEdit) != 1 || len(h.ArtifactObserve) != 1 {
+		t.Errorf("artifact caps not parsed: propose=%v read=%v edit=%v observe=%v",
+			h.ArtifactPropose, h.ArtifactRead, h.ArtifactEdit, h.ArtifactObserve)
 	}
 	if !h.CfgStateDir {
 		t.Error("CfgStateDir should be enabled by `cfg:state_dir`")
 	}
-	if !h.NeedsMemoryBridge() {
-		t.Error("NeedsMemoryBridge should be true when memory caps are declared")
+	if !h.NeedsArtifactBridge() {
+		t.Error("NeedsArtifactBridge should be true when artifact caps are declared")
+	}
+	if !h.EvidenceCatalog["artifact"] || !h.EvidenceSearch["session"] ||
+		!h.EvidenceOpen["artifact"] || !h.EvidenceValidate || !h.NeedsEvidenceBridge() {
+		t.Errorf("evidence caps not parsed: catalog=%v search=%v open=%v validate=%v",
+			h.EvidenceCatalog, h.EvidenceSearch, h.EvidenceOpen, h.EvidenceValidate)
 	}
 	if h.Logger == nil {
 		t.Error("Logger should default to slog.Default")

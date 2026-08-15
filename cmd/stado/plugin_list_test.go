@@ -34,9 +34,9 @@ func TestPluginList_ShowsBundled(t *testing.T) {
 	}
 }
 
-// TestPluginList_ShowsPathColumn: the table includes a PATH column,
-// bundled plugins render as "(embedded)" and the header is present.
-func TestPluginList_ShowsPathColumn(t *testing.T) {
+// TestPluginList_ShowsCanonicalSourceColumns: operator output exposes exact
+// canonical selection data rather than an obsolete flat filesystem ID.
+func TestPluginList_ShowsCanonicalSourceColumns(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -52,11 +52,13 @@ func TestPluginList_ShowsPathColumn(t *testing.T) {
 		t.Fatalf("pluginListCmd.RunE: %v", err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "PATH") {
-		t.Errorf("output should include PATH column header; got:\n%s", out)
+	for _, header := range []string{"SOURCE", "ALIAS", "STORE KEY"} {
+		if !strings.Contains(out, header) {
+			t.Errorf("output should include %s column header; got:\n%s", header, out)
+		}
 	}
-	if !strings.Contains(out, "(embedded)") {
-		t.Errorf("bundled plugin rows should show '(embedded)' as path; got:\n%s", out)
+	if !strings.Contains(out, "stado.dev/bundled/") {
+		t.Errorf("bundled rows should show their canonical source; got:\n%s", out)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Sandboxing
 
-Three layers, enforced by the kernel and the wasm runtime — never by
+Four layers, enforced by the Linux kernel and the wasm runtime — never by
 trust. Every tool invocation, every shell command, every MCP server
 starts inside the cage; escape requires a capability declaration
 that stado maps to a concrete policy.
@@ -98,10 +98,13 @@ Third-party stado plugins ship as wasm binaries, executed inside
 `wazero`. Wasm is already sandboxed by construction (memory-safe,
 no raw syscalls), so the kernel layer is unnecessary. What plugins
 CAN do is expressed through host imports the stado runtime
-provides — `session:read`, `session:fork`, `fs:read`, `fs:write`,
-`llm:invoke`, `memory:propose`, `memory:read`, `memory:write`, and
-`stado_log`. Each import is capability-gated against the plugin
-manifest.
+provides — `session:read`, `session:fork`, `fs:read`, `fs:write`, the generic
+token-bounded `provider:invoke:<N>` primitive, the generic `artifact:*` surface,
+and `stado_log`. Each
+import is capability-gated against the signed plugin manifest. Artifact
+requests use an opaque broker-issued binding injected by the host bridge; the
+guest never sees that binding and its JSON cannot supply authority fields
+([EP-0063](../eps/0063-plugin-defined-harness-artifacts.md)).
 
 The manifest is Ed25519-signed by the author. Installation checks
 the signature against the pinned trust store. Revocation is
@@ -119,9 +122,7 @@ gap (decision 2026-06-13):
   directory with an empty `tmpfs`, then re-binds the safe files
   (`known_hosts`, the ssh `config`) read-only on top. The private keys
   inside become unreadable from the sandbox even though home is bound
-  read-only — they can't be exfiltrated. On macOS the deny-default
-  profile already hides anything not explicitly allowed, so masking is a
-  no-op there (the key directory simply isn't added to the read set).
+  read-only — they can't be exfiltrated.
 
 - **The ssh-agent socket is forwarded.** When the host has
   `$SSH_AUTH_SOCK` set, the runner binds that unix socket into the
@@ -146,8 +147,9 @@ for the pragmatic main-session forwarding.
 
 ## Capability vocabulary
 
-Used in `[mcp.servers.<name>].capabilities` and in wasm plugin
-manifests:
+Used in `[mcp.servers.<name>].capabilities` and in WASM plugin manifests.
+Individual families are surface-specific; `artifact:*` is a WASM host-import
+capability, not an MCP subprocess capability.
 
 | Grammar | Example | Meaning |
 |---------|---------|---------|
@@ -158,9 +160,10 @@ manifests:
 | `net:deny` | — | Block all egress (default for unlisted) |
 | `exec:<binary>` | `exec:/usr/bin/git` | Invoke a specific binary |
 | `env:<VAR>` | `env:GITHUB_TOKEN` | Inherit an env var into the child |
-| `memory:propose` | — | Append a candidate memory for later review |
-| `memory:read` | — | Query approved scoped memories |
-| `memory:write` | — | Apply user-approved memory mutations |
+| `artifact:propose:<local-kind>` | `artifact:propose:review-contract` | Propose a candidate of a kind declared by this plugin |
+| `artifact:read:<qualified-kind-pattern>` | `artifact:read:github.com/acme/reviewer#*` | Query explicitly selected qualified kinds within broker scope/sensitivity policy |
+| `artifact:edit:<local-kind>` | `artifact:edit:review-contract` | Propose a new candidate version of this plugin's kind |
+| `artifact:observe:<qualified-kind-pattern>` | `artifact:observe:github.com/acme/reviewer#review-contract` | Record a bounded observation for an allowed qualified kind |
 
 **Default deny, opt-in allow.** For wasm plugins, an empty capability
 list means "no host privileges." For stdio MCP servers, an empty
@@ -169,17 +172,12 @@ privileges.
 
 ## Platform coverage
 
-| Platform | Filesystem | Exec | Network |
-|----------|-----------|------|---------|
-| Linux | Landlock | bwrap + seccomp | `pasta` proxy-only netns + CONNECT proxy |
-| macOS | sandbox-exec `.sb` profile generated from capabilities | same `.sb` profile | CONNECT proxy |
-| Windows | v1 unsandboxed (warning); v2 job objects + restricted tokens planned | same as FS | CONNECT proxy |
-
-Windows v2 is deferred — the WinWarnRunner emits a one-time
-`stderr` advisory at first tool call. If you're running stado for
-production work on Windows today, be aware that filesystem and exec
-isolation aren't enforced there yet. macOS uses sandbox-exec profiles
-generated from the same capability list.
+Linux is the only supported platform now and through v1. The supported
+containment path is Landlock + bubblewrap/namespaces + seccomp, with a private
+`pasta` network namespace and CONNECT allowlist proxy where host-scoped egress
+is granted. Darwin and Windows are outside the build/runtime/packaging contract
+and carry no current security promise
+([EP-0065](../eps/0065-linux-only-platform-scope.md)).
 
 ## Turning knobs
 
@@ -193,15 +191,15 @@ enabled = ["read", "grep", "ripgrep", "ast_grep"]  # read-only agent
 # Use approval-wrapper plugins for tools that need a human gate.
 # The native tool set itself is controlled by [tools].
 
-# Cost guardrail so a runaway can't rack up spend.
+# Token guardrail so a runaway cannot consume an unbounded session budget.
 [budget]
-warn_usd = 0.50
-hard_usd = 2.00
+warn_tokens = 100000
+hard_tokens = 500000
 ```
 
 Combined with the v0.57.0 default sandbox (Landlock writes confined
 to cwd + `/tmp`, bubblewrap mount namespace per tool call), that's:
-read-only tools, filesystem narrowing on Linux, and a $2 hard cap.
+read-only tools, filesystem narrowing on Linux, and a 500,000-token hard cap.
 Hard to misfire and still useful for diagnosis work.
 
 ## Gotchas

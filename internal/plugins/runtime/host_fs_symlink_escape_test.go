@@ -36,7 +36,7 @@ import (
 
 // fsSymEscEvalAbs evaluates symlinks on a path and fails the test on
 // error. Both t.TempDir() roots and the workdir may sit under a
-// platform symlink (macOS /var -> /private/var, Fedora Atomic
+// platform symlink (for example Fedora Atomic
 // /home -> /var/home); the security property is about *resolved* real
 // paths, so all comparisons must be made against the EvalSymlinks form.
 func fsSymEscEvalAbs(t *testing.T, p string) string {

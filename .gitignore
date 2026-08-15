@@ -19,6 +19,10 @@
 # build artefacts, throwaway transcripts). Per project CLAUDE.md.
 /.tmp/
 
+# Host-backed project-local build and linter caches. Keeping persistent Go
+# caches here avoids filling the devbox's virtual /tmp and /var/tmp disks.
+/.cache/
+
 # Binary blobs fetched by `go run hack/fetch-binaries.go` + the per-
 # platform embed files it generates. Release builds run the script as
 # a goreleaser before-hook; dev builds don't need them.

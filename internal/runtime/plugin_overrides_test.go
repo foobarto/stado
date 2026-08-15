@@ -30,16 +30,12 @@ func isolatedRuntimeConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
-func installOverridePlugin(t *testing.T, cfg *config.Config, priv ed25519.PrivateKey, pub ed25519.PublicKey, pluginID string, def plugins.ToolDef) {
+func installOverridePlugin(t *testing.T, cfg *config.Config, priv ed25519.PrivateKey, pub ed25519.PublicKey, pluginID string, def plugins.ToolDef) plugins.InstalledPackage {
 	t.Helper()
-	dir := filepath.Join(cfg.StateDir(), "plugins", pluginID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+	if def.Capabilities == nil {
+		def.Capabilities = plugins.CapabilitySubset()
 	}
 	wasm := []byte("pretend-wasm-blob-" + pluginID)
-	if err := os.WriteFile(filepath.Join(dir, "plugin.wasm"), wasm, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	sum := sha256.Sum256(wasm)
 	m := &plugins.Manifest{
 		Name:            "override",
@@ -49,6 +45,21 @@ func installOverridePlugin(t *testing.T, cfg *config.Config, priv ed25519.Privat
 		WASMSHA256:      hex.EncodeToString(sum[:]),
 		Tools:           []plugins.ToolDef{def},
 		TimestampUTC:    time.Now().UTC().Format(time.RFC3339),
+	}
+	source := filepath.Join(t.TempDir(), pluginID+"-source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, *m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg.StateDir(), "plugins", record.StoreKey)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.wasm"), wasm, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	canonical, err := m.Canonical()
 	if err != nil {
@@ -64,22 +75,33 @@ func installOverridePlugin(t *testing.T, cfg *config.Config, priv ed25519.Privat
 	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ts := plugins.NewTrustStore(cfg.StateDir())
-	if _, err := ts.Trust(hex.EncodeToString(pub), "test-author"); err != nil {
+	if err := plugins.WriteInstallRecord(dir, record, *m); err != nil {
 		t.Fatal(err)
 	}
+	if err := plugins.WriteInstallReceipt(cfg.StateDir(), filepath.Dir(dir), record); err != nil {
+		t.Fatal(err)
+	}
+	ts := plugins.NewTrustStore(cfg.StateDir())
+	if _, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "test-author", record.Namespace, m, sig); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := plugins.RuntimeIdentityForInstalledDir(dir, *m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plugins.InstalledPackage{Dir: dir, Record: record, Manifest: *m, Signature: sig, Identity: identity}
 }
 
 func TestApplyToolOverrides_ReplacesBundledTool(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
+	pkg := installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
 		Name:        "fs__read",
 		Description: "policy-wrapped read",
 		Class:       "Exec",
 		Schema:      `{"type":"object","properties":{"path":{"type":"string"}}}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": pkg.Record.StoreKey}
 
 	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
@@ -111,30 +133,31 @@ func TestApplyToolOverrides_RejectsEscapingPluginID(t *testing.T) {
 	cfg.Tools.Overrides = map[string]string{"fs__read": "../corp-read-1.0.0"}
 	reg := BuildDefaultRegistry(nil)
 	err := ApplyToolOverrides(reg, cfg)
-	if err == nil || !strings.Contains(err.Error(), "invalid plugin id") {
-		t.Fatalf("ApplyToolOverrides error = %v, want invalid plugin id", err)
+	if err == nil {
+		t.Fatal("escaping plugin selector unexpectedly resolved")
 	}
 }
 
 func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
+	pkg := installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
 		Name:        "fs__read",
 		Description: "session-aware read",
 		Class:       "NonMutating",
 		Schema:      `{"type":"object"}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": pkg.Record.StoreKey}
 	cfg.Plugins.RekorURL = ""
 	cfg.Plugins.CRLURL = ""
 
-	dir := filepath.Join(cfg.StateDir(), "plugins", "corp-read-1.0.0")
+	dir := pkg.Dir
 	mf, _, err := plugins.LoadFromDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mf.Capabilities = []string{"session:read"}
+	mf.Tools[0].Capabilities = plugins.CapabilitySubset("session:read")
 	canonical, err := mf.Canonical()
 	if err != nil {
 		t.Fatal(err)
@@ -149,31 +172,58 @@ func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	updatedRecord, err := plugins.NewLocalInstallRecord(pkg.Record.CanonicalSource, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDir := filepath.Join(filepath.Dir(dir), updatedRecord.StoreKey)
+	if err := os.Rename(dir, updatedDir); err != nil {
+		t.Fatal(err)
+	}
+	dir = updatedDir
+	if err := plugins.WriteInstallRecord(dir, updatedRecord, *mf); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.RemoveInstallReceipt(cfg.StateDir(), filepath.Dir(dir), pkg.Record.StoreKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.WriteInstallReceipt(cfg.StateDir(), filepath.Dir(dir), updatedRecord); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tools.Overrides["fs__read"] = updatedRecord.StoreKey
 
 	reg := BuildDefaultRegistry(nil)
 	err = ApplyToolOverrides(reg, cfg)
-	if err == nil || !strings.Contains(err.Error(), "session/llm capabilities") {
-		t.Fatalf("ApplyToolOverrides error = %v, want session/llm rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "session/provider capabilities") {
+		t.Fatalf("ApplyToolOverrides error = %v, want session/provider rejection", err)
 	}
 }
 
 func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
+	pkg := installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
 		Name:        "fs__read",
 		Description: "read via plugin",
 		Class:       "NonMutating",
 		Schema:      `{"type":"object"}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": pkg.Record.StoreKey}
 
-	dir := filepath.Join(cfg.StateDir(), "plugins", "corp-read-1.0.0")
+	dir := pkg.Dir
 	mf, _, err := plugins.LoadFromDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mf.Capabilities = []string{"fs:read:/work"}
+	mf.Capabilities = []string{"fs:read:/work", "session:read"}
+	mf.Tools[0].Capabilities = plugins.CapabilitySubset("fs:read:/work")
+	mf.Tools = append(mf.Tools, plugins.ToolDef{
+		Name:         "session__sibling",
+		Description:  "session-aware sibling",
+		Class:        "Exec",
+		Schema:       `{"type":"object"}`,
+		Capabilities: plugins.CapabilitySubset("session:read"),
+	})
 	canonical, err := mf.Canonical()
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +238,25 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	updatedRecord, err := plugins.NewLocalInstallRecord(pkg.Record.CanonicalSource, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDir := filepath.Join(filepath.Dir(dir), updatedRecord.StoreKey)
+	if err := os.Rename(dir, updatedDir); err != nil {
+		t.Fatal(err)
+	}
+	dir = updatedDir
+	if err := plugins.WriteInstallRecord(dir, updatedRecord, *mf); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.RemoveInstallReceipt(cfg.StateDir(), filepath.Dir(dir), pkg.Record.StoreKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.WriteInstallReceipt(cfg.StateDir(), filepath.Dir(dir), updatedRecord); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tools.Overrides["fs__read"] = updatedRecord.StoreKey
 
 	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
@@ -282,17 +351,35 @@ func TestVerifyInstalledPlugin_trustStoreFingerprintMismatch(t *testing.T) {
 	// Provide a real wasm file matching the manifest's SHA so the
 	// wasm-digest check passes and execution reaches the trust-store
 	// fingerprint-consistency check we're testing.
-	pluginDir := t.TempDir()
 	wasmContent := []byte("test-wasm-content")
 	wasmSum := sha256.Sum256(wasmContent)
+	manifest := plugins.Manifest{Name: "mismatch", Version: "1.0.0", AuthorPubkeyFpr: pinnedFpr, WASMSHA256: hex.EncodeToString(wasmSum[:])}
+	source := filepath.Join(t.TempDir(), "mismatch-source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := filepath.Join(t.TempDir(), record.StoreKey)
+	if err := os.MkdirAll(pluginDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.wasm"), wasmContent, 0o644); err != nil {
 		t.Fatalf("write plugin.wasm: %v", err)
+	}
+	if err := plugins.WriteInstallRecord(pluginDir, record, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.WriteInstallReceipt(cfg.StateDir(), filepath.Dir(pluginDir), record); err != nil {
+		t.Fatal(err)
 	}
 	err = VerifyInstalledPlugin(
 		context.Background(),
 		cfg,
 		pluginDir,
-		&plugins.Manifest{AuthorPubkeyFpr: pinnedFpr, WASMSHA256: hex.EncodeToString(wasmSum[:])},
+		&manifest,
 		"",
 	)
 	if err == nil {

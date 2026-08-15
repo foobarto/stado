@@ -24,7 +24,7 @@ system prompt template exist, this command can create
 `~/.config/stado/system-prompt.md` on first run.
 
 Root persistent flags (any subcommand): `--provider`, `--model`,
-`--no-sandbox`, `--unsafe-skip-bundle-verify`. See [config.md](config.md)
+`--no-sandbox`. See [config.md](config.md)
 for how overrides merge with `config.toml`.
 
 ## `stado completion`

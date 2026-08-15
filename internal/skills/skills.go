@@ -55,12 +55,12 @@ type Skill struct {
 	// are rejected at registration time (in the TUI), not here.
 	Slash string
 
-	// WhenToUse is extra trigger context appended to description in the
-	// model-facing listing (EP-0045).
+	// WhenToUse is extra trigger context exposed to the installed skill
+	// application's generic context-resource catalog (EP-0045).
 	WhenToUse string
 
-	// DisableModelInvocation omits the skill from the model listing and
-	// rejects skills__load. User invocation (/skill:, slash:) still works.
+	// DisableModelInvocation omits the skill from the model-visible host
+	// resource catalog. User invocation (/skill:, slash:) still works.
 	DisableModelInvocation bool
 
 	// UserInvocable controls /skill menu and slash: registration. false

@@ -13,7 +13,7 @@ var pluginCmd = &cobra.Command{
 		"stado-version + rollback protection are all checked by\n" +
 		"`stado plugin verify`. `stado plugin install` copies a verified\n" +
 		"plugin into stado's state dir, after which `stado tool run <name>`\n" +
-		"(or `/plugin:<name>-<ver>` in the TUI) can invoke its declared\n" +
+		"(or `/plugin:<exact-store-key>` in the TUI) can invoke its declared\n" +
 		"tools via the wazero wasm runtime.",
 }
 
@@ -21,13 +21,15 @@ func init() {
 	pluginInstallCmd.Flags().StringVar(&pluginInstallSigner, "signer", "",
 		"Pin the plugin's author Ed25519 pubkey (hex or base64) inline before verification. Only use when you've verified the signer out of band.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallForce, "force", false,
-		"Force reinstall even when the same version is already present (bypasses idempotency check). EP-0039.")
+		"Replace a damaged/conflicting copy at the same exact source-derived store key after review. EP-0039.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallAutoload, "autoload", false,
 		"After install, persist the plugin's tools into [tools].autoload in the matching user or project config. Project-local loading still requires the user-level allow_project_plugins trust gate.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallLocal, "local", false,
 		"Install into the current project's .stado/plugins directory instead of the user-global plugin directory. Requires a discovered .stado project root; signer trust remains user-local.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallTrustAnchor, "trust-anchor", false,
 		"Accept this owner's anchor fingerprint on first sight without prompting (trust-on-first-use). Use only after verifying the key out of band; non-interactive installs of a never-seen owner refuse without it. EP-0039.")
+	pluginInstallCmd.Flags().BoolVar(&pluginInstallAcceptTagRewrite, "accept-tag-rewrite", false,
+		"Accept an out-of-band-verified change to an existing semver tag's resolved commit. EP-0039.")
 	pluginTrustCmd.Flags().StringVar(&pluginTrustPubkeyFile, "pubkey-file", "",
 		"Path to a file containing the hex-encoded Ed25519 public key (alternative to passing inline). EP-0039.")
 	pluginSignCmd.Flags().StringVar(&pluginSignKeyPath, "key", "",

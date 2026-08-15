@@ -8,6 +8,13 @@ created: 2026-06-14
 implemented-in: v0.75.0
 see-also: ["EP-0035", "EP-0039", "EP-0050"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    note: >
+      Documentation correction: removed the two remaining Phase-1/test prose
+      claims that `mcp.servers` survives a project overlay. The later Phase-2
+      decision and shipped loader always strip it; no per-project TOFU store
+      was implemented.
   - date: 2026-06-14
     status: Accepted
     note: >
@@ -40,8 +47,9 @@ history:
 # EP-44: Repo-config trust boundary
 
 > **Status:** Implemented in v0.75.0 (always-strip + opt-in gates).
-> Per-project TOFU for keys that remain in the project overlay is still
-> deferred — tracked in this EP as a follow-on, not the shipped posture.
+> The proposed per-project TOFU store did not ship and is not an outstanding
+> promise of this implemented EP. Restoring project-level authority would need
+> a new accepted decision; always-strip is the current posture.
 
 ## Problem
 
@@ -88,7 +96,8 @@ to also drop: `keymap`, `defaults.persona`, `agent.system_prompt_path` (a repo
 path that `loadSystemPromptTemplate` would read into the provider system prompt
 — same injection class as `defaults.persona`; Codex #210), `plugins.background`,
 `acp` (whole — register_mcp + inherit_env + max_turns), `mcp.providers`
-(wrapped-MCP inherit_env; `mcp.servers` stays), `tui.sidebar`, `tui.footer`. koanf `Delete`
+(wrapped-MCP inherit_env; `mcp.servers` was handled by the later Phase 2),
+`tui.sidebar`, `tui.footer`. koanf `Delete`
 is a recursive prefix-delete, so dotted leaves and whole subtrees both work.
 Project model/provider/tool overrides (the EP-0035 use case) remain honored.
 This satisfies the defense-in-depth requirement that the interrupt keymap and
@@ -100,8 +109,7 @@ The still-powerful project keys are now **always-stripped** rather than gated by
 a per-project trust store: `mcp.servers` (a `[mcp.servers.x] command=…` is a
 subprocess-exec vector), `inference` (`[inference.presets.x] endpoint +
 api_key_env` is an API-key exfil vector), `sandbox` (a repo must never weaken
-the containment posture), and `runtime` (`use_wasm` flips native↔wasm tool
-implementations). `defaults.model`/`defaults.provider` still apply from project
+the containment posture). `defaults.model`/`defaults.provider` still apply from project
 config — they only *select among USER-defined providers*, so a repo can suggest
 a model but not define an exfil endpoint.
 
@@ -123,7 +131,9 @@ future enhancement if real demand appears.
   shadowed the bundled/user persona silently. The `personas.Resolver` now honors
   the `{CWD}/.stado/personas/` dir only when `AllowProject` is set, plumbed from
   the opt-in `[defaults] allow_project_persona` (default false) at the
-  cfg-bearing surfaces (TUI/headless/acp); llmtool/subagent default off. The
+  cfg-bearing surfaces (TUI/headless/acp); agent-spawn default off. The former
+  native MCP `llm.invoke` application and its persona override have since been
+  deleted in favor of a generic provider primitive plus opt-in WASM policy. The
   opt-in key is itself in the project-config strip-list so a repo can't
   self-enable it. (Vector 2 — `[defaults].persona` from project config — was
   already closed in phase 1.)
@@ -145,21 +155,23 @@ future enhancement if real demand appears.
   audit blobs — added a caveat to `docs/features/lifecycle-hooks.md` that a
   `post_tool` mutate is context-hygiene, not secret-erasure. (A future
   `NoAuditBlob` opt-out remains possible per the mutation-provenance spec.)
-- **#126 (SHIPPED)** cross-repo memory via a repo-committed `.stado/user-repo` —
-  the pin is now honored only when it is an ancestor/descendant of the workdir
-  (`internal/memory/context.go` `pinRelatedToWorkdir`).
+- **#126 (historical, retired with native memory)** cross-repo memory via a
+  repo-committed `.stado/user-repo` was constrained to an ancestor/descendant
+  workdir. The later broker-artifact/lifecycle cutover deleted that native
+  memory reader and path; core stado has no replacement fallback.
 
 ## Test strategy
-- Phase 1: `TestProjectOverlayStripsSecuritySensitiveKeys` — every stripped key
-  is dropped from a project overlay while `defaults.model` + `mcp.servers`
-  survive. (Shipped, green.)
-- Phase 2/3: TOFU store round-trip + gate behavior per surface; persona-origin
-  fallback; project-plugin trust gate — with the follow-up PRs.
+- Phase 1/2: `TestProjectOverlayStripsSecuritySensitiveKeys` — every stripped
+  key, including `mcp.servers`, is dropped while `defaults.model` survives.
+  (Shipped, green.)
+- Phase 3: persona-origin fallback and the explicit project-plugin opt-in gate.
+  The proposed per-project TOFU store did not ship; always-strip is the current
+  posture.
 
 ## Risk / self-critique
 - Stripping whole `[acp]` from project config is safe (ACP-server config is an
   operator surface), but if a future legitimate project-level `acp` key appears
   it must be added back as a gated (not stripped) key.
-- The always-strip is coarse (whole subtrees); Phase 2's TOFU is the finer
-  control for keys that have a real project use. Shipping Phase 1 first trades
-  some project flexibility for immediate closure of the HIGH findings.
+- The always-strip is coarse (whole subtrees) and trades some project
+  flexibility for a smaller authority surface. If a real project-level use
+  appears, a separately reviewed mechanism can revisit that tradeoff.

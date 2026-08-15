@@ -31,6 +31,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/foobarto/stado/internal/compact"
@@ -48,6 +49,8 @@ const (
 	maxConversationLogBytes    int64 = 64 << 20
 	maxConversationRecordBytes int64 = 8 << 20
 )
+
+var conversationAppendMu sync.Mutex
 
 // ConversationCompaction is an append-only log event recording that
 // subsequent resumes should use a compacted conversation view. The raw
@@ -69,7 +72,8 @@ type ConversationCompaction struct {
 // AppendMessage appends a single agent.Message to the conversation
 // log under worktree. Creates the `.stado` dir + file on first call.
 // Best-effort atomicity: O_APPEND|O_CREATE with a fresh fd per call.
-// Concurrent appenders serialise at the OS-level append guarantee.
+// In-process appenders serialize so a crash-shortened tail can be framed off
+// before a later complete record is appended.
 func AppendMessage(worktree string, msg agent.Message) error {
 	return appendConversationRecord(worktree, msg)
 }
@@ -103,6 +107,9 @@ func AppendCompaction(worktree string, ev ConversationCompaction) error {
 }
 
 func appendConversationRecord(worktree string, v any) error {
+	conversationAppendMu.Lock()
+	defer conversationAppendMu.Unlock()
+
 	root, name, err := conversationRoot(worktree, true)
 	if err != nil {
 		return err
@@ -116,22 +123,70 @@ func appendConversationRecord(worktree string, v any) error {
 	if err := enc.Encode(v); err != nil {
 		return fmt.Errorf("conversation: encode: %w", err)
 	}
-	recordBytes := int64(buf.Len())
-	if recordBytes > maxConversationRecordBytes {
+	if int64(buf.Len()) > maxConversationRecordBytes {
 		return fmt.Errorf("conversation: record exceeds %d bytes: %s", maxConversationRecordBytes, path)
 	}
-
+	needsSeparator, err := conversationNeedsSeparator(root, name, path)
+	if err != nil {
+		return err
+	}
+	payload := buf.Bytes()
+	if needsSeparator {
+		// Preserve a crash-shortened tail append-only, but terminate its frame so
+		// the next complete JSON record remains independently recoverable.
+		payload = append([]byte{'\n'}, payload...)
+	}
+	recordBytes := int64(len(payload))
 	f, err := openConversationAppendFile(root, name, recordBytes, path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	if n, err := f.Write(buf.Bytes()); err != nil {
+	if n, err := f.Write(payload); err != nil {
 		return fmt.Errorf("conversation: append %s: %w", path, err)
-	} else if n != buf.Len() {
+	} else if n != len(payload) {
 		return fmt.Errorf("conversation: append %s: %w", path, io.ErrShortWrite)
 	}
 	return nil
+}
+
+func conversationNeedsSeparator(root *os.Root, name, displayPath string) (bool, error) {
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("conversation: inspect append framing %s: %w", displayPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("conversation log is a symlink: %s", displayPath)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("conversation log is not a regular file: %s", displayPath)
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return false, fmt.Errorf("conversation: inspect append framing %s: %w", displayPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return false, fmt.Errorf("conversation: inspect append framing %s: %w", displayPath, err)
+	}
+	if !os.SameFile(info, openedInfo) {
+		return false, fmt.Errorf("conversation log changed while opening: %s", displayPath)
+	}
+	if openedInfo.Size() == 0 {
+		return false, nil
+	}
+	if _, err := f.Seek(-1, io.SeekEnd); err != nil {
+		return false, fmt.Errorf("conversation: inspect append framing %s: %w", displayPath, err)
+	}
+	var last [1]byte
+	if _, err := io.ReadFull(f, last[:]); err != nil {
+		return false, fmt.Errorf("conversation: inspect append framing %s: %w", displayPath, err)
+	}
+	return last[0] != '\n', nil
 }
 
 func openConversationAppendFile(root *os.Root, name string, appendBytes int64, displayPath string) (*os.File, error) {
@@ -333,6 +388,7 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 
 func decodeMessages(r io.Reader) ([]agent.Message, error) {
 	var msgs []agent.Message
+	deliveryIDs := make(map[string]struct{})
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), int(maxConversationRecordBytes))
 	for scanner.Scan() {
@@ -341,7 +397,8 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 			continue
 		}
 		var probe struct {
-			Type string `json:"type"`
+			Type   string `json:"type"`
+			Schema string `json:"schema"`
 		}
 		if err := json.Unmarshal(line, &probe); err == nil {
 			switch probe.Type {
@@ -355,6 +412,23 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 				}
 				continue
 			case "message":
+				if probe.Schema == conversationDeliverySchemaV1 {
+					delivery, err := strictDecodeConversationDelivery(line)
+					if err != nil {
+						return msgs, err
+					}
+					if _, duplicate := deliveryIDs[delivery.DeliveryID]; duplicate {
+						return msgs, errors.New("conversation delivery: duplicate delivery ID evidence")
+					}
+					deliveryIDs[delivery.DeliveryID] = struct{}{}
+					msgs = append(msgs, delivery.Messages...)
+					continue
+				}
+				if probe.Schema != "" {
+					// A future structured receiver record is not an ordinary empty
+					// message. Ignore it without normalizing its evidence shape.
+					continue
+				}
 				var wrapped struct {
 					Message agent.Message `json:"message"`
 				}
@@ -367,8 +441,10 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 		}
 		var m agent.Message
 		if err := json.Unmarshal(line, &m); err != nil {
-			// Partial tail → stop accumulating but keep what we had.
-			break
+			// A crash-shortened tail may have been framed off by a later append.
+			// Ignore only this invalid JSON frame and continue; recognized
+			// structured records above still fail closed on schema corruption.
+			continue
 		}
 		if m.Role == "" && len(m.Content) == 0 {
 			// Unknown future event type. Preserve forward compatibility by

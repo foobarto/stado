@@ -16,10 +16,14 @@ func TestLockRoundtrip(t *testing.T) {
 
 	l := plugins.NewLock()
 	l.Add(plugins.LockEntry{
-		Identity:    "github.com/foo/bar@v1.0.0",
-		WASMSHA256:  "abc123",
-		AnchorFpr:   "deadbeef",
-		InstalledAt: time.Now().UTC().Format(time.RFC3339),
+		Identity:       "github.com/foo/bar@v1.0.0",
+		SourceRevision: "plugins/bar/v1.0.0",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		PackageVersion: "1.0.0",
+		ManifestDigest: "sha256:manifest",
+		WASMSHA256:     "abc123",
+		AnchorFpr:      "deadbeef",
+		InstalledAt:    time.Now().UTC().Format(time.RFC3339),
 	})
 
 	if err := l.Write(path); err != nil {
@@ -38,6 +42,18 @@ func TestLockRoundtrip(t *testing.T) {
 	}
 	if got := l2.Entries[0].WASMSHA256; got != "abc123" {
 		t.Errorf("wasm_sha256: got %q", got)
+	}
+	if got := l2.Entries[0].SourceRevision; got != "plugins/bar/v1.0.0" {
+		t.Errorf("source_revision: got %q", got)
+	}
+	if got := l2.Entries[0].ResolvedCommit; got != "0123456789abcdef0123456789abcdef01234567" {
+		t.Errorf("resolved_commit: got %q", got)
+	}
+	if got := l2.Entries[0].PackageVersion; got != "1.0.0" {
+		t.Errorf("package_version: got %q", got)
+	}
+	if got := l2.Entries[0].ManifestDigest; got != "sha256:manifest" {
+		t.Errorf("manifest_digest: got %q", got)
 	}
 }
 
@@ -74,13 +90,25 @@ func TestLockMissingFile(t *testing.T) {
 
 func TestLockAddUpdate(t *testing.T) {
 	l := plugins.NewLock()
-	l.Add(plugins.LockEntry{Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "aaa"})
-	l.Add(plugins.LockEntry{Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "bbb"})
+	l.Add(plugins.LockEntry{StoreKey: "remote-a", Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "aaa"})
+	l.Add(plugins.LockEntry{StoreKey: "remote-a", Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "bbb"})
 	if len(l.Entries) != 1 {
-		t.Errorf("duplicate Add should update, not append; got %d entries", len(l.Entries))
+		t.Errorf("same store-key Add should update, not append; got %d entries", len(l.Entries))
 	}
 	if l.Entries[0].WASMSHA256 != "bbb" {
 		t.Errorf("updated sha256 should be 'bbb', got %q", l.Entries[0].WASMSHA256)
+	}
+}
+
+func TestLockAddRetainsDistinctStoreRowsForOneIdentity(t *testing.T) {
+	l := plugins.NewLock()
+	l.Add(plugins.LockEntry{StoreKey: "remote-a", Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "aaa"})
+	l.Add(plugins.LockEntry{StoreKey: "remote-b", Identity: "github.com/foo/bar@v1.0.0", WASMSHA256: "bbb"})
+	if len(l.Entries) != 2 {
+		t.Fatalf("tag rewrite rows = %d, want 2", len(l.Entries))
+	}
+	if _, ok := l.Get("github.com/foo/bar@v1.0.0"); ok {
+		t.Fatal("ambiguous identity unexpectedly selected a lock row")
 	}
 }
 
