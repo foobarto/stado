@@ -64,7 +64,8 @@ builds:
 sboms:
   - artifacts: archive
 
-# Cosign keyless + minisign (dual scheme, PLAN §10.3).
+# Cosign keyless signing. The release workflow adds Minisign only when its
+# separately provisioned secret is present; v0.80.x does not have that key.
 signs:
   - id: cosign
     cmd: cosign

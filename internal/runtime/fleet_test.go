@@ -14,11 +14,10 @@ import (
 // fakeSpawner returns canned results without actually forking a
 // session. tracks invocation count.
 type fakeSpawner struct {
-	calls     atomic.Int32
-	res       subagent.Result
-	err       error
-	delay     time.Duration
-	gotPrompt string
+	calls atomic.Int32
+	res   subagent.Result
+	err   error
+	delay time.Duration
 }
 
 type snapshotSpawnerStub struct {
@@ -37,9 +36,8 @@ func (s *snapshotSpawnerStub) SpawnSubagent(context.Context, subagent.Request) (
 	return subagent.Result{}, errors.New("unpinned spawner used")
 }
 
-func (f *fakeSpawner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
+func (f *fakeSpawner) SpawnSubagent(ctx context.Context, _ subagent.Request) (subagent.Result, error) {
 	f.calls.Add(1)
-	f.gotPrompt = req.Prompt
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):

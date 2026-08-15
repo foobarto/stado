@@ -29,105 +29,46 @@ macOS and Windows are not current or v1 targets
 ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). Their old roadmap
 items are removed rather than deferred.
 
-## Current corrective release: PR #257 and v0.80.0
+## Current corrective release: v0.80.1
 
-PR #257 began as a native implementation of supervised work. Review found both
-valuable defects and a deeper architecture drift: large native application
-policy, model-visible native tools, direct TUI/WASM-side WAL access, hardcoded
-artifact concepts, and plugin capabilities too weak to host the application the
-EP architecture actually calls for. The corrective cutover removed native
-supervise policy/tools/evaluator and preserved the complete official
-application source in the checkpoint identified below.
+PR #257 merged as `391ca108` and shipped in signed Linux-only release v0.80.0.
+Its binaries, checksum manifest, Cosign certificate/signature, SBOMs, and GitHub
+provenance are published. The immutable v0.80.0 homepage check failed because
+the tagged page still advertised v0.79.0; v0.80.1 corrects that metadata rather
+than rewriting the published tag.
 
-The correction is deliberately sweeping and pre-v1. Preserve authoritative
-data through explicit one-way migration, but do not preserve obsolete imports,
-wrappers, aliases, config, fallback writers, native application paths, or
-platform shims merely for compatibility.
+The official supervise application initially shipped as `supervise/v0.1.0`.
+The terminal source/release audit found that its Go 1.26.6 WASM build retained
+an absolute GOROOT and was therefore reproducible only within one toolchain
+location. Corrective `supervise/v0.1.1` pins Go 1.26.6, uses trimpath and an
+empty build ID, verifies the committed bundle, and reproduces byte-for-byte
+across distinct GOROOT locations. Its manifest is signed by the official plugin
+key; its Git commits and tag are signed through the operator's SSH agent. Fresh
+GitHub release bytes passed signature, digest, isolated install, and installed
+package verification with the official owner anchor.
 
-The source cutover and generic host work are complete. The authoritative
-official-source checkpoint is signed Git commit
-`987906479e9675b2aa9f972802b5ab3716d4af48`; the complete-history recovery
-bundle is `.agent/stado-plugins-official-20260815-completion.bundle` (SHA-256
-`7eb946fe4c35b3630086f68eadab69d1bd3e5e6a3d702852648c2a1bd88c19ea`).
-Neither the checkpoint nor the bundle is a signed plugin release.
+The v0.80.1 terminal implementation-versus-EP audit is complete. It corrected
+the official-plugin build defect above, removed an unused racing write in a
+shared Fleet test fake, reconciled the EP/cleanup/product documentation, and
+passed exact Go 1.26.6 tests, the release race suite, vet, CI-pinned lint and
+govulncheck, cold-cache bundled-WASM determinism, the homepage validator, and a
+full Linux GoReleaser snapshot with SBOMs. Local snapshot Cosign was deliberately
+skipped because only the real GitHub Actions release has the intended OIDC
+identity.
 
-Two broad implementation-versus-EP passes corrected the source and forward
-ledger. Their full test, race, vet, architecture/document, EP relationship, and
-Accepted/Partial-to-PLAN checks are green. They are not the terminal audit:
-subsequent conformance and adversarial-boundary work found C92-C103 and changed
-the source. The original release order therefore still requires one final
-repository-wide drift audit
-after conformance and live review freeze the candidate. Any source correction
-after that audit invalidates it and requires a repeat.
+Only these v0.80.1 gates remain, in order:
 
-The supervise conformance proof is complete against an ephemeral signing root.
-It covers all eight source packages, source-keyed installation, explicit
-lifecycle admission, dynamic command ownership, absence of native fallback,
-setup/cancellation, exact review and pivot policy, immutable operator-input
-routing, Verify Work and independent completion, transactional reload, cold
-session resume, and automatic compacted-child transfer of the existing broker
-scope. The compacted-child PTY binds the authenticated canonical auto-compact
-identity, does not replay the application prompt as ordinary input, reconciles
-the exact WorkerRun once in the child, advances it only from a child-anchored
-review, and terminalizes it cleanly. Plugin-owned scenarios and the focused,
-race, reproducibility, and PTY gates are green. Real-key repetition belongs to
-the release ceremony, not the development proof.
+1. **Publish and verify v0.80.1.** Merge only the audited patch after
+   green CI, create an SSH-agent-signed annotated tag without rewriting v0.80.0,
+   publish through the Linux release workflow, and verify the homepage workflow,
+   asset checksums, static binary, and reported version from clean downloads.
+2. **Close independent release-integrity evidence.** Re-run GitHub provenance
+   verification outside the GitHub-only proxy. Minisign remains optional until
+   its CI secret and long-lived release root are deliberately provisioned.
 
-Only these corrective-release gates remain, in order:
-
-1. **Resolve the live PR review.** Authenticate to the forge, fetch the current
-   PR #257 review/thread state, inspect the complete raw Copilot review including
-   suppressed findings, and obtain the repository-required fresh final-head
-   Codex connector/adversarial review. Map every finding to the final generic
-   regression or a new correction, and require green CI. The native shell/GH
-   parser and unsafe cross-session child forwarding were deleted; review
-   resolution must cite the replacement generic tests rather than revive them.
-2. **Repeat the terminal implementation-versus-EP audit.** Audit the frozen
-   root and official-plugin source against every Accepted decision, later
-   counter-requirement, cleanup-ledger item, ABI/reference claim, and current
-   product document. Re-run the full tests, selected race matrix, vet,
-   architecture/document/EP guards, reproducible builds, and final diff review.
-   This is the last source-changing gate; a finding reopens the audit.
-   "Terminal" here means the final source-changing gate of this corrective
-   release, not completion or removal of the v1 workstreams and next product
-   proposal recorded below.
-3. **Perform the real release ceremony.** Freeze the official supervise package
-   at immutable `0.1.0`, build it reproducibly from the checkpointed source,
-   sign only with the operator-held offline plugin key, publish
-   `supervise/v0.1.0`, and independently fetch/install/verify it in a clean trust
-   root against the v0.80.0 candidate. Repeat the complete conformance matrix
-   against those exact signed bytes. Development keys and unsigned manifests
-   must not cross this boundary.
-4. **Merge and publish v0.80.0.** Merge only the audited, reviewed source,
-   produce the Linux-only signed release artifacts through the real workflow,
-   verify install/update/rollback and the official application from clean
-   state, then record the released hashes and evidence in the changelog.
-
-The completed development proof included the following progression:
-
-1. The isolated ephemeral-key
-   proof already covers all eight source packages, source-keyed install,
-   explicit lifecycle admission, dynamic command ownership, tasks across
-   reload and cold restart, absence of native fallback, supervise setup
-   cancellation, the default fresh baseline child, and operator rejection of
-   the baseline proposal. It also confirms that proposal, activates the exact
-   WorkerRun, crosses the anchorless first iteration and exact anchored progress
-   claim, admits a fresh pinned read-only watchdog, advances the plan only from
-   its current-anchor approval, proves the review barrier blocks parent-provider
-   follow-up, and cancels the terminal workflow cleanly. A further PTY path
-   captures ordinary input during a live worker stream, claims and classifies
-   it through a fresh pinned reviewer, proves it cannot steer that in-flight
-   provider request, and delivers the immutable original only after the turn
-   boundary to the next recurrence. The pivot path now also proves exact
-   pinned review, recommendation-only handling, explicit user confirmation,
-   artifact CAS, plan re-anchor, revised recurrence, and cancellation. The
-   proof now also crosses operator-owned Verify Work, exact source-content
-   anchoring, watchdog review, a fresh independent verifier, durable successful
-   completion, exact hold release, transactional `/reload`, and an explicit
-   cold `session resume` that re-adopts the same broker scope without duplicate
-   recurrence. The final automatic-compaction path transfers the same durable
-   scope to the authenticated direct child and reconciles its exact WorkerRun
-   instead of replaying it as ordinary input.
+The final connector/adversarial review planned before v0.80.0 was bypassed when
+the operator approved that merge. It remains explicit process debt; v0.80.1's
+terminal source/EP audit does not retroactively claim that connector review ran.
 
 Other staged official applications remain unsigned source candidates unless
 their own Accepted EP gates close. In particular, memory/learn remains
@@ -181,7 +122,8 @@ Remaining gates:
 - implement EP-54's exact `memory__search` fast path and release-verify the
   isolated research package before calling that Accepted contract shipped;
 - publish only the official applications whose own Accepted gates are closed;
-  sign `supervise/v0.1.0` only with the operator-held offline key;
+  repeat the full plugin-owned PTY conformance matrix against the exact
+  published `supervise/v0.1.1` bytes before promoting EP-62/64 to Implemented;
 - test install, trust, update, rollback, removal, archived-schema rendering, and
   deterministic bundled builds end to end.
 - evaluate EP-68's explicit signed one-shot CLI command profile after v0.80;

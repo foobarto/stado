@@ -60,7 +60,7 @@ Shorter forms live in:
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Tasks application (release pending) | [features/tasks.md](features/tasks.md) | Explicit TUI lifecycle application with global broker artifacts and no native fallback |
-| Supervised work (plugin release pending) | [features/supervise.md](features/supervise.md) | Official WASM quality gate; source/evaluator live in `foobarto/stado-plugins`, with real-key signing and publication still pending |
+| Supervised work (signed plugin) | [features/supervise.md](features/supervise.md) | Explicitly installed and enabled official WASM quality gate; signed `supervise/v0.1.1` is published for stado 0.80.0 and newer |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |

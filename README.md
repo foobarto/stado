@@ -22,18 +22,20 @@ A sandboxed, git-native coding agent for the terminal.
 Every tool call is committed to a signed audit log. Agent state lives in
 a sidecar git repo — your working tree stays pristine until you
 explicitly land changes. Tool execution is capability-gated through the
-OS sandbox. Releases are reproducible and dual-signed (cosign + minisign)
-so you can verify what you're running, including from an airgapped
-environment.
+OS sandbox. Release checksum manifests are Cosign-signed, and release builds
+carry SBOMs plus GitHub provenance. A strict Minisign path is wired for
+offline verification and self-update, but remains inactive until the project
+provisions its release key.
 
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux sandboxing, MCP/ACP, signed WASM plugins, retained
 > subagents, durable mailboxes, resumable broker automation, generic
 > plugin-defined artifacts, and the persistent TUI lifecycle host are
 > source-complete. Native product-workflow fallbacks, including `/supervise`,
-> are removed. Official application source is preserved in
-> `foobarto/stado-plugins`, but those packages are not ordinary installed
-> surfaces until their own signing, publication, and Accepted EP gates close.
+> are removed. The signed official `supervise/v0.1.1` application is published
+> separately in `foobarto/stado-plugins` and remains explicit opt-in; other
+> staged official applications are not ordinary installed surfaces until their
+> own signing, publication, and Accepted EP gates close.
 > Linux is the only supported platform now and through v1; Darwin and Windows
 > are outside the build, runtime, packaging, and roadmap contract
 > ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). See
@@ -58,8 +60,9 @@ environment.
 - **Provider support is direct.** Anthropic, OpenAI, Google, and
   OpenAI-compatible backends keep provider-native features instead of
   flattening them behind a lossy abstraction.
-- **Releases are verifiable.** Builds are reproducible and shipped with
-  cosign + minisign signatures.
+- **Releases are verifiable.** Builds are reproducible and ship with a
+  Cosign-signed checksum manifest, SBOMs, and GitHub provenance. Minisign is a
+  separately provisioned strict offline path and is not present in v0.80.x.
 
 ## Feature highlights
 
@@ -80,7 +83,7 @@ an implementation report.
 | **Verify Work command gates** ([EP-0046](docs/eps/0046-verify-work-phase.md)) | Run configured verification commands before completion and record their evidence; the EP's independent LLM judge remains deferred. |
 | **WASM lifecycle applications — TUI host implemented** ([EP-0051](docs/eps/0051-lua-lifecycle-hook-contract.md), [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md)) | Lua remains the compact operator-authored hook surface. The TUI now owns one persistent, serialized WASM application instance across commands, tools, hooks, events, ticks, and generic bridges. Run, headless, and ACP fail closed on configured lifecycle applications for v1 rather than offering partial composition. |
 | **Plugin-defined harness artifacts — generic substrate complete** ([EP-0053](docs/eps/0053-versioned-harness-artifacts-and-index.md), [EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md)) | The manifest, broker, authenticated host imports, archived descriptors, and fail-closed legacy migration are source-complete. Signed plugins declare validated `data` shapes and deterministic index projections; the memory/learn application remains unsigned and candidate-only. |
-| **Supervised work — application source complete, release pending** ([EP-0062](docs/eps/0062-harness-enforced-supervised-work.md), [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md)) | The official `foobarto/stado-plugins/supervise` lifecycle application owns cadence, detectors, prompts, stale-verdict policy, and workflow. Native stado supplies only generic facts and enforcement. The source is durably checkpointed; the `supervise/v0.1.0` artifact is not yet real-key-signed or published, so `/supervise` is not currently available to ordinary installs and has no native fallback. |
+| **Supervised work — signed application available** ([EP-0062](docs/eps/0062-harness-enforced-supervised-work.md), [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md)) | The official `foobarto/stado-plugins/supervise` lifecycle application owns cadence, detectors, prompts, stale-verdict policy, and workflow. Native stado supplies only generic facts and enforcement. Signed release `supervise/v0.1.1` is published for stado 0.80.0 and newer; it must be explicitly installed and enabled, and there is no native fallback. |
 
 Together with bounded-harness guidance ([EP-0060](docs/eps/0060-native-harness-guidance.md)),
 these contracts separate application policy from the primitives stado must
@@ -110,7 +113,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.79.0
+  bash -s -- --dir /usr/local/bin --version v0.80.1
 ```
 
 ### Self-update (existing installs)
@@ -408,11 +411,9 @@ For the full as-built detail, see [docs/README.md](docs/README.md),
 
 See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
-- **Official supervise release.** The native workflow has been cut away and the
-  official application source is preserved in `foobarto/stado-plugins` commit
-  `5e92643d9c5f96d2706d79375b87b4778742039e`. Finish the full workflow
-  conformance proof, sign `supervise/v0.1.0` with the offline plugin key,
-  publish it, and independently verify installation against stado 0.80.0.
+- **Agent-driven tool-use authority.** Define the operator-authorized scope,
+  expiry, revocation, audit, and fail-closed boundaries for any future
+  auto-approval path in an EP before implementing it.
 - **Linux containment convergence.** Complete the broker, namespace,
   Landlock, seccomp, network, and WASM-capability intersections as one
   coherent Linux release gate. Other platforms are outside the current and
@@ -433,8 +434,10 @@ itself controls: `self-update` refuses to run, `plugin install` stops
 refreshing the CRL and uses the on-disk cache, and `webfetch` errors on
 every invocation. Provider endpoints remain whatever you point stado at.
 
-Release verification stays offline-friendly via `checksums.txt.minisig`
-and `stado verify --show-builtin-keys`. For the detailed flow, see
+Strict offline release verification and self-update will use
+`checksums.txt.minisig` and `stado verify --show-builtin-keys` once the
+Minisign key is provisioned. Current v0.80.x releases use the Cosign path and
+do not publish a Minisign asset. For the detailed flow, see
 [SECURITY.md](SECURITY.md). Current v1 scope and tradeoffs are tracked under
 [PLAN.md — Explicit non-goals through v1](PLAN.md#explicit-non-goals-through-v1).
 

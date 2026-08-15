@@ -12,6 +12,9 @@ see-also: ["EP-0017", "EP-0033", "EP-0036", "EP-0046", "EP-0060"]
 history:
   - date: 2026-08-15
     status: Accepted
+    note: Official supervise v0.1.1 is offline-key signed, published, path-reproducible across distinct Go 1.26.6 GOROOT locations, and clean-installed from released bytes against the official anchor. Broader lifecycle-platform closure and the full exact-published-bytes conformance repeat remain open.
+  - date: 2026-08-15
+    status: Accepted
     note: Automatic compacted-child continuation is live-green under an ephemeral signed install. Context-overflow recovery binds the authenticated canonical auto-compact identity, transfers the complete broker application scope to the direct child, reconciles the exact WorkerRun once rather than replaying it as ordinary input, and terminalizes failed recovery without a ghost recurrence. Real plugin signing/publication remains open.
   - date: 2026-08-15
     status: Accepted
@@ -620,24 +623,22 @@ post-cutover isolated proof covered all eight packages, source-keyed install,
 explicit TUI admission, dynamic command ownership, tasks across reload and cold
 restart, unsupported-surface refusal, absence of native fallback, and supervise
 setup through versioned active-run cancellation.
-The ephemeral-sign/install cross-repository conformance proof now covers setup,
+The ephemeral-sign/install cross-repository conformance proof covers setup,
 exact review and pivot policy, immutable operator input, completion, reload,
 cold restart, automatic compacted-child transfer, removal, and no fallback.
-Remaining rollout is:
+Official offline-key-signed `supervise/v0.1.1` is now published with
+`min_stado_version: 0.80.0`; its WASM is path-reproducible across distinct Go
+1.26.6 GOROOT locations, and fresh release bytes passed signature, digest,
+isolated install, and installed-package verification against the official
+anchor.
 
-1. freeze the reviewed and terminally audited root and official-plugin source;
-2. reproducibly build and sign `supervise/v0.1.0` with the operator-held offline
-   plugin key (`min_stado_version: 0.80.0`);
-3. publish it from `foobarto/stado-plugins`, install it into isolated roots, and
-   independently verify source, resolved commit, manifest, signature, digest,
-   activation, and command ownership; and
-4. repeat the plugin-owned paired scenarios plus strict-live, periodic-event,
-   stale-steer, stale-stop-confirmation, trap, lease, dormancy, pivot, input,
-   and verification-facts conformance.
-
-Until those release gates pass, EP-62 and EP-64 remain Accepted rather than
-Implemented, `/supervise` is unavailable to ordinary installations, and
-v0.80.0 must not be published.
+EP-62 and EP-64 remain Accepted rather than Implemented until the plugin-owned
+paired scenarios plus strict-live, periodic-event, stale-steer,
+stale-stop-confirmation, trap, lease, dormancy, pivot, input, and
+verification-facts conformance are repeated against those exact published
+bytes and the broader lifecycle-platform gates close. Ordinary installations
+may explicitly install and enable the package; stado still exposes no native or
+default `/supervise` fallback.
 
 ## Failure modes
 

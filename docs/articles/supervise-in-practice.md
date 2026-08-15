@@ -39,12 +39,11 @@ Native stado supplies the things a sandboxed application cannot: broker-stamped
 facts, durable ordering, scoped capabilities, and scheduling effects it can
 actually enforce.
 
-The source is preserved in a signed local `stado-plugins` commit. That is not
-the same thing as a signed plugin release. The intended first package is
-`supervise/v0.1.0`, compatible with stado 0.80.0; its manifest and WASM artifact
-have not yet been signed with the official offline key or published. Until they
-are, an ordinary stado installation has no `/supervise` command. There is no
-native copy kept as a fallback.
+The source and evaluator live in `foobarto/stado-plugins`. Signed release
+`supervise/v0.1.1` is published for stado 0.80.0 and newer. An ordinary stado
+installation still has no `/supervise` command until that exact package is
+explicitly installed, trusted, and enabled. There is no native copy kept as a
+fallback.
 
 The ordinary response is to add instructions. Be systematic. Read the repository
 guidance. Do not repeat a failed command without changing something. Verify your

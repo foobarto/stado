@@ -113,12 +113,12 @@ For an official package in a monorepo, use its logical semver identity:
 
 ```sh
 stado plugin install --trust-anchor \
-  github.com/foobarto/stado-plugins/supervise@v0.1.0
+  github.com/foobarto/stado-plugins/supervise@v0.1.1
 ```
 
-The preferred upstream release tag is `supervise/v0.1.0`, carrying flat
+The preferred upstream release tag is `supervise/v0.1.1`, carrying flat
 `plugin.wasm`, `plugin.manifest.json`, and `plugin.manifest.sig` assets. The
-manifest's signed package version must be `0.1.0` (a leading `v` is also
+manifest's signed package version must be `0.1.1` (a leading `v` is also
 accepted), while its independent `min_stado_version` is `0.80.0`.
 The owner repository publishes `.stado/author.pub`; accepting it once commits
 the full owner key, signer pin, and package floor together only after package

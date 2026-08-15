@@ -1504,7 +1504,7 @@
     <a class="brand" href="#">
       <img class="sheep" src="assets/img/stado-sheep-mark.webp" alt="stado sheep mark">
       <span class="mark">stado</span>
-      <span class="ver">v0.79.0</span>
+      <span class="ver">v0.80.1</span>
     </a>
     <ul>
       <li><a class="link" href="#highlights">highlights</a></li>
@@ -1742,9 +1742,9 @@
       </article>
 
       <article class="feature span-6">
-        <div class="tag"><span class="idx">▍ EP-0062 + EP-0064</span><span class="sep">/</span> supervised work · plugin release pending</div>
+        <div class="tag"><span class="idx">▍ EP-0062 + EP-0064</span><span class="sep">/</span> supervised work · signed application available</div>
         <h3>A watchdog for work that must be <em>right</em>.</h3>
-        <p><span class="mono">/supervise</span> belongs to the official WASM lifecycle application under <span class="mono">foobarto/stado-plugins/supervise</span>: it owns contract flow, cadence, detectors, prompts, and verdict policy while the broker supplies authenticated facts and enforces scoped holds, pause, and stop. Native stado has no fallback. The application source is checkpointed, but <span class="mono">supervise/v0.1.0</span> is not yet real-key-signed or published.</p>
+        <p><span class="mono">/supervise</span> belongs to the official WASM lifecycle application under <span class="mono">foobarto/stado-plugins/supervise</span>: it owns contract flow, cadence, detectors, prompts, and verdict policy while the broker supplies authenticated facts and enforces scoped holds, pause, and stop. Native stado has no fallback. Offline-key-signed release <span class="mono">supervise/v0.1.1</span> is published for stado 0.80.0 and newer and must be explicitly installed and enabled.</p>
         <div class="ep-links">
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0062-harness-enforced-supervised-work.md">quality semantics →</a>
           <a class="ep-link" href="https://github.com/foobarto/stado/blob/main/docs/eps/0064-wasm-lifecycle-applications.md">application placement →</a>
@@ -2021,20 +2021,19 @@
   <div class="wrap">
     <div>
       <span class="small-caps"><span class="cube"></span>§ supply chain</span>
-      <h3>A release you can <em>verify</em> from an airgapped laptop.</h3>
+      <h3>A release whose bytes you can <em>verify</em>.</h3>
       <p>
         Reproducible builds. Cosign-keyless signatures over a per-asset
         <span class="mono" style="color:var(--fg)">checksums.txt</span>, Rekor-logged — the live path today.
-        The minisign airgap layer is wired into the pipeline (pubkey embedded via ldflags, plus a CI signing step) and
-        activates once the release key is provisioned; from then on each release publishes
+        The stricter minisign airgap layer is wired into the pipeline (pubkey embedded via ldflags, plus a CI signing step) but is not provisioned for v0.80.x. Once its release key is provisioned, each release publishes
         <span class="mono" style="color:var(--fg)">checksums.txt.minisig</span> and
         <span class="mono" style="color:var(--fg)">self-update</span> verifies it without
         ever falling back to unsigned manifest verification — airgap-friendly. Audit the chain yourself.
       </p>
     </div>
     <div class="receipt">
-      <div class="row"><span class="k">version</span><span class="v">v0.79.0 · 2026-08-12</span></div>
-      <div class="row"><span class="k">manifest</span><span class="v">checksums.txt · 17 assets</span></div>
+      <div class="row"><span class="k">version</span><span class="v">v0.80.1 · 2026-08-15</span></div>
+      <div class="row"><span class="k">manifest</span><span class="v">checksums.txt · 8 artifacts</span></div>
       <div class="row"><span class="k">cosign</span><span class="v good">▮ keyless · GHA OIDC · token.actions.githubusercontent.com</span></div>
       <div class="row"><span class="k">minisign</span><span class="v">▮ pipeline wired · activates on release-key provisioning</span></div>
       <div class="row"><span class="k">scorecard</span><span class="v good">▮ openssf · best practices</span></div>
@@ -2063,7 +2062,7 @@
       <a class="brand" href="#" style="margin-bottom:6px">
         <img class="sheep" src="assets/img/stado-sheep-mark.webp" alt="">
         <span class="mark">stado</span>
-        <span class="ver">v0.79.0</span>
+        <span class="ver">v0.80.1</span>
       </a>
       <p class="blurb">
         A sandboxed, git-native coding agent for the terminal. Pre-1.0.

@@ -44,7 +44,7 @@ taking over the screen.
 | `/clear` | | Wipe conversation state; cancels any in-flight stream |
 | `/exit` | `Ctrl+D` | Quit stado cleanly |
 | `/btw` | `Ctrl+X Ctrl+B` | Toggle off-band BTW mode for side questions |
-| `/supervise [objective]` | — | Dynamically owned by an explicitly enabled signed `supervise` lifecycle application; `status`, `resume`, and `cancel` manage its durable run. No native fallback; official package publication is pending. |
+| `/supervise [objective]` | — | Dynamically owned by an explicitly enabled signed `supervise` lifecycle application; signed release `supervise/v0.1.1` is published for stado 0.80.0 and newer. `status`, `resume`, and `cancel` manage its durable run. No native fallback. |
 
 ## Session
 
