@@ -197,14 +197,17 @@ func TestProviderBudgetReservationsAreRaceSafe(t *testing.T) {
 	start := make(chan struct{})
 	release := make(chan struct{})
 	var wg sync.WaitGroup
+	var reserveWG sync.WaitGroup
 	var admittedMu sync.Mutex
 	admitted := 0
 	wg.Add(callers)
+	reserveWG.Add(callers)
 	for range callers {
 		go func() {
 			defer wg.Done()
 			<-start
 			reservation, ok := host.reserveProviderTokens(req, 1)
+			reserveWG.Done()
 			if !ok {
 				return
 			}
@@ -216,14 +219,12 @@ func TestProviderBudgetReservationsAreRaceSafe(t *testing.T) {
 		}()
 	}
 	close(start)
-	for {
-		host.providerBudgetMu.Lock()
-		reserved := host.providerTokensReserved
-		host.providerBudgetMu.Unlock()
-		if reserved == 100 {
-			break
-		}
-		time.Sleep(time.Millisecond)
+	reserveWG.Wait()
+	host.providerBudgetMu.Lock()
+	reserved := host.providerTokensReserved
+	host.providerBudgetMu.Unlock()
+	if reserved != 100 {
+		t.Fatalf("reserved = %d, want 100", reserved)
 	}
 	close(release)
 	wg.Wait()
