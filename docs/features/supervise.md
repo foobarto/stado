@@ -8,16 +8,18 @@ checks and an independent verifier.
 The workflow is owned by the official `supervise` WASM lifecycle application,
 not by native stado code. Its source lives at
 [`foobarto/stado-plugins/supervise`](https://github.com/foobarto/stado-plugins/tree/main/supervise).
-The first intended plugin release is `supervise/v0.1.0`, with
+The current signed plugin release is `supervise/v0.1.1`, with
 `min_stado_version: 0.80.0`. Plugin and stado versions are deliberately
 independent.
 
-> **Availability:** the source is preserved in a signed local
-> `stado-plugins` commit, but the plugin manifest/artifact has not yet been
-> signed with the official offline key or published. A normal stado install
-> therefore does not expose `/supervise` yet. There is no native fallback.
+> **Availability:** the official offline-key-signed manifest and WASM are
+> published at
+> [`supervise/v0.1.1`](https://github.com/foobarto/stado-plugins/releases/tag/supervise/v0.1.1).
+> A normal stado install still does not expose `/supervise` by default: the
+> package must be explicitly installed, trusted, and enabled. There is no
+> native fallback.
 >
-> Once released, `/supervise` appears only when that exact signed, installed
+> `/supervise` appears only when that exact signed, installed
 > lifecycle application is explicitly enabled for the session. The interactive
 > TUI is the only application host in the current/v1 scope. `stado run`,
 > headless JSON-RPC, ACP, ephemeral plugin execution, and child agent loops fail
@@ -37,9 +39,13 @@ main worker.
 
 ## Enable and start
 
-After the official package is published, install and explicitly enable the
-signed application according to the plugin release instructions. Merely having
-a package on disk does not activate its lifecycle behavior or command.
+Install the package, then explicitly enable the signed application. Merely
+having a package on disk does not activate its lifecycle behavior or command.
+
+```sh
+stado plugin install --trust-anchor \
+  github.com/foobarto/stado-plugins/supervise@v0.1.1
+```
 
 In the TUI:
 

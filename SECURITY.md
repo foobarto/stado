@@ -1,21 +1,22 @@
 # stado Security Model
 
-stado ships three layers of supply-chain protection:
+stado implements three layers of supply-chain protection; the first two are
+active for v0.80.x, while the third is provisioned separately:
 
 1. **Reproducible builds** — `-trimpath -buildvcs=true -buildid=` with a
    pinned `mod_timestamp` produce bit-for-bit identical binaries from
    the same source tree. Independent rebuilders can confirm published
    releases weren't tampered with.
-2. **Cosign keyless signing** — every release asset is signed by a
-   GitHub Actions OIDC-issued certificate via Fulcio, with the
-   signature + cert uploaded alongside the artefact. Verifiable with
-   `cosign verify-blob`. Implicit Rekor transparency-log entry.
-3. **Minisign Ed25519 signing** — `checksums.txt` additionally signed
-   with a long-lived project key, offline-held. The corresponding
-   public key is compiled into release builds, so `stado self-update`
-   can verify release manifests offline and `stado verify
-   --show-builtin-keys` can expose the embedded trust roots. Airgap-safe
-   by construction.
+2. **Cosign keyless signing** — the checksum manifest covering every release
+   artifact is signed by a GitHub Actions OIDC-issued certificate via Fulcio,
+   with the signature and certificate uploaded alongside it. Verifiable with
+   `cosign verify-blob`, with a Rekor transparency-log entry.
+3. **Minisign Ed25519 signing (not yet provisioned)** — once a long-lived
+   project key is provisioned, `checksums.txt` is additionally signed and the
+   corresponding public key is compiled into release builds. That makes strict
+   offline `stado self-update` possible and lets `stado verify
+   --show-builtin-keys` expose the embedded root. v0.80.x currently ships
+   without a Minisign asset or embedded root.
 
 This document covers the operational procedures for the **minisign**
 half. Cosign keyless is fully automated via GitHub Actions and has no
@@ -126,11 +127,11 @@ compiles. Provision the raw-32 base64 as the CI secret
 
 ### Signing a release
 
-On every tagged release, `checksums.txt` is additionally signed with the
-minisign key. There are two ways to produce `checksums.txt.minisig`, and
-the release pipeline supports both. **Pick one** — they are mutually
-exclusive per release (two signatures over the same manifest would
-collide on the asset name).
+Once the Minisign key is provisioned, each tagged release must additionally
+sign `checksums.txt`. There are two ways to produce
+`checksums.txt.minisig`, and the release pipeline supports both. **Pick one** —
+they are mutually exclusive per release (two signatures over the same manifest
+would collide on the asset name).
 
 **Path B-online — key in a CI secret (lowest-friction, wired today).**
 `.github/workflows/release.yml` carries a dormant "Minisign-sign

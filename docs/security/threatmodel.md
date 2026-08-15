@@ -194,7 +194,9 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 **Mitigations:**
 - Every tool call produces a signed commit in `trace` and (for mutations) `tree`.
 - `stado audit verify` detects tampering; signatures cover commit metadata and hashes.
-- Reproducible builds and dual signing (cosign/minisign) reduce release tampering.
+- Reproducible builds, Cosign-signed checksum manifests, SBOMs, and provenance
+  reduce release tampering. The stricter Minisign path remains inactive until
+  its release key is provisioned.
 
 ### Telemetry and logging
 **Surface:** OpenTelemetry exporters, slog logs, hook outputs.
@@ -207,13 +209,13 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 - Telemetry is opt‑in (`STADO_OTEL_ENABLED` / config).
 - Hooks are operator‑configured; execution is time‑bounded and output is isolated to stderr.
 
-### Supervision reviewers (quality application; release pending)
+### Supervision reviewers (quality application; signed release available)
 
 EP-0064 places `/supervise` workflow policy in the official WASM application
 under `foobarto/stado-plugins/supervise`. The preserved source checkpoint is a
-signed Git commit, but the plugin manifest/artifact is not yet signed by the
-official offline key or published. Native stado contains no fallback command or
-policy path. Once the exact signed installed application is explicitly enabled,
+signed Git commit, and the offline-key-signed `supervise/v0.1.1` manifest and
+WASM are published for stado 0.80.0 and newer. Native stado contains no
+fallback command or policy path. Once the exact signed installed application is explicitly enabled,
 it dynamically owns `/supervise` and its three worker tools. The plugin owns contract
 setup, review cadence, deterministic
 detectors, reviewer/verifier prompts, verdict interpretation, stale-result

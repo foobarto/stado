@@ -32,7 +32,36 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## v0.80.0 — corrective release (unreleased)
+## v0.80.1 — release metadata correction (2026-08-15)
+
+### Docs / release evidence
+
+- **Release metadata corrected.** Correct the immutable-homepage release
+  markers missed by v0.80.0, update the pinned install example, and record the
+  published state of the official offline-key-signed `supervise/v0.1.1`
+  application.
+- **Official supervise build corrected.** Record and correct the terminal
+  release-audit finding in the initial `supervise/v0.1.0` package: its Go
+  1.26.6 build retained the absolute GOROOT.
+  Corrective v0.1.1 uses trimpath, an empty build ID, and a pinned toolchain;
+  two distinct GOROOT locations now produce byte-identical WASM. Fresh release
+  bytes passed signature, digest, isolated install, and installed-package
+  verification against the official owner anchor.
+- **Release integrity documented as shipped.** Make the release-integrity
+  wording match the actual artifacts: v0.80.x ships a Cosign-signed checksum
+  manifest, SBOMs, and GitHub provenance. Minisign is wired but inactive until
+  its release key is provisioned, so these releases do not claim a `.minisig`
+  asset or embedded root.
+- **Terminal audit repaid; connector review debt retained.** Complete the
+  terminal implementation-versus-EP/source audit for this patch while carrying
+  the bypassed final connector review forward explicitly. The metadata patch
+  does not retroactively claim that pre-v0.80.0 review ran.
+- **Race gate restored.** Remove an unused unsynchronized write from the shared
+  Fleet test spawner after the release-gate race suite exercised two
+  generation-scoped spawns concurrently. Production Fleet accesses were not
+  part of the conflicting pair.
+
+## v0.80.0 — corrective release (2026-08-15)
 
 ### UX / CLI / TUI
 
@@ -45,12 +74,10 @@ become semver guarantees.
   projected only when that exact signed installed application is explicitly
   enabled in the TUI. There is no native fallback, and other surfaces fail
   closed rather than composing a partial lifecycle host.
-- **The release is not available yet.** The complete source and evaluator are
-  preserved in a signed local `stado-plugins` commit. The intended first package
-  is `supervise/v0.1.0` with `min_stado_version: 0.80.0`; its plugin
-  manifest/artifact has not yet been signed with the official offline key or
-  published. This entry does not claim that `/supervise` is currently present
-  in ordinary installations.
+- **The application is released separately.** Offline-key-signed package
+  `supervise/v0.1.0` is published with `min_stado_version: 0.80.0`. It is not a
+  default surface: `/supervise` appears only after that exact package is
+  explicitly installed, trusted, and enabled for the TUI session.
 - **Slow reviews have explicit semantics.** Earlier-anchor approvals are
   discarded, earlier-anchor corrections remain labelled advisory steering,
   and earlier-anchor pause/stop results acquire a durable hold and require a
@@ -220,10 +247,11 @@ become semver guarantees.
 ### Docs
 
 - **The repeated architecture audits corrected current-state drift.** Two broad
-  passes fixed the source and forward ledger, but later C92-C100 conformance and
-  boundary corrections changed the candidate. PLAN therefore retains a
-  terminal implementation-versus-EP repeat after conformance and live review,
-  before signing, publication, merge, or release. README, DESIGN, the threat
+  passes fixed the source and forward ledger, but later C92-C103 conformance and
+  boundary corrections changed the candidate. The operator-approved merge and
+  v0.80.0 release proceeded without the planned final connector review or
+  terminal implementation-versus-EP repeat; v0.80.1 repays the terminal audit
+  and carries the connector-review debt forward. README, DESIGN, the threat
   model, static page, slash reference, and adaptive-context article no longer
   advertise deleted native workflows or
   unimplemented adaptive shadowing. EP-0028 now records its surviving

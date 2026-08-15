@@ -94,9 +94,10 @@ it for bug fixes, dep bumps, and contained refactors.
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
 EP-0062 and EP-0064 intentionally remain **Accepted**: the generic TUI host and
-official supervise source exist and native fallback has been removed, but the
-`supervise/v0.1.0` plugin artifact is not yet signed with the offline release
-key, published, or proven through the final cross-repository install matrix.
+official supervise source exist, native fallback has been removed, and signed
+`supervise/v0.1.1` is published and clean-install verified. The complete
+plugin-owned conformance matrix against those exact released bytes and broader
+accepted lifecycle/quality gates remain open.
 
 ## Status legend
 

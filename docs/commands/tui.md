@@ -359,10 +359,11 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   changed-file counts, scope violations, and adoption commands
 - `/supervise [objective]` — application-owned supervised work. This command is
   registered dynamically only when the official signed, installed `supervise`
-  lifecycle application is explicitly enabled. Its first intended release is
-  `supervise/v0.1.0` for stado 0.80.0; that artifact is not published yet, and
-  there is no native fallback. Once available, `status|resume|cancel` manage the
-  durable run. This is distinct from `/supervisor`; see the
+  lifecycle application is explicitly enabled. Signed release
+  `supervise/v0.1.1` is published for stado 0.80.0 and newer; install it with
+  `stado plugin install --trust-anchor github.com/foobarto/stado-plugins/supervise@v0.1.1`.
+  There is no native fallback. `status|resume|cancel` manage the durable run.
+  This is distinct from `/supervisor`; see the
   [feature guide](../features/supervise.md)
 - `/adopt [child] [--apply]` — dry-run or explicitly apply worker
   subagent changes into the current parent session

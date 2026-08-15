@@ -10,6 +10,9 @@ extends: ["EP-0046", "EP-0060"]
 extended-by: ["EP-0064"]
 see-also: ["EP-0009", "EP-0033", "EP-0044", "EP-0057"]
 history:
+  - date: 2026-08-15
+    status: Accepted
+    note: Official supervise v0.1.1 is offline-key signed, published, path-reproducible across distinct Go 1.26.6 GOROOT locations, and clean-installed from released bytes against the official anchor. The full plugin-owned conformance matrix against those exact published bytes and the broader accepted quality contract remain open.
   - date: 2026-08-14
     status: Accepted
     note: The official supervise application source and plugin-owned evaluator are durably checkpointed in a signed local stado-plugins commit; native workflow and evaluator surfaces were removed, while offline plugin signing, publication, and cross-repository release proof remain outstanding.
@@ -277,23 +280,17 @@ failed and paused runs remain in the data.
 
 ## Rollout status
 
-The official source and plugin-owned evaluator are preserved in signed local
-`stado-plugins` commit
-`987906479e9675b2aa9f972802b5ab3716d4af48`. A complete-history recovery
-bundle is retained at `.agent/stado-plugins-official-20260815-completion.bundle`
-with SHA-256
-`7eb946fe4c35b3630086f68eadab69d1bd3e5e6a3d702852648c2a1bd88c19ea`.
-The intended first immutable plugin package is
-`supervise/v0.1.0`, with `min_stado_version: 0.80.0`; the plugin is not versioned
-as stado v0.80.0.
+Official `supervise/v0.1.1` is published separately from stado with
+`min_stado_version: 0.80.0`; plugin and host versions are independent. Its
+manifest and WASM are signed by the operator-held official plugin key, and the
+release bytes reproduce across distinct Go 1.26.6 GOROOT locations. Fresh
+GitHub release bytes passed signature, digest, isolated install, and
+installed-package verification against the official owner anchor.
 
-The source commit signature is not the plugin release signature. The manifest
-and WASM artifact remain unsigned by the operator-held offline plugin key and
-unpublished. Ephemeral-key PTY proof covers setup through active cancellation;
-real-key repetition plus review, input, pivot, verification, completion,
-restart, compaction-transfer, and removal remain release gates. EP-0062 therefore
-remains Accepted, not Implemented, and ordinary installations must not claim
-that `/supervise` is available.
+The signed package is explicitly installed and enabled; it is never a native or
+default surface. EP-0062 remains Accepted rather than Implemented until the
+complete plugin-owned paired/conformance matrix is repeated against those exact
+published bytes and the remaining accepted quality-contract gates close.
 
 ## Failure modes
 

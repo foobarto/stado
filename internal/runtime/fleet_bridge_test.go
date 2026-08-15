@@ -837,11 +837,7 @@ func TestFleetBridgeAdapter_Cancel_TerminatesRunningEntry(t *testing.T) {
 
 // ---- Concurrency -------------------------------------------------------
 
-// concurrentSpawner is a race-safe spawner for the concurrency
-// test. The package's existing fakeSpawner writes a non-atomic
-// gotPrompt field that races under parallel Spawn dispatch (the
-// rest of fleet_test.go calls it serially so this is a latent
-// issue there, not a regression here).
+// concurrentSpawner is a minimal spawner for the high-fanout concurrency test.
 type concurrentSpawner struct {
 	calls atomic.Int32
 	delay time.Duration
