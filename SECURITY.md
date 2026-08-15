@@ -464,13 +464,31 @@ they've pinned your real pubkey.
 
 ## Host sandbox
 
-stado applies its Linux executor sandbox by default across TUI, `stado run`,
+stado derives a Linux host-default executor policy across TUI, `stado run`,
 `stado run --headless`, ACP, and `mcp-server`. Process and PTY imports that do
-not supply a guest policy receive the host default: bubblewrap and seccomp,
-with the launch cwd and temporary directories as the writable filesystem
-scope. A broker-attached session projects an additional process ceiling; the
-guest policy and broker ceiling can narrow the host default but cannot widen
-it. Direct `stado run` also applies Landlock to the stado process.
+not supply a guest policy receive that default, with the launch cwd and
+temporary directories as the intended writable filesystem scope. A
+broker-attached session projects an additional process ceiling; the guest
+policy and broker ceiling can narrow the host default but cannot widen it.
+
+Policy selection alone does not prove that every kernel mechanism is active:
+
+- WASM process and PTY imports use bubblewrap when it is available and fail
+  rather than silently run direct when their requested policy has no enforcing
+  Linux runner. The lower-level `sandbox.Detect()` abstraction itself falls
+  back to `NoneRunner`; caller paths that use that generic runner, including
+  stdio MCP subprocess launch, are not namespace-confined when bubblewrap is
+  unavailable.
+- The seccomp deny-list is defense in depth on the normal bubblewrap paths. It
+  is skipped for host-allowlist networking through `pasta`, and a filter setup
+  failure emits a warning and continues under bubblewrap without seccomp.
+- Direct `stado run` attempts to apply Landlock to the stado process. Landlock
+  unavailability is non-fatal and emits a warning before continuing without
+  that in-process write restriction.
+
+Use `stado doctor` to inspect the runner and Landlock availability on the
+actual host. Treat `runner: none`, a seccomp warning, or a Landlock warning as
+a real reduction in containment, not as equivalent to the full Linux posture.
 
 `--no-sandbox` is the explicit operator opt-out on every top-level surface. It
 selects direct execution and disables the default executor policy.
