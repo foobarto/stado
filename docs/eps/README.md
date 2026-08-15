@@ -90,6 +90,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0066 | [Canonical Plugin Authority and Application Placement](./0066-canonical-plugin-authority-and-application-placement.md) | Standards | Accepted |
 | 0067 | [Session Controller Capabilities and Non-Authority Application Selection](./0067-session-controller-and-application-selection.md) | Standards | Accepted |
 | 0068 | [Signed Plugin CLI Commands](./0068-signed-plugin-cli-commands.md) | Standards | Draft |
+| 0069 | [Agent-Owned Memory Authority](./0069-agent-owned-memory-authority.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

@@ -7,6 +7,7 @@ type: Standards
 created: 2026-08-12
 supersedes: ["EP-0016"]
 requires: ["EP-0015", "EP-0021", "EP-0046", "EP-0053", "EP-0057", "EP-0059"]
+extended-by: ["EP-0069"]
 see-also: ["EP-0007", "EP-0009", "EP-0044", "EP-0047"]
 history:
   - date: 2026-08-14
@@ -23,7 +24,7 @@ history:
     note: Initial draft following the RLM and Continual Harness design review.
 ---
 
-> **Relationships:** **Supersedes:** [EP-0016](./0016-learning-self-improvement-plugin.md) · **Requires:** [EP-0015](./0015-memory-system-plugin.md), [EP-0021](./0021-assistant-turn-metadata.md), [EP-0046](./0046-verify-work-phase.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0047](./0047-structured-loop-result-and-output.md)
+> **Relationships:** **Supersedes:** [EP-0016](./0016-learning-self-improvement-plugin.md) · **Requires:** [EP-0015](./0015-memory-system-plugin.md), [EP-0021](./0021-assistant-turn-metadata.md), [EP-0046](./0046-verify-work-phase.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extended by:** [EP-0069](./0069-agent-owned-memory-authority.md) · **See also:** [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0009](./0009-session-guardrails-and-hooks.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0047](./0047-structured-loop-result-and-output.md)
 
 # EP-0052: Learn — Evidence-Backed Trajectory Refinement
 
