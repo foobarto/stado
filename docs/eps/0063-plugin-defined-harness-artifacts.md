@@ -7,7 +7,7 @@ type: Standards
 created: 2026-08-14
 requires: ["EP-0038", "EP-0039", "EP-0050", "EP-0053", "EP-0058", "EP-0059"]
 extends: ["EP-0053"]
-extended-by: ["EP-0066", "EP-0067"]
+extended-by: ["EP-0066", "EP-0067", "EP-0069"]
 see-also: ["EP-0015", "EP-0016", "EP-0031", "EP-0052", "EP-0054"]
 history:
   - date: 2026-08-14
@@ -24,7 +24,7 @@ history:
     note: Initial draft generalizing EP-53 beyond hardcoded memory and lesson records.
 ---
 
-> **Relationships:** **Requires:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0050](./0050-broker.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0058](./0058-measured-adaptive-retrieval.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extends:** [EP-0053](./0053-versioned-harness-artifacts-and-index.md) · **Extended by:** [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md), [EP-0067](./0067-session-controller-and-application-selection.md) · **See also:** [EP-0015](./0015-memory-system-plugin.md), [EP-0016](./0016-learning-self-improvement-plugin.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0054](./0054-addressable-context-and-research-agents.md)
+> **Relationships:** **Requires:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0050](./0050-broker.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0058](./0058-measured-adaptive-retrieval.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extends:** [EP-0053](./0053-versioned-harness-artifacts-and-index.md) · **Extended by:** [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md), [EP-0067](./0067-session-controller-and-application-selection.md), [EP-0069](./0069-agent-owned-memory-authority.md) · **See also:** [EP-0015](./0015-memory-system-plugin.md), [EP-0016](./0016-learning-self-improvement-plugin.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0054](./0054-addressable-context-and-research-agents.md)
 
 # EP-0063: Plugin-Defined Harness Artifacts
 

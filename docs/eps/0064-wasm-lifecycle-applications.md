@@ -7,7 +7,7 @@ type: Standards
 created: 2026-08-14
 requires: ["EP-0002", "EP-0038", "EP-0050", "EP-0051", "EP-0055", "EP-0056", "EP-0057", "EP-0059", "EP-0063"]
 extends: ["EP-0051", "EP-0062"]
-extended-by: ["EP-0066", "EP-0067"]
+extended-by: ["EP-0066", "EP-0067", "EP-0069"]
 see-also: ["EP-0017", "EP-0033", "EP-0036", "EP-0046", "EP-0060"]
 history:
   - date: 2026-08-15
@@ -75,7 +75,7 @@ history:
     note: Initial draft defining persistent WASM applications and the supervise migration.
 ---
 
-> **Relationships:** **Requires:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0050](./0050-broker.md), [EP-0051](./0051-lua-lifecycle-hook-contract.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md), [EP-0063](./0063-plugin-defined-harness-artifacts.md) · **Extends:** [EP-0051](./0051-lua-lifecycle-hook-contract.md), [EP-0062](./0062-harness-enforced-supervised-work.md) · **Extended by:** [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md), [EP-0067](./0067-session-controller-and-application-selection.md) · **See also:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0046](./0046-verify-work-phase.md), [EP-0060](./0060-native-harness-guidance.md)
+> **Relationships:** **Requires:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0050](./0050-broker.md), [EP-0051](./0051-lua-lifecycle-hook-contract.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0056](./0056-agent-mailboxes-and-supervision.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md), [EP-0063](./0063-plugin-defined-harness-artifacts.md) · **Extends:** [EP-0051](./0051-lua-lifecycle-hook-contract.md), [EP-0062](./0062-harness-enforced-supervised-work.md) · **Extended by:** [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md), [EP-0067](./0067-session-controller-and-application-selection.md), [EP-0069](./0069-agent-owned-memory-authority.md) · **See also:** [EP-0017](./0017-tool-surface-policy-and-plugin-approval-ui.md), [EP-0033](./0033-responsive-supervisor-worker-lanes.md), [EP-0036](./0036-loop-monitor-schedule.md), [EP-0046](./0046-verify-work-phase.md), [EP-0060](./0060-native-harness-guidance.md)
 
 # EP-0064: WASM Lifecycle Applications
 

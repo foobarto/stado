@@ -89,10 +89,12 @@ Immediate work, in order:
    longer injects `$SSH_AUTH_SOCK`, binds arbitrary host sockets, or reserves a
    privileged git-child role. Credential masking remains; narrowly scoped SSH
    credential provisioning belongs in a separate project.
-2. **Reconcile memory ownership and bounded failure behavior.** Treat memory
-   as primarily agent-owned, express main-session versus child authority as
-   explicit capabilities that children may lose but never mint, and replace
-   banking-grade compound-error recovery with deliberate stop/retry behavior.
+2. **Review EP-69's memory ownership and bounded failure draft.** The draft
+   keeps canonical storage broker-owned while agents manage memory through
+   explicit scope capabilities: root main sessions may manage global/repo/
+   self-session memory; children hard-drop global management and may lose more
+   rights at spawn but never mint them. It replaces compound recovery with one
+   atomic mutation, one exact read-back, then a visible stop/explicit retry.
 3. **Keep agent-driven auto-approval in incubation.** Do not revise or
    implement the current draft until the operator explicitly resumes it.
 4. **Decide Minisign provisioning deliberately.** It remains optional until
@@ -107,11 +109,14 @@ release-evidence follow-up.
 
 Other staged official applications remain unsigned source candidates unless
 their own Accepted EP gates close. In particular, memory/learn remains
-candidate-only until a separately trusted presenter exists; provider reply loss
-is still cost-ambiguous; truncated learning-journal recovery fails closed;
-measured adaptive ranking and the exact `memory__search` fast path are not
-implemented. None of those gaps may be hidden behind a native fallback or a
-release claim.
+candidate-only under the current accepted contract. Draft
+[EP-0069](docs/eps/0069-agent-owned-memory-authority.md) proposes replacing the
+separately trusted presenter with admitted agent-managed scope capabilities and
+reclassifying provider reply loss or truncated learning history as visible
+terminal outcomes rather than recovery obligations. Until that draft is
+accepted and implemented, C86-C88 remain current. Measured adaptive ranking and
+the exact `memory__search` fast path are also not implemented. None of those
+gaps may be hidden behind a native fallback or a release claim.
 
 ## V1 workstreams after the corrective release
 
@@ -172,7 +177,8 @@ Owning EPs: [EP-0033](docs/eps/0033-responsive-supervisor-worker-lanes.md),
 [EP-0058](docs/eps/0058-measured-adaptive-retrieval.md),
 [EP-0060](docs/eps/0060-native-harness-guidance.md), and
 [EP-0062](docs/eps/0062-harness-enforced-supervised-work.md) through
-[EP-0064](docs/eps/0064-wasm-lifecycle-applications.md).
+[EP-0064](docs/eps/0064-wasm-lifecycle-applications.md), plus draft
+[EP-0069](docs/eps/0069-agent-owned-memory-authority.md).
 
 Remaining gates:
 
@@ -183,12 +189,11 @@ Remaining gates:
 - implement measured retrieval ranking, shadow evaluation, and reporting before
   any adaptive policy may change prompt contents; no shadow evaluator exists in
   the current source;
-- implement C86's separately trusted artifact-activation presenter before the
-  official memory/learn package can leave candidate-only status. The presenter
-  must reload the broker's exact candidate and commit one actor-bound,
-  version/digest/scope-exact, reply-loss-idempotent grant issue/consume/
-  activation transaction; a guest import, controller token, ordinary TUI
-  callback, or application-rendered prose is not operator authority;
+- resolve C86-C88 through EP-69 review. If accepted, implement a separate
+  broker session authority set, exact root/child memory profiles, recursive
+  drop-only projection, and agent-managed exact-kind/scope artifact operations;
+  provider reply loss and insufficient journal history stop visibly rather
+  than triggering automatic replay or compound recovery;
 - validate retained-agent recovery, mailboxes, recursive budgets, and lifecycle
   holds under crash, cancellation, stale generation, and backpressure;
 - release-verify supervise's token-only reviewer ceilings, durable stop
