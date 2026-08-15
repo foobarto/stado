@@ -4,6 +4,25 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## Unreleased
+
+### Security / removed surfaces
+
+- **SSH-agent forwarding removed.** Stado no longer imports
+  `$SSH_AUTH_SOCK`, binds host unix sockets into agent sandboxes, or reserves a
+  privileged git-subagent role. Sandboxed process environments always scrub
+  SSH-agent variables, and the autonomous process profile no longer mounts
+  broad `/run`. Private SSH material remains masked. Scoped, short-lived SSH
+  credential provisioning belongs outside Stado.
+- **Taint is provenance, not authority.** Remove the unused git-role taint
+  denial overlay. Explicit capabilities and parent-to-child attenuation decide
+  authority; the existing turn marker remains audit metadata.
+
+### Plugin ABI migration note
+
+- The optional `sandbox.sockets` request field is removed and old guests that
+  send it receive no socket authority. There is no in-process replacement.
+
 ## Stability commitments
 
 These hold across all releases until stado hits 1.0; after 1.0 they

@@ -52,7 +52,7 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 		FSRead:  append([]string(nil), parent.FSRead...),
 		Net:     parent.Net,
 		Exec:    cloneOptionalStrings(parent.Exec),
-		Env:     withoutString(parent.Env, "SSH_AUTH_SOCK"),
+		Env:     append([]string(nil), parent.Env...),
 		CWD:     parent.CWD,
 		Timeout: parent.Timeout,
 		Mask:    append([]string(nil), parent.Mask...),
@@ -112,16 +112,6 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-func withoutString(values []string, drop string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if value != drop {
-			out = append(out, value)
-		}
-	}
-	return out
-}
-
 // anyParentCovers reports whether requested is the same as, or a
 // subpath of, any path in parentPaths. Used to validate sub-agent
 // write_scope requests against the parent's writable set.
@@ -169,9 +159,6 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 		return false
 	}
 	if !netSubset(candidate.Net, reference.Net) {
-		return false
-	}
-	if !exactSubset(candidate.Sockets, reference.Sockets) {
 		return false
 	}
 	// Masks restrict access, so a child must retain every parent mask.

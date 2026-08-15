@@ -272,15 +272,6 @@ func (t MountTable) ToPolicy() sandbox.Policy {
 		}
 	}
 
-	// ssh-agent forwarding, default-on (decision 2026-06-13): when the
-	// host has an agent socket, bind it into the sandbox + keep the env
-	// var so git-over-ssh works. Only the socket crosses the boundary;
-	// key bytes stay in the agent. No-op when no host agent is present.
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		pol.Sockets = append(pol.Sockets, sock)
-		pol.Env = append(pol.Env, "SSH_AUTH_SOCK")
-	}
-
 	return pol
 }
 

@@ -85,9 +85,10 @@ rule, and closes the defect with a clean downloaded binary reporting
 
 Immediate work, in order:
 
-1. **Remove broad SSH-agent forwarding after v0.80.2.** Delete the Stado
-   socket-forwarding feature, tests, and documentation in a separate change;
-   do not mix that authority change into the corrective release.
+1. **Completed after v0.80.2: remove broad SSH-agent forwarding.** Stado no
+   longer injects `$SSH_AUTH_SOCK`, binds arbitrary host sockets, or reserves a
+   privileged git-child role. Credential masking remains; narrowly scoped SSH
+   credential provisioning belongs in a separate project.
 2. **Reconcile memory ownership and bounded failure behavior.** Treat memory
    as primarily agent-owned, express main-session versus child authority as
    explicit capabilities that children may lose but never mint, and replace
@@ -125,9 +126,6 @@ Remaining gates:
   do not add generalized taint propagation or a taint-policy matrix without a
   concrete preventive boundary that the existing audit cannot provide;
 - move all canonical trace/event writes behind broker ownership;
-- remove broad main-session and git-child SSH-agent socket forwarding from
-  Stado; short-lived, narrowly scoped SSH credential provisioning belongs in
-  a separate project rather than this runtime;
 - exercise mount, namespace, Landlock, seccomp, credential-mask, and network
   invariants in real Linux integration tests;
 - finish the adversarial default harness and make its declared status honest.

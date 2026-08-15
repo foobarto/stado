@@ -41,9 +41,6 @@ func TestCreateSession_SubagentProjectsParentEffectiveIntoManagedWorktree(t *tes
 	if len(parent.Ceiling.Mask) > 0 && len(child.Ceiling.Mask) == 0 {
 		t.Fatal("child dropped parent credential masks")
 	}
-	if len(child.Ceiling.Sockets) != 0 {
-		t.Fatalf("ordinary child inherited privileged sockets: %v", child.Ceiling.Sockets)
-	}
 }
 
 func TestCreateSessionSubagentRegistrationIsAtomicWithParentMutation(t *testing.T) {

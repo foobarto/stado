@@ -617,7 +617,6 @@ var numberedArchitectureCitationDebt = map[string]int{
 	"internal/audit/key.go":                    1,
 	"internal/audit/minisign.go":               1,
 	"internal/broker/ceiling.go":               1,
-	"internal/broker/gitsubagent.go":           1,
 	"internal/broker/mount_table_test.go":      1,
 	"internal/compact/compact.go":              1,
 	"internal/config/config.go":                2,
@@ -1146,10 +1145,6 @@ func nativeInterceptedToolName(name string) bool {
 		return true
 	}
 	return strings.Contains(name, "supervise__")
-}
-
-func importsPath(file *ast.File, want string) bool {
-	return len(importAliases(file, want)) > 0
 }
 
 func importAliases(file *ast.File, want string) map[string]bool {

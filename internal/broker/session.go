@@ -291,7 +291,7 @@ func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, D
 		s.sessionsMu.Unlock()
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent profile %q differs from parent profile %q", req.Profile, parent.Profile)
 	}
-	d := decisionWithTaint(req, base, parentState.taint)
+	d := base
 	if !d.Admit {
 		s.sessionsMu.Unlock()
 		s.logDecision(req, d)

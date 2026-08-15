@@ -23,7 +23,7 @@ func detectList() []Runner {
 }
 
 // BwrapRunner wraps commands in bubblewrap (bwrap). Requires the `bwrap`
-// binary on PATH. Maps Policy fields to --ro-bind / --bind / --setenv /
+// binary on PATH. Maps Policy fields to --ro-bind / --setenv /
 // --unshare-net flags.
 type BwrapRunner struct{}
 
@@ -65,8 +65,6 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		bwrapArgs = append(bwrapArgs, "--bind-try", wp, wp)
 	}
 
-	// SSH-agent-passthrough / credential masking (decision 2026-06-13).
-	//
 	// Mask renders a directory unreadable even though an ancestor was
 	// bound RO above (e.g. HOME bound RO, but the key dir must not be
 	// exfiltratable). bwrap applies operations in argv order, so the
@@ -87,14 +85,6 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 			bwrapArgs = append(bwrapArgs, "--ro-bind-try", rp, rp)
 		}
 	}
-	// Forward host unix sockets (e.g. the agent socket). Only the socket
-	// crosses the boundary; key bytes stay in the agent. --bind (RW): an
-	// agent socket needs bidirectional traffic. The matching env var is
-	// carried via p.Env (filterEnv keeps it) + --setenv below.
-	for _, sock := range p.Sockets {
-		bwrapArgs = append(bwrapArgs, "--bind", sock, sock)
-	}
-
 	childEnv := filterEnv(baseEnv(env), p.Env)
 	cleanup := func() {}
 	usePasta := false

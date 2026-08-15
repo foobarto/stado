@@ -32,13 +32,6 @@ type Policy struct {
 	// re-bound on top via FSRead. Merge UNIONs Mask: masking is a restriction, so the
 	// combined policy hides everything either side wants hidden.
 	Mask []string
-
-	// Sockets names host unix-socket paths to bind read-write into the
-	// sandbox (e.g. $SSH_AUTH_SOCK for ssh-agent forwarding). Only the
-	// socket crosses the boundary — never key bytes. The runner emits
-	// --bind <sock> <sock>. Merge INTERSECTS Sockets: a
-	// bind is an allow, so only sockets both sides grant survive.
-	Sockets []string
 }
 
 // NetPolicy describes outgoing network access.
@@ -70,10 +63,8 @@ func (p Policy) Merge(other Policy) Policy {
 	out.Exec = intersectExec(p.Exec, other.Exec)
 	out.Env = intersect(p.Env, other.Env)
 	// Mask is a restriction: hide everything either side wants hidden
-	// (union, more-restrictive combine). Sockets is an allow: only
-	// sockets both sides grant survive (intersect, like FSRead/Env).
+	// (union, more-restrictive combine).
 	out.Mask = union(p.Mask, other.Mask)
-	out.Sockets = intersect(p.Sockets, other.Sockets)
 
 	// Network: stricter Kind wins.
 	switch {
@@ -106,9 +97,6 @@ func (p Policy) Describe() string {
 		len(p.FSRead), len(p.FSWrite), len(p.Exec), len(p.Env), p.Net.Describe())
 	if len(p.Mask) > 0 {
 		fmt.Fprintf(&b, " mask=%d", len(p.Mask))
-	}
-	if len(p.Sockets) > 0 {
-		fmt.Fprintf(&b, " sockets=%d", len(p.Sockets))
 	}
 	if p.Timeout > 0 {
 		fmt.Fprintf(&b, " timeout=%s", p.Timeout)
