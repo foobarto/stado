@@ -29,7 +29,7 @@ macOS and Windows are not current or v1 targets
 ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). Their old roadmap
 items are removed rather than deferred.
 
-## Current state after v0.80.1
+## Current state after v0.80.2
 
 PR #257 merged as `391ca108` and shipped in signed Linux-only release v0.80.0.
 Its binaries, checksum manifest, Cosign certificate/signature, SBOMs, and GitHub
@@ -45,6 +45,16 @@ and the exact release commit. Independent `gh attestation verify` now succeeds
 and binds all eight payloads to the tag, commit, Release workflow, and
 transparency log. Minisign remains deliberately unprovisioned and did not emit
 an asset or embedded root.
+
+PR #260 merged as `51bba58e` and shipped in SSH-agent-signed Linux-only release
+v0.80.2. Its release race gate, GoReleaser build, Cosign signing, SBOM
+generation, GitHub provenance, and tagged homepage validation are green. All
+eleven clean-room-downloaded assets match GitHub's published digests, all eight
+payloads match the checksum manifest, and independent Cosign and GitHub
+attestation verification bind them to the exact tag, commit, Release workflow,
+and GitHub-hosted runner. The static amd64 binary reports stado 0.80.2, Go
+1.26.6, the exact release commit, and `modified: false`. Minisign remains
+deliberately unprovisioned and emitted no asset or embedded root.
 
 The official supervise application initially shipped as `supervise/v0.1.0`.
 The terminal source/release audit found that its Go 1.26.6 WASM build retained
@@ -65,28 +75,26 @@ full Linux GoReleaser snapshot with SBOMs. Local snapshot Cosign was deliberatel
 skipped because only the real GitHub Actions release has the intended OIDC
 identity.
 
-The clean-download audit found one additional build-state metadata defect. The
-published binary embeds the exact release commit but reports `modified: true`:
-GoReleaser creates unignored `dist/` metadata before invoking `go build`, so
-Go's `-buildvcs=true` stamp sees generated output. The signed hashes and
-provenance remain exact. This follow-up ignores `/dist/` and guards that rule;
-the immutable v0.80.1 tag is not rewritten.
+The v0.80.1 clean-download audit found one additional build-state metadata
+defect. That immutable binary embeds the exact release commit but reports
+`modified: true`: GoReleaser created unignored `dist/` metadata before invoking
+`go build`, so Go's `-buildvcs=true` stamp saw generated output. The signed
+hashes and provenance remained exact. v0.80.2 ignores `/dist/`, guards that
+rule, and closes the defect with a clean downloaded binary reporting
+`modified: false`; the v0.80.1 tag was not rewritten.
 
 Immediate work, in order:
 
-1. **Close the build-state marker in v0.80.2.** Re-run the full release gates
-   and prove the clean downloaded binary reports `modified: false` before
-   publishing the SSH-agent-signed patch tag.
-2. **Remove broad SSH-agent forwarding after v0.80.2.** Delete the Stado
+1. **Remove broad SSH-agent forwarding after v0.80.2.** Delete the Stado
    socket-forwarding feature, tests, and documentation in a separate change;
    do not mix that authority change into the corrective release.
-3. **Reconcile memory ownership and bounded failure behavior.** Treat memory
+2. **Reconcile memory ownership and bounded failure behavior.** Treat memory
    as primarily agent-owned, express main-session versus child authority as
    explicit capabilities that children may lose but never mint, and replace
    banking-grade compound-error recovery with deliberate stop/retry behavior.
-4. **Keep agent-driven auto-approval in incubation.** Do not revise or
+3. **Keep agent-driven auto-approval in incubation.** Do not revise or
    implement the current draft until the operator explicitly resumes it.
-5. **Decide Minisign provisioning deliberately.** It remains optional until
+4. **Decide Minisign provisioning deliberately.** It remains optional until
    the CI secret and long-lived offline release root are intentionally created;
    do not imply that current releases contain either.
 
