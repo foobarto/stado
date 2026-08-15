@@ -82,8 +82,9 @@ malformed".
 
 stado reads the pinned pubkey from `audit.EmbeddedMinisignPubkey`.
 It is empty by default, so local/dev builds do not carry a release
-trust root and `stado self-update` refuses to run. Release builds seed
-the key via `-ldflags`.
+trust root and `stado self-update` refuses to run. The v0.80.x releases
+also leave it empty because no project Minisign key has been provisioned.
+Once that key exists, release builds seed it via `-ldflags`.
 
 Derive the pubkey from `stado.pub`. The trailing base64 line decodes
 to `alg(2) || key_id(8, little-endian) || pubkey(32)`; take the inner 32

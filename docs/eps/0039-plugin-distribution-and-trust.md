@@ -1781,8 +1781,8 @@ sole operator and can adapt to format changes between versions.
   unchanged. EP-0006 frontmatter gains `extended-by: [39]`.
 - **EP-0012** (Release Integrity and Distribution) — see-also.
   Different domain: EP-0012 is binary release integrity with
-  cosign + minisign; EP-0039 is plugin distribution with
-  per-author anchors. The two systems coexist; the binary's
+  active Cosign and separately provisioned Minisign; EP-0039 is plugin
+  distribution with per-author anchors. The two systems coexist; the binary's
   trust root and the plugin author's trust root are
   independent.
 - **EP-0035** (Project-local `.stado/` directory) — extended.

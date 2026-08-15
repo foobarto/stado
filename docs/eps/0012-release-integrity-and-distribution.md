@@ -99,8 +99,9 @@ the same mechanism.
 The minisign half is supported and expected by the release contract, but
 it is not fully created by the checked-in GitHub Actions path alone.
 The offline minisign signing ceremony and ldflags seeding of
-`EmbeddedMinisignPubkey` and `EmbeddedMinisignKeyID` remain
-operator-supplied release-process steps. That distinction matters:
+`EmbeddedMinisignPubkey` remain operator-supplied release-process steps;
+the numeric `EmbeddedMinisignKeyID` cannot be linker-seeded in its current
+form and its display is deferred. That distinction matters:
 the repo contains the verification logic and the release workflow for
 the cosign-backed path today, while the minisign root publication and
 binary pinning still depend on how a given release is cut.

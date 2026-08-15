@@ -81,9 +81,10 @@ This causes three concrete problems:
 - Changing EP-39's install/trust model. This EP **reuses** it for optional
   plugins; it does not redesign identity, anchors, TOFU, or the lock file.
 - Changing EP-12's release-integrity contract for the `stado` binary itself
-  (signed `checksums.txt`, cosign + minisign, self-update). The binary still
-  ships the embedded bundled wasm; only their *provenance* changes from
-  "committed" to "built at release".
+  (signed `checksums.txt`, active Cosign verification, and separately
+  provisioned Minisign/offline self-update). The binary still ships the
+  embedded bundled wasm; only their *provenance* changes from "committed" to
+  "built at release". v0.80.x has no Minisign asset or embedded root.
 - A central plugin registry (EP-6 / EP-39 non-goal preserved).
 - Rewriting git history to purge the existing committed `.wasm`. HEAD goes
   clean; history retention is a separate, optional operator decision.
@@ -139,9 +140,10 @@ wasm-build step must precede any compile that needs the embed.
 has no PATH fallback (unlike the native rg/ast-grep, which are build-tag-gated).
 `go install …/cmd/stado@latest` builds from the module cache with no hook to run
 `build.sh`, so it cannot produce the wasm and the embed fails. The wasm are
-first-party core tools, so signing them is theatre (they ride the binary's
-cosign/minisign signature) and EP-39's trust model does not apply; the only
-reason to commit them was `go install`. We accept dropping `go install` — the
+first-party core tools, so signing them is theatre (they ride the binary archive
+covered by the checksum manifest and its active Cosign signature, plus Minisign
+when provisioned) and EP-39's trust model does not apply; the only reason to
+commit them was `go install`. We accept dropping `go install` — the
 "from source" path becomes `git clone && make`; release binaries (install.sh /
 brew, via the goreleaser before-hook) are unaffected. Fetching the wasm from
 `stado-plugins` was considered and rejected: it would obscure provenance and
@@ -173,8 +175,9 @@ Mechanism:
    an external scanner months later.
 
 Bundled wasm need **no separate signing**: they are embedded into the `stado`
-binary and covered by EP-12's binary-level cosign/minisign signature. Their
-trust derives from the signed `stado` release, not a per-plugin manifest sig.
+binary and covered by EP-12's signed checksum-manifest path: Cosign is active,
+and Minisign applies when separately provisioned. Their trust derives from the
+signed `stado` release, not a per-plugin manifest sig.
 
 ### What clears
 

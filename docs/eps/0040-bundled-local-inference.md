@@ -317,7 +317,7 @@ contexts (CI scripts, headless setups).
 
 | Artifact | Verification |
 |---|---|
-| stado release | cosign + minisign (existing). |
+| stado release | Checksum manifest signed with Cosign keyless today. Minisign and offline self-update are supported but require a separately provisioned key; v0.80.x has neither a Minisign asset nor an embedded root. |
 | `llama-server` binary | SHA256 pinned in stado-shipped `engine.json`. HTTPS-only `http.Client`, `CheckRedirect` rejects non-HTTPS redirects. Refused on mismatch. |
 | Curated GGUF | SHA256 + HF commit SHA pinned in `models.json`. Same HTTPS rules. |
 | BYO GGUF | SHA256 computed at registration, displayed; `path` + `mtime` recorded; `tainted` flag in `status`/`ls` if mtime changes. Not enforced — operator owns the call. |
@@ -626,8 +626,8 @@ surfaces the version skew; `stado inference install --version
 ## Related
 
 - **EP-12 — Release integrity and distribution.** Defines the
-  cosign + minisign chain that this EP's pinned-SHA approach plugs
-  into.
+  active Cosign checksum-manifest path and the separately provisioned
+  Minisign/offline-update path that this EP's pinned-SHA approach plugs into.
 - **EP-19 — Model / provider picker UX.** The TUI surface where
   managed-local appears as another provider preset.
 - **`internal/providers/oaicompat/`** — wire protocol; reused
