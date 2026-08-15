@@ -39,6 +39,9 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	bwrapArgs := []string{
 		"--die-with-parent",
 		"--new-session",
+		// bwrap otherwise inherits the complete launcher environment. Clear it
+		// before adding the policy-filtered variables below.
+		"--clearenv",
 		"--unshare-pid",
 		"--unshare-ipc",
 		"--unshare-uts",
@@ -201,9 +204,6 @@ func underAnyMask(p string, masks []string) bool {
 	cp := filepath.Clean(p)
 	for _, m := range masks {
 		cm := filepath.Clean(m)
-		if cp == cm {
-			return true
-		}
 		if strings.HasPrefix(cp, cm+string(filepath.Separator)) {
 			return true
 		}

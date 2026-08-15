@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -486,7 +487,7 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // The policy is conservatively permissive — runs
 // the child under bwrap or firejail for process containment
 // isolation, allows reading the system paths bash typically needs
-// (/bin, /sbin, /tmp, /run; /usr, /lib, /lib64, /etc, /proc, /dev are
+// (/bin, /sbin, /tmp, /var/tmp; /usr, /lib, /lib64, /etc, /proc, /dev are
 // bound automatically by the runner), and lets network through.
 //
 // Earlier versions of this function returned `&sandboxPolicy{CWD:
@@ -539,7 +540,36 @@ func NewDefaultSandboxPolicy(workdir string) any {
 		p.FSRead = append(p.FSRead, workdir)
 		p.FSWrite = append(p.FSWrite, workdir)
 	}
+	if mask := sshAgentSocketDirMask(os.Getenv("SSH_AUTH_SOCK"), append(append([]string{}, p.FSRead...), p.FSWrite...)); mask != "" {
+		p.Mask = append(p.Mask, mask)
+	}
 	return p
+}
+
+// sshAgentSocketDirMask returns the active agent socket's parent only when it
+// is a strict descendant of a mounted root. OpenSSH's usual
+// /tmp/ssh-*/agent.* layout is therefore shadowed without replacing the whole
+// persistent scratch mount. Empty, relative, unmounted, and root-level socket
+// paths need no extra mount or cannot be masked safely here.
+func sshAgentSocketDirMask(socketPath string, mountedRoots []string) string {
+	socketPath = filepath.Clean(strings.TrimSpace(socketPath))
+	if socketPath == "." || !filepath.IsAbs(socketPath) {
+		return ""
+	}
+	parent := filepath.Dir(socketPath)
+	if parent == string(filepath.Separator) {
+		return ""
+	}
+	for _, root := range mountedRoots {
+		root = filepath.Clean(root)
+		if root == "." || parent == root {
+			continue
+		}
+		if strings.HasPrefix(parent, root+string(filepath.Separator)) {
+			return parent
+		}
+	}
+	return ""
 }
 
 // sandboxPolicy is the wasm-side wire shape for the optional `sandbox`

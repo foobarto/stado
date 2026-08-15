@@ -56,10 +56,9 @@ type sessionState struct {
 	role       string
 	mode       string
 	generation uint64
-	// taint is the session's current provenance state (phase 6).
-	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
-	// for capability-grant decisions that should refuse when the
-	// requesting context is tainted.
+	// taint is the session's current coarse provenance marker (phase 6).
+	// Mutated via Service.SetTaint and persisted for audit/status; it does not
+	// alter capability admission.
 	taint Taint
 }
 

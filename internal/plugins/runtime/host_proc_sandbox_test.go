@@ -524,13 +524,34 @@ func TestToSandboxPolicy_TranslatesMask(t *testing.T) {
 // variables. In particular, setting SSH_AUTH_SOCK outside the sandbox does not
 // grant the sandbox access to it.
 func TestNewDefaultSandboxPolicy_DoesNotForwardSSHAgent(t *testing.T) {
-	sock := "/run/user/1000/keyring/ssh"
+	sock := "/tmp/ssh-test/agent.1"
 	t.Setenv("SSH_AUTH_SOCK", sock)
 	policy := NewDefaultSandboxPolicy("/work").(*sandboxPolicy)
 
 	for _, e := range policy.Env {
 		if e == "SSH_AUTH_SOCK" {
 			t.Fatalf("default policy forwarded SSH_AUTH_SOCK: %v", policy.Env)
+		}
+	}
+	if len(policy.Mask) != 1 || policy.Mask[0] != "/tmp/ssh-test" {
+		t.Fatalf("active SSH-agent directory was not masked: %v", policy.Mask)
+	}
+}
+
+func TestSSHAgentSocketDirMask_OnlyMasksStrictMountedDescendant(t *testing.T) {
+	roots := []string{"/tmp", "/work"}
+	tests := map[string]string{
+		"/tmp/ssh-a/agent.1":           "/tmp/ssh-a",
+		"/work/.agent/socket":          "/work/.agent",
+		"/run/user/1000/keyring/ssh":   "",
+		"/tmp/agent.sock":              "",
+		"relative/ssh-a/agent.1":       "",
+		"/workaround/.agent/socket":    "",
+		"/work/.agent/../agent/socket": "/work/agent",
+	}
+	for socketPath, want := range tests {
+		if got := sshAgentSocketDirMask(socketPath, roots); got != want {
+			t.Errorf("sshAgentSocketDirMask(%q) = %q, want %q", socketPath, got, want)
 		}
 	}
 }

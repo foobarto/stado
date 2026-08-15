@@ -210,6 +210,9 @@ func TestBwrapRunner_MaskEmission(t *testing.T) {
 		t.Fatalf("Command: %v", err)
 	}
 	args := cmd.Args
+	if !containsArg(args, "--clearenv") {
+		t.Fatalf("args missing --clearenv: %v", args)
+	}
 
 	// 1. Mask emits --tmpfs for the .ssh dir.
 	if !containsAdjacentArg(args, "--tmpfs", sshDir) {
