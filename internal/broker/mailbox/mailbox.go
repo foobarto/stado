@@ -261,7 +261,8 @@ func fold(records []wal.Record) (map[string]Message, error) {
 }
 
 // PendingCount reports available or delivered data messages without exposing
-// their untrusted payloads. It is used by host guidance and operator status.
+// their untrusted payloads. It is used by bounded application facts and
+// operator status; recommendation policy remains outside the broker.
 func PendingCount(w interface{ Records() []wal.Record }, receiver string) (int, error) {
 	messages, err := fold(w.Records())
 	if err != nil {

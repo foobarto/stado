@@ -2,17 +2,22 @@
 ep: 54
 title: Memory and Session Research Agents
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Implemented
-implemented-in: v0.78.0
+status: Accepted
 type: Standards
 created: 2026-08-12
-requires: ["EP-0004", "EP-0007", "EP-0038", "EP-0053", "EP-0057", "EP-0059"]
-see-also: ["EP-0020", "EP-0037", "EP-0050", "EP-0055", "EP-0058"]
+requires: ["EP-0004", "EP-0007", "EP-0038", "EP-0050", "EP-0053", "EP-0057", "EP-0059", "EP-0066"]
+see-also: ["EP-0002", "EP-0020", "EP-0037", "EP-0055", "EP-0058"]
 history:
+  - date: 2026-08-14
+    status: Accepted
+    note: Native host primitives and unsigned official plugin development source now implement the corrected slow-path research placement. The exact memory__search fast path plus signed installation, publication, and release proof remain outstanding; the contract is therefore not yet shipped as Implemented.
+  - date: 2026-08-14
+    status: Partial
+    note: Corrected after the implementation audit found that the shipped research tools used a private in-process provider loop and direct native corpus/WAL adapters rather than the architecture specified here.
   - date: 2026-08-12
     status: Implemented
     version: v0.78.0
-    note: Shipped in v0.78.0 as part of the memory, context, and continual-harness implementation.
+    note: Initially marked implemented when useful research behavior shipped; corrected during the 2026-08-14 placement audit.
   - date: 2026-08-12
     status: Accepted
     note: Accepted after product, security, and distributed-systems adversarial review.
@@ -21,215 +26,244 @@ history:
     note: Initial draft.
 ---
 
-> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **See also:** [EP-0020](./0020-inline-context-completion.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0050](./0050-broker.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
+> **Relationships:** **Requires:** [EP-0004](./0004-git-native-sessions-and-audit.md), [EP-0007](./0007-conversation-state-and-compaction.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0050](./0050-broker.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0057](./0057-session-state-journal-decisions-and-signals.md), [EP-0059](./0059-durable-event-and-budget-substrate.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **See also:** [EP-0002](./0002-all-tools-as-plugins.md), [EP-0020](./0020-inline-context-completion.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0055](./0055-retained-resumable-subagents.md), [EP-0058](./0058-measured-adaptive-retrieval.md)
 
 # EP-0054: Memory and Session Research Agents
 
 ## Problem
 
-Stado either injects information directly into the main model context or
-truncates it. Fast memory and session searches return lexical excerpts, while
-full historical reconstruction requires the main agent to consume many results.
-The runtime has no addressable context substrate and no isolated agent whose
-sole job is to inspect a large corpus and return a small cited synthesis.
+Fast lexical retrieval is cheap but shallow. Asking the main agent to inspect a
+large artifact or conversation corpus consumes its working context and invites
+it to confuse retrieved text with instructions. Research therefore needs an
+isolated model loop, while access to persisted evidence must remain scoped and
+mechanically accountable.
 
 ## Goals
 
-- Keep cheap deterministic search distinct from agentic research.
-- Add medium-cost memory research over curated artifacts.
-- Add slow historical research over persisted session evidence.
-- Protect the main agent context through isolated child sessions and structured
-  cited results.
-- Enforce total call, token, time, data-read, and result budgets.
+- Keep deterministic search distinct from agentic research.
+- Run research in an ordinary, auditable child session rather than a hidden
+  provider call.
+- Keep corpus selection, authority, budgets, and evidence receipts native while
+  keeping prompts, search workflow, and result policy in a signed plugin.
+- Return a bounded synthesis whose citations are tied to bytes the exact child
+  actually opened.
 
 ## Non-goals
 
-- Replacing direct context for ordinary small tasks.
-- An unrestricted REPL or model-generated native code environment.
-- Giving research agents write authority over memory, sessions, or worktrees.
-- Claiming semantic completeness from either research path.
+- Treating research as a security boundary or semantic fact checker.
+- Giving a research child write authority over artifacts, sessions, or files.
+- Letting guest JSON select another repository, session, principal, plugin, or
+  broker generation.
+- Retaining every oversized tool result; that remains a separate storage and
+  authorization problem.
 
 ## Design
 
-### Deferred addressable tool output
-
-Automatically retaining full oversized tool output creates a new secret-retention,
-storage, deletion, and fork-authorization surface and is not required for memory
-or session research, whose sources already persist. It is deferred until the
-three-speed retrieval loop is evaluated. Any later implementation must use a
-broker-owned access-controlled manifest; knowing a content digest never grants access.
-
-The earlier candidate shape is retained only as research notes:
-
-```json
-{
-  "id":"ctx_sha256...",
-  "media_type":"text/plain",
-  "bytes":4200000,
-  "lines":51203,
-  "origin":"tool_result",
-  "provenance":"untrusted",
-  "sensitivity":"normal|private|secret",
-  "session_id":"...",
-  "producer_call":"...",
-  "ceiling_digest":"...",
-  "content_digest":"..."
-}
-```
-
-No `context__metadata/read/search` tool ships in the first slice.
-
-### Fast and research paths
+### Explicit fast and slow paths
 
 ```text
-memory__search     structured/FTS lookup, no model
-memory__research   isolated agentic analysis of approved artifacts
-session__search    existing lexical/regex persisted-session lookup
-session__research  isolated agentic analysis of selected historical windows
+memory__search     deterministic artifact lookup
+memory__research   isolated agentic analysis of active visible artifacts
+session__search    deterministic persisted-conversation lookup
+session__research  isolated agentic analysis of the current session lineage
 ```
 
-Research tools create read-only child sessions through the broker with a fixed
-research persona and an immutable minimal ceiling. They use the ordinary agent
-loop, session audit, budgets, and provenance machinery. The parent tool call may
-wait for completion in v1 of this EP; retained/background execution belongs to
-EP-55.
+`memory__research` and `session__research` are explicit tools in the official
+`research` WASM package. They accept one bounded `query`. The package owns the
+prompt, selected corpus workflow, result schema, and what counts as useful
+research. Native Stado does not register either tool and has no research
+provider loop.
 
-The host issues an opaque corpus handle derived only from authenticated principal,
-canonical repo, session fork point, sensitivity policy, and child ceiling. Query
-JSON cannot name foreign identities. Authorization occurs before FTS/ranking;
-foreign denied/absent records do not leak through metadata/counts/timing where
-practical. Unrelated historical sessions require an EP-59 operator-origin grant.
+Current source status is intentionally narrower than this Accepted contract.
+The bundled `session__search` fast path exists, and the unsigned official
+`research` source implements both slow paths. The exact `memory__search` wire
+tool is not yet shipped; the memory lifecycle application's `memory` list
+action is useful inspection but is not represented as that deterministic
+search contract. EP-54 must remain Accepted until this gap is implemented or a
+later accepted decision replaces the fast-path name and semantics, and until
+the official research package is signed, installed, and release-verified.
 
-Memory children receive only `research__catalog`, `research__search_artifacts`,
-and `research__open_artifact(id,version,range)`. Session children receive only
-`research__search_windows`, `research__open_messages(session,ids|range)`, and
-`research__open_evidence(locator,range)`. Every call validates the corpus handle.
-Hard budgets cap provider calls, tokens, rows, opens, authorized bytes, result
-bytes, turns, and wall time. Full bodies cannot cross to the parent; only validated
-bounded citation excerpts can.
+Each outer tool calls ordinary `stado_agent_spawn` synchronously with:
 
-### Memory research
+- bundled `researcher` persona;
+- role `explorer`, mode and tool profile `read_only`;
+- at most 8 turns, 120 seconds, and 30,000 tokens;
+- an exact three-tool `narrow_tools` projection for one corpus.
 
-Input:
+This is the same AgentLoop, broker child admission, provider accounting,
+cancellation, and session audit path used by other subagents. Provider cleanup
+diagnostics remain separate from a valid terminal result.
+
+### Child-only evidence tools
+
+The signed package declares six helpers:
+
+```text
+research__artifact_catalog  research__artifact_search  research__artifact_open
+research__session_catalog   research__session_search   research__session_open
+```
+
+Every helper has `agent_child_only: true` and one exact per-tool evidence
+capability. Installation alone never places these tools on an ordinary parent
+turn. A broker-created child sees one only when `narrow_tools` names that exact
+tool and the loader-verified signed spawning package namespace owns the helper;
+guest JSON cannot supply that owner. A direct native spawn, bundled agent tool,
+or unrelated plugin cannot guess a helper name into existence. Missing or
+unknown requested names fail closed, and `read_only` is not a wildcard.
+
+This projection is defense in depth, not the authority boundary. Every tool
+call creates a fresh WASM Host, so the native loader also obtains an opaque
+broker token for the exact selected signed `ToolDef`. The broker reloads and
+verifies the package, derives that tool's capability subset, and rejects a
+token used for a sibling tool's corpus or operation. The token never enters
+guest memory.
+
+### Generic native evidence boundary
+
+Native Stado exposes only four generic imports:
+
+```text
+stado_evidence_catalog   stado_evidence_search
+stado_evidence_open      stado_evidence_validate
+```
+
+The broker derives principal, canonical repository, session generation,
+canonical package, and corpus scope from authenticated controller and plugin
+bindings. A request chooses only `artifact` or `session`, never an authority
+identity. Artifact evidence contains active broker-visible artifact versions.
+Session evidence contains complete JSONL records from the authenticated current
+session and at most its 99 nearest fork ancestors; unrelated sessions are
+neither enumerated nor readable. Each conversation log has an 8 MiB search-scan
+ceiling, and cancellation is checked throughout enumeration.
+
+Session references use immutable per-record byte ranges and digests:
+
+```text
+conversation.jsonl:bytes:<start>-<end>
+```
+
+Appending later turns or an append-only compaction marker does not invalidate
+an earlier complete record. Incomplete trailing records are excluded. Opening
+re-authorizes lineage, rereads the exact range, and compares the digest.
+
+The broker enforces, per exact child session, generation, and canonical
+package:
+
+- 40 aggregate catalog/search/open calls;
+- 20 opens;
+- 256 KiB total returned bytes, including catalog and search;
+- 100 rows, 32 KiB per opened body, 16 KiB final result, and 1 KiB excerpts.
+
+Budget check and WAL append share the artifact-state mutation lock, so distinct
+concurrent calls cannot overspend. Exact request/response replay is idempotent
+and does not double-count. Usage and open receipts survive Host recreation and
+broker restart.
+
+### Result and citation integrity
+
+The child returns strict JSON:
 
 ```json
 {
-  "query":"What release mistakes should I avoid?",
-  "scopes":["repo","global"],
-  "kinds":["lesson","memory"],
-  "tags":["area:release"],
-  "max_candidates":100,
-  "max_open":20,
-  "token_budget":30000
+  "answer": "bounded synthesis",
+  "claims": [{
+    "text": "one material claim",
+    "citations": [{
+      "ref": {
+        "corpus": "artifact|session",
+        "kind": "host value",
+        "id": "host value",
+        "version": 1,
+        "locator": "host value",
+        "digest": "sha256:..."
+      },
+      "excerpt": "exact substring copied from opened body",
+      "entailment_verified": false
+    }]
+  }],
+  "conflicts": [],
+  "possibly_stale": [],
+  "not_found": [],
+  "confidence": "low|medium|high",
+  "learn_suggestions": []
 }
 ```
 
-The host—not the child—resolves trusted repo/session scope. The child sees a
-catalog, opens selected full artifacts/evidence through bounded calls, and
-returns answer, cited artifact versions, conflicts, possible staleness, missing
-information, and suggested escalation. It has no `artifact.activate` or update
-capability.
+The outer plugin submits that object and the returned child session ID to
+`stado_evidence_validate`. The broker accepts only an exact direct child of the
+calling parent whose durable purpose is subagent, role is `explorer`, and mode
+is `read_only`. Every citation must match an open receipt for the child's exact
+generation, direct parent, and canonical package, and its excerpt must be an
+exact substring of the opened immutable body. Fabricated locators, digests,
+excerpts, sibling children, and foreign sessions fail the whole tool call.
 
-### Session research
-
-The host first uses descriptions, FTS/lexical hits, fork ancestry, turn metadata,
-and compaction manifests to select candidate windows. The child may open bounded
-conversation ranges and signed trace/tree evidence. It cannot resume or modify
-the source session.
-
-The result cites session IDs, turn ranges, trace/tree commits, and confidence.
-It may emit an EP-52 learn-candidate suggestion when expensive historical work
-recovered durable knowledge absent from memory.
-
-### Result contract
-
-```json
-{
-  "answer":"bounded synthesis",
-  "claims":[{"text":"bounded claim", "citations":[{
-    "ref":"precise immutable locator", "range":"bounded range",
-    "excerpt":"bounded support", "digest":"sha256:..."
-  }]}],
-  "conflicts":[],
-  "possibly_stale":[],
-  "not_found":[],
-  "confidence":"low|medium|high",
-  "learn_suggestions":[],
-  "usage":{"tokens":0,"opened":0,"elapsed_ms":0}
-}
-```
-
-The host validates locator existence, digest/range, authorization, and that the
-child read it. This is citation integrity, not semantic entailment; valid citations
-never raise confidence by themselves. Output and citation provenance remain
-untrusted in the parent context, and conflicting sources remain visible.
-
-## Migration / rollout
-
-1. Upgrade deterministic memory/session indexes and bounded readers.
-2. Ship synchronous `memory__research` with fixed persona and inherited model by
-   default; operator policy may select another configured model, with no fallback.
-3. Ship `session__research` after precise transcript/trace locators exist.
-4. Integrate retained execution through EP-55 only after measured need.
-5. Reconsider oversized tool-output retention as a separate accepted slice.
+The host always emits `entailment_verified: false`. These checks prove which
+authorized bytes were opened and quoted; they do not prove that a claim follows
+from those bytes, is complete, current, or wise. The result remains untrusted
+model output in the parent context.
 
 ## Failure modes
 
-- Child performs runaway exploration: substrate-enforced aggregate budgets stop it.
-- Research hallucinates citations: host citation validation marks result failed.
-- Corpus is too tightly coupled for partitioning: child reports low confidence and
-  recommends direct/manual inspection.
-- Source session is corrupt or audit-invalid: evidence is excluded or explicitly
-  labeled unverifiable.
+- **Runaway exploration:** child turn/time/token ceilings and broker read caps
+  stop it.
+- **Concurrent overspend:** serialized fold-and-append admits no more than the
+  durable aggregate ceiling.
+- **Host recreation or restart:** usage and receipts fold from the broker WAL;
+  they are not instance-local counters.
+- **Fabricated citation:** exact ref, receipt, body digest, and excerpt checks
+  reject it.
+- **Conversation advances or compacts:** prior complete byte-range references
+  remain valid because the log is append-only.
+- **Foreign corpus probe:** authenticated scope is resolved before enumeration,
+  and guest input has no foreign authority selector.
 
 ## Test strategy
 
-- Cross-session/cross-repo corpus-handle authorization/enumeration tests.
-- Citation validation and fabricated-citation tests.
-- Budget exhaustion and child cancellation tests.
-- Hard call/open/byte/result caps and full-body exfiltration tests.
-- Retrieval quality fixtures comparing fast search, memory research, and session
-  research without live provider dependence.
-- End-to-end context-size assertions proving raw corpora do not enter the parent.
-- Citation resolvability after compaction/migration and precise-locator tests.
+- Parent/no-narrow/read-only/unrelated/matching child-only projection matrix.
+- Broker-token sibling-capability misuse and unknown-tool bind rejection.
+- Same-call idempotency and distinct-call concurrency tests under the open cap,
+  including race builds.
+- Current-lineage enumeration and foreign-session rejection.
+- Reference stability after append, compaction, and source reconstruction.
+- Fabricated ref, digest, excerpt, foreign child, write-capable child, and
+  non-subagent validation failures.
+- Official plugin strict-input, exact spawn-profile, fixed-corpus, large host
+  response, race, vet, and reproducible unsigned WASM build checks.
 
-## Open questions
+## Deferred work
 
-- Default context-artifact retention duration must be calibrated against audit and
-  private-data expectations before automatic full-result preservation is enabled.
+- Retained/background research may compose EP-0055 after measured need.
+- Unrelated historical sessions require an explicit operator-origin grant and
+  are not silently added to the v1 corpus.
+- Automatic retention of oversized tool results remains a separate EP because
+  it creates deletion, sensitivity, fork-authorization, and secret-retention
+  obligations.
 
 ## Decision log
 
-### D1. Research is a child session
+### D1. Research is an ordinary child session
 
-- **Decided:** use ordinary broker-projected agent sessions, not hidden provider
-  calls or a privileged in-process summarizer.
-- **Alternatives:** direct LLM calls; unrestricted RLM REPL; main-agent search.
-- **Why:** sessions preserve audit, budgets, provenance, isolation, and one-agent
-  ownership while protecting parent context.
+- **Decided:** broker-created AgentLoop, not a private provider loop.
+- **Why:** one audited child path preserves budgets, provenance, cancellation,
+  persona, and tool projection without adding privileged orchestration code.
 
-### D2. Fast and slow paths stay explicit
+### D2. Workflow is WASM; evidence authority is native
 
-- **Decided:** deterministic search and agentic research use different tools.
-- **Alternatives:** silently escalate every search to a model.
-- **Why:** users and agents need predictable latency, token cost, and fidelity.
+- **Decided:** the official plugin owns research policy while the host owns
+  authenticated facts, bounds, receipts, and mechanical integrity.
+- **Why:** this follows EP-2/38/66: native primitives bridge the WASM garden;
+  they do not become a product application.
 
-### D3. Citation integrity is host-side
+### D3. Citation integrity is not semantic verification
 
-- **Decided:** accept only citations to material the child was authorized to read.
-- **Alternatives:** trust citation strings in prose.
-- **Why:** citations are useful only when mechanically tied to evidence;
-  entailment remains a separate semantic judgment.
+- **Decided:** validate exact opened bytes and direct child provenance only.
+- **Why:** a native substring check can prove a citation exists; it cannot prove
+  entailment, completeness, or truth.
 
-### D4. Tool-output retention is deferred
+### D4. Child visibility and authority are independently narrowed
 
-- **Decided:** first ship research over already-persisted memory/session corpora.
-- **Alternatives:** retain every truncated tool result immediately.
-- **Why:** retention is independent higher-risk storage work and is not necessary
-  to prove the three-speed retrieval loop.
-
-## Related
-
-- Recursive Language Models, arXiv:2512.24601
-- EP-7 Conversation State and Compaction
-- EP-53 Harness Artifacts
+- **Decided:** require signed `agent_child_only` exact projection bound to the
+  loader-verified signed spawning package owner, plus a broker-minted exact-tool
+  capability token.
+- **Why:** model presentation, WASM Host reconstruction, and durable broker
+  authority are different boundaries and must each fail closed.

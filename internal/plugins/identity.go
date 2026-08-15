@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -21,8 +22,11 @@ type Identity struct {
 }
 
 var (
-	shaRE    = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	semverRE = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$`)
+	shaRE       = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	semverRE    = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$`)
+	hostRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,252}[a-z0-9]$|^[a-z0-9]$`)
+	pathPartRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	ownerPartRE = regexp.MustCompile(`^~?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
 
 // ParseIdentity parses a plugin identity string.
@@ -41,6 +45,12 @@ func ParseIdentity(raw string) (Identity, error) {
 	if len(parts) < 3 {
 		return Identity{}, fmt.Errorf("identity %q: expected <host>/<owner>/<repo>", raw)
 	}
+	if !hostRE.MatchString(parts[0]) {
+		return Identity{}, fmt.Errorf("identity %q: invalid canonical host", raw)
+	}
+	if !ownerPartRE.MatchString(parts[1]) || !pathPartRE.MatchString(parts[2]) || parts[1] == "." || parts[1] == ".." || parts[2] == "." || parts[2] == ".." {
+		return Identity{}, fmt.Errorf("identity %q: invalid owner or repository", raw)
+	}
 	id := Identity{
 		Host:    parts[0],
 		Owner:   parts[1],
@@ -48,6 +58,11 @@ func ParseIdentity(raw string) (Identity, error) {
 		Version: version,
 	}
 	if len(parts) == 4 {
+		for _, segment := range strings.Split(parts[3], "/") {
+			if !pathPartRE.MatchString(segment) || segment == "." || segment == ".." {
+				return Identity{}, fmt.Errorf("identity %q: invalid package subdirectory", raw)
+			}
+		}
 		id.Subdir = parts[3]
 	}
 	return id, nil
@@ -77,6 +92,51 @@ func (id Identity) Key() string {
 func (id Identity) Canonical() string {
 	return id.Namespace() + "@" + id.Version
 }
+
+// PackageVersion validates and returns the signed manifest package version
+// associated with this source selector. A semver source tag names the same
+// package version (with only the conventional leading v omitted); an exact
+// commit SHA is an independent source revision and therefore accepts any valid
+// signed semver package version.
+func (id Identity) PackageVersion(manifest Manifest) (string, error) {
+	if err := ValidateVersion(manifest.Version); err != nil {
+		return "", fmt.Errorf("identity %s: invalid manifest package version %q: %w", id.Canonical(), manifest.Version, err)
+	}
+	if shaRE.MatchString(id.Version) {
+		return manifest.Version, nil
+	}
+	want := strings.TrimPrefix(id.Version, "v")
+	got := strings.TrimPrefix(manifest.Version, "v")
+	if want != got {
+		return "", fmt.Errorf("identity %s selects package version %s but signed manifest declares %s", id.Canonical(), want, manifest.Version)
+	}
+	return manifest.Version, nil
+}
+
+// SourceRevisions returns the bounded source refs tried for an identity. A
+// monorepo package prefers its EP-39 subdir-prefixed tag and may fall back to a
+// repository-wide tag. Exact commit identities have one source revision.
+func (id Identity) SourceRevisions() []string {
+	if shaRE.MatchString(id.Version) || id.Subdir == "" {
+		return []string{id.Version}
+	}
+	return []string{path.Clean(id.Subdir) + "/" + id.Version, id.Version}
+}
+
+// ValidateSourceRevision proves that a recorded ref came from the bounded
+// resolution set for this logical package identity.
+func (id Identity) ValidateSourceRevision(revision string) error {
+	for _, allowed := range id.SourceRevisions() {
+		if revision == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("source revision %q is not valid for %s", revision, id.Canonical())
+}
+
+// IsCommit reports whether the identity is pinned directly to an immutable
+// full commit rather than a semver source tag.
+func (id Identity) IsCommit() bool { return shaRE.MatchString(id.Version) }
 
 // Namespace is the stable, unversioned source identity. Artifact kinds use
 // this namespace so a plugin upgrade does not create a different logical kind;

@@ -36,6 +36,9 @@ const (
 	MethodApplicationWorkerActivate       = "broker.v1.application.worker.activate"
 	MethodApplicationWorkerResumeActivate = "broker.v1.application.worker.resume.activate"
 	MethodApplicationWorkerCancel         = "broker.v1.application.worker.cancel"
+	MethodApplicationVerificationGet      = "broker.v1.application.verification.get"
+	MethodApplicationVerificationClaim    = "broker.v1.application.verification.claim"
+	MethodApplicationVerificationFinish   = "broker.v1.application.verification.finish"
 	MethodSessionSchedule                 = "broker.v1.session.schedule"
 	MethodSessionScheduleConsume          = "broker.v1.session.schedule.consume"
 	MethodArtifactBind                    = "broker.v1.artifact.bind"
@@ -43,6 +46,8 @@ const (
 	MethodArtifactQuery                   = "broker.v1.artifact.query"
 	MethodArtifactEdit                    = "broker.v1.artifact.edit"
 	MethodArtifactObserve                 = "broker.v1.artifact.observe"
+	MethodEvidenceBind                    = "broker.v1.evidence.bind"
+	MethodEvidenceCall                    = "broker.v1.evidence.call"
 )
 
 // Error codes for broker.v1.* responses. Reserves -32020..-32029
@@ -138,6 +143,12 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return dispatchStrict(ctx, s, params, MethodApplicationWorkerResumeActivate, (*Service).applicationWorkerResumeActivate)
 	case MethodApplicationWorkerCancel:
 		return dispatchStrict(ctx, s, params, MethodApplicationWorkerCancel, (*Service).applicationWorkerCancel)
+	case MethodApplicationVerificationGet:
+		return dispatchStrict(ctx, s, params, MethodApplicationVerificationGet, (*Service).applicationVerificationGet)
+	case MethodApplicationVerificationClaim:
+		return dispatchStrict(ctx, s, params, MethodApplicationVerificationClaim, (*Service).applicationVerificationClaim)
+	case MethodApplicationVerificationFinish:
+		return dispatchStrict(ctx, s, params, MethodApplicationVerificationFinish, (*Service).applicationVerificationFinish)
 	case MethodSessionSchedule:
 		return s.dispatchSessionSchedule(ctx, params)
 	case MethodSessionScheduleConsume:
@@ -152,6 +163,10 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return s.dispatchArtifactCall(ctx, params, s.artifactEdit)
 	case MethodArtifactObserve:
 		return s.dispatchArtifactCall(ctx, params, s.artifactObserve)
+	case MethodEvidenceBind:
+		return s.dispatchEvidenceBind(ctx, params)
+	case MethodEvidenceCall:
+		return s.dispatchEvidenceCall(ctx, params)
 	}
 	return nil, &DispatchError{
 		Code:    -32601,
@@ -263,6 +278,9 @@ type ArtifactBindParams struct {
 	ControllerToken string                  `json:"controller_token"`
 	Identity        plugins.RuntimeIdentity `json:"identity"`
 	Manifest        plugins.Manifest        `json:"manifest"`
+	// ToolName selects one exact signed ToolDef. Ordinary artifact/evidence
+	// tokens are attenuated to that tool's effective capability subset.
+	ToolName string `json:"tool_name"`
 }
 
 type ArtifactBindResult struct {
@@ -274,7 +292,9 @@ type ArtifactBindResult struct {
 	AncestorSessionIDs []string `json:"ancestor_session_ids,omitempty"`
 }
 
-// ApplicationBindParams is deliberately distinct from ArtifactBindParams.
+// ApplicationBindParams is deliberately distinct from ArtifactBindParams and
+// has no tool selector. A lifecycle application binds its complete signed
+// application authority; strict RPC decoding rejects a supplied tool_name.
 // An admitted lifecycle application owns a durable event cursor, so the broker
 // allows only one live binding per session generation and plugin namespace.
 type ApplicationBindParams struct {
@@ -291,6 +311,17 @@ type ApplicationBindResult = ArtifactBindResult
 type ArtifactCallParams struct {
 	BindingToken string          `json:"binding_token"`
 	RequestID    string          `json:"request_id"`
+	Payload      json.RawMessage `json:"payload"`
+}
+
+type EvidenceBindParams ArtifactBindParams
+
+// EvidenceCallParams carries only a native-held broker binding and one fixed
+// host-selected operation. Corpus selectors in Payload are non-authoritative;
+// the broker resolves repository/session/plugin scope from the binding.
+type EvidenceCallParams struct {
+	BindingToken string          `json:"binding_token"`
+	Operation    string          `json:"operation"`
 	Payload      json.RawMessage `json:"payload"`
 }
 
@@ -452,6 +483,30 @@ func (s *Service) dispatchArtifactBind(ctx context.Context, raw json.RawMessage)
 		return nil, invalidArtifactParams(MethodArtifactBind, err)
 	}
 	return json.Marshal(result)
+}
+
+func (s *Service) dispatchEvidenceBind(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var params EvidenceBindParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, invalidArtifactParams(MethodEvidenceBind, err)
+	}
+	result, err := s.bindEvidence(ctx, params)
+	if err != nil {
+		return nil, invalidArtifactParams(MethodEvidenceBind, err)
+	}
+	return json.Marshal(result)
+}
+
+func (s *Service) dispatchEvidenceCall(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var params EvidenceCallParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, invalidArtifactParams(MethodEvidenceCall, err)
+	}
+	result, err := s.evidenceCall(ctx, params)
+	if err != nil {
+		return nil, invalidArtifactParams(MethodEvidenceCall, err)
+	}
+	return result, nil
 }
 
 func (s *Service) dispatchApplicationBind(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {

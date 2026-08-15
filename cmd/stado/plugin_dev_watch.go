@@ -43,17 +43,7 @@ func runDevWatchLoop(ctx context.Context, dir string, stdout, stderr io.Writer) 
 	}
 	pluginName := readPluginNameFromTemplate(dir)
 
-	defer func() {
-		if pluginName != "" {
-			_ = plugins.CleanupDev(cfg.StateDir(), pluginName)
-		}
-	}()
-
-	if pluginName != "" {
-		if err := plugins.PinActiveDev(cfg.StateDir(), pluginName); err != nil {
-			fmt.Fprintf(stderr, "[dev] warn: pin active marker: %v\n", err)
-		}
-	}
+	defer func() { _ = plugins.CleanupDev(cfg.StateDir(), dir) }()
 
 	fmt.Fprintf(stdout, "[dev] watching %s — Ctrl+C to stop\n", dir)
 
@@ -159,6 +149,14 @@ func rebuildOnce(dir string, stdout, stderr io.Writer) (string, error) {
 
 	seedPath := filepath.Join(dir, ".stado", "dev.seed")
 	templatePath := filepath.Join(dir, "plugin.manifest.template.json")
+	manifestPath := filepath.Join(dir, "plugin.manifest.json")
+	templateBytes, err := readRegularFileNoSymlinkMax(templatePath, maxPluginSignManifestBytes)
+	if err != nil {
+		return "", fmt.Errorf("read manifest template: %w", err)
+	}
+	if err := writeRegularFileAtomic(manifestPath, templateBytes, 0o644); err != nil {
+		return "", fmt.Errorf("seed manifest: %w", err)
+	}
 
 	origKey := pluginSignKeyPath
 	origWasm := pluginSignWasm
@@ -172,7 +170,7 @@ func rebuildOnce(dir string, stdout, stderr io.Writer) (string, error) {
 		pluginSignManifestVersion = origVersion
 	}()
 
-	if err := pluginSignCmd.RunE(pluginSignCmd, []string{templatePath}); err != nil {
+	if err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath}); err != nil {
 		return "", fmt.Errorf("sign: %w", err)
 	}
 

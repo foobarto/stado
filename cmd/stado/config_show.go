@@ -102,11 +102,6 @@ func renderConfigHuman(w interface {
 		write("  segments   %s\n\n", strings.Join(cfg.TUI.Footer.Segments, ", "))
 	}
 
-	write("[memory]\n")
-	write("  enabled        %v\n", cfg.Memory.Enabled)
-	write("  max_items      %d\n", cfg.Memory.EffectiveMaxItems())
-	write("  budget_tokens  %d\n\n", cfg.Memory.EffectiveBudgetTokens())
-
 	write("[context]\n")
 	write("  soft_threshold   %.2f\n", cfg.Context.SoftThreshold)
 	write("  hard_threshold   %.2f\n\n", cfg.Context.HardThreshold)

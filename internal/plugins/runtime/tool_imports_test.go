@@ -44,7 +44,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	mf := plugins.Manifest{
 		Name:    "third-party",
 		Version: "1.0.0",
-		Tools:   []plugins.ToolDef{{Name: "read", Class: "NonMutating"}},
+		Tools:   []plugins.ToolDef{{Name: "read", Class: "NonMutating", Capabilities: plugins.CapabilitySubset()}},
 	}
 	host := NewHost(mf, t.TempDir(), nil)
 	host.ToolHost = toolImportHost{workdir: t.TempDir()}
@@ -57,7 +57,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	}
 	defer func() { _ = mod.Close(ctx) }()
 	// Now invoking the read tool should produce a capability-denied error.
-	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "read"})
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "read", Capabilities: plugins.CapabilitySubset()})
 	if err != nil {
 		t.Fatalf("NewPluginTool: %v", err)
 	}
@@ -70,6 +70,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	// stado_fs_read denied warning (visible in the test log).
 	if !strings.Contains(combined, "denied") &&
 		!strings.Contains(combined, "capabilities") &&
+		!strings.Contains(combined, "capability") &&
 		!strings.Contains(combined, "read failed") {
 		t.Fatalf("expected capability denial at call time, got: content=%q error=%q", res.Content, res.Error)
 	}
@@ -92,7 +93,7 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 		Name:         "third-party",
 		Version:      "1.0.0",
 		Capabilities: []string{"fs:read:."},
-		Tools:        []plugins.ToolDef{{Name: "read", Class: "NonMutating"}},
+		Tools:        []plugins.ToolDef{{Name: "read", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("fs:read:.")}},
 	}
 	host := NewHost(mf, dir, nil)
 	host.ToolHost = toolImportHost{workdir: dir}
@@ -121,6 +122,42 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 	}
 }
 
+func TestPublicToolImports_ReadMissingPreservesExactHostDiagnostic(t *testing.T) {
+	ctx := context.Background()
+	rt, err := New(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rt.Close(ctx) }()
+	dir := t.TempDir()
+	mf := plugins.Manifest{
+		Name: "third-party", Version: "1.0.0", Capabilities: []string{"fs:read:."},
+		Tools: []plugins.ToolDef{{Name: "read", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("fs:read:.")}},
+	}
+	host := NewHost(mf, dir, nil)
+	host.ToolHost = toolImportHost{workdir: dir}
+	if err := InstallHostImports(ctx, rt, host); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := rt.Instantiate(ctx, bundled.MustWasm("fs"), mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mod.Close(ctx) }()
+	pluginTool, err := NewPluginTool(mod, mf.Tools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, _ := pluginTool.Run(ctx, json.RawMessage(`{"path":"missing-tasks.json"}`), host.ToolHost)
+	diagnostic := strings.ToLower(result.Error + result.Content)
+	if !strings.Contains(diagnostic, "no such file") && !strings.Contains(diagnostic, "not found") {
+		t.Fatalf("missing file lost the host diagnostic: %#v", result)
+	}
+	if host.lastFSError == "" {
+		t.Fatal("stado_fs_read did not preserve the structured host diagnostic")
+	}
+}
+
 func TestPublicToolImports_ApprovalDemoWorksWithCapability(t *testing.T) {
 	wasmBytes := buildExampleWasm(t, "approval-demo-go", "stado_tool_approval_demo")
 
@@ -136,8 +173,9 @@ func TestPublicToolImports_ApprovalDemoWorksWithCapability(t *testing.T) {
 		Version:      "1.0.0",
 		Capabilities: []string{"ui:approval"},
 		Tools: []plugins.ToolDef{{
-			Name:  "approval_demo",
-			Class: "NonMutating",
+			Name:         "approval_demo",
+			Class:        "NonMutating",
+			Capabilities: plugins.CapabilitySubset("ui:approval"),
 		}},
 	}
 	host := NewHost(mf, t.TempDir(), nil)

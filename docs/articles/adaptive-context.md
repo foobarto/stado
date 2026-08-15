@@ -1,5 +1,13 @@
 # What Survives the Window
 
+> **Source status (2026-08-14):** The generic broker artifact/migration
+> substrate and a bounded candidate-only memory/learn lifecycle application are
+> source-complete, but the official package is unsigned and unpublished. Fresh
+> activation, the trusted EP-59 presenter, adaptive ranking/evaluation, and the
+> separate research applications are not shipped. Native cross-surface memory,
+> learn, guidance, and research fallbacks have been removed; only the TUI can
+> host the future lifecycle application.
+
 The tool call fails.
 
 The agent supplied one path where the tool expected a list of paths. The error
@@ -106,12 +114,9 @@ Pending is not a euphemism for active.
 An agent can run shell commands. Therefore a CLI command executed through a
 shell is not evidence that the human operator approved anything.
 
-Stado exposes inspection through `stado learn` and the TUI:
-
-```text
-/learn candidates
-/learn show art_...
-```
+The staged official package exposes candidate creation through `/learn` only
+after its signed release is installed and admitted. Core stado exposes no
+native `stado learn` inspection or approval command.
 
 Activation is deliberately withheld until a broker-owned predeclared policy or
 a separately trusted presenter can prove operator intent for the exact artifact
@@ -147,20 +152,22 @@ than the evidence justifies.”
 Suppose the approved lesson is relevant a week later. There are three sensible
 ways to recover history, depending on how much history the question needs.
 
-The fast path is ordinary prompt retrieval. Stado selects a small number of
-active, authorized, non-expired artifacts under hard item and token limits. The
-section is labeled as reviewable, untrusted context. This is the right path for
-a short operational reminder: the tool expects a list of paths, this repository
-uses a particular verification command, or a known compatibility constraint
-must be preserved.
+The staged source for the first TUI lifecycle slice selects a small number of
+active, authorized, non-expired artifacts under hard item and byte limits. It
+is not an installed product surface until the official package is signed,
+published, and explicitly enabled. Its contribution is labeled as reviewable,
+untrusted context. This is the right path for a short operational reminder: the
+tool expects a list of paths, this repository uses a particular verification
+command, or a known compatibility constraint must be preserved.
 
 Fast retrieval is intentionally incomplete. It should be cheap enough to use on
 ordinary turns, which means it cannot open a large corpus and reason across it.
-When the question is “what did we learn about flaky release jobs?”, stado can
-launch an isolated memory researcher. That child receives catalog, search, and
-open tools over the artifacts the caller is authorized to inspect. It returns a
-bounded synthesis with exact artifact versions and excerpts. The raw search
-process stays out of the main agent's context.
+When the question is “what did we learn about flaky release jobs?”, the accepted
+architecture can launch an isolated memory researcher. That separate official
+package is not yet published. Once available, it receives catalog, search, and
+open tools over only the artifacts the caller is authorized to inspect and
+returns a bounded synthesis with exact artifact versions and excerpts. The raw
+search process stays out of the main agent's context.
 
 Historical session research is slower again. It can inspect authorized session
 paths and bounded message windows to answer questions such as “why did the
@@ -255,13 +262,15 @@ small application policy hiding in the native runtime: stado itself decided
 when a failure deserved learning, when a historical question deserved a
 researcher, and when an unread child deserved attention.
 
-Those decisions now belong to a signed lifecycle application. The host exposes
-the smaller facts it actually knows: a stable failure fingerprint repeated, a
-retrieval returned no match, a child remains active, a mailbox has unread data,
-and a particular capability is available. The application chooses whether any
-of that deserves guidance, what threshold to use, and how to word the nudge.
-Another application can make different choices without teaching native stado a
-second product's workflow.
+Those decisions now belong to a signed lifecycle application. In the TUI, the
+host exposes the smaller facts it actually knows: bounded typed session
+signals, child lifecycle, an unread-message count, fast-context presence, and
+the exact live tool ceiling. Another application's private review journal is
+not projected. Current input and retrieved-context presence are explicitly
+untrusted quality facts. The application chooses whether any of that deserves
+guidance, what threshold to use, and how to word the nudge. Another application
+can make different choices without teaching native stado a second product's
+workflow.
 
 The useful constraints survive the move. Guidance is intentionally boring. At
 most a few fixed templates fit under a separate byte cap. Raw tool arguments,
@@ -273,6 +282,14 @@ Guidance does not approve a lesson, widen a tool set, choose a recipient the
 caller could not already address, or override operator and repository
 instructions. The application can teach the model about a workflow opportunity.
 The broker still decides what that application and model are allowed to do.
+
+Its authority is deliberately smaller than a policy hook's. A guidance
+application may append one bounded section to the current system text. It
+cannot deny the turn, replace the system or model, or rewrite history. If it
+traps, returns malformed output, or tries to deny without decision authority,
+the host logs the fault and continues with no contribution—even when separate
+Lua policy is configured fail-closed. This contract currently exists only in
+the TUI; other surfaces get no native imitation of it.
 
 There is an important humility in fixed wording. No second model call is needed
 to tell the first model that two identical failures were observed. A small
@@ -294,11 +311,12 @@ considered, surfaced, opened, or cited. Claims such as *helped*, *failed*, or
 *contradicted* require an external evaluation or an explicitly labeled
 judgment. Temporal association is not presented as causal evidence.
 
-Adaptive ranking is shadow-only in the current design. Stado can compute and
-report how an alternative ranking would have ordered the eligible artifacts,
-but that score does not yet change what reaches the prompt. This makes it
-possible to inspect the proposed adaptation before adaptation starts shaping
-the evidence used to justify itself.
+The accepted adaptive-ranking design starts in shadow mode: it will compute and
+report how an alternative ranking would have ordered the eligible artifacts
+without changing what reaches the prompt. That ranker and evaluator are not in
+the current source. Implementing the shadow phase first is what will make it
+possible to inspect proposed adaptation before it starts shaping the evidence
+used to justify itself.
 
 Some material is not eligible for automatic demotion at all. Mandatory or
 pinned security guidance should not disappear because recent tasks did not cite
@@ -381,8 +399,8 @@ Memory is the set of decisions about what may meet it there.
 
 ---
 
-The concise operational references are [`stado learn`](../commands/learning.md),
-[`stado memory`](../commands/memory.md), and [context
+The concise source/rollout references are the [learn lifecycle
+guide](../commands/learning.md), [memory lifecycle guide](../commands/memory.md), and [context
 management](../features/context.md). The detailed contracts are recorded in
 [EP-0052](../eps/0052-learn-trajectory-refinement.md) through
 [EP-0060](../eps/0060-native-harness-guidance.md).

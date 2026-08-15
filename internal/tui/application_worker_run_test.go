@@ -109,6 +109,57 @@ func TestApplicationCommandConsumesResumeOnlyAfterSuccessfulTypedCallback(t *tes
 	}
 }
 
+func TestApplicationCommandCancellationStopsExactLiveRecurrenceAfterBrokerProjection(t *testing.T) {
+	m := newBudgetModel(t)
+	active := tuiWorkerRun(stadoruntime.ApplicationWorkerRunActive)
+	active.Version = 2
+	cancelled := active
+	cancelled.Status = stadoruntime.ApplicationWorkerRunCancelled
+	cancelled.Version++
+	cancelled.WALSequence++
+	cancelled.TerminalReason = "operator cancelled through application"
+	bridge := &tuiWorkerBridge{response: cancelled}
+	application := tuiWorkerApplication(active, bridge)
+	m.loop = &loopState{prompt: active.Prompt, application: application, workerRun: active}
+	m.state = stateStreaming
+	streamCancelled := false
+	m.streamCancel = func() { streamCancelled = true }
+
+	_, lookup := onApplicationCommandResult(m, applicationCommandResultMsg{
+		name: "quality", application: application,
+		result: pluginruntime.CommandResult{Status: "ok", CancelWorkerRunID: active.RunID},
+	})
+	if lookup == nil || !m.applicationWorkerHandoffRunning {
+		t.Fatalf("cancel lookup=%v handoff=%v", lookup != nil, m.applicationWorkerHandoffRunning)
+	}
+	message := lookup().(applicationWorkerRunLookupMsg)
+	if message.kind != applicationWorkerHandoffCancel || message.run.Status != stadoruntime.ApplicationWorkerRunCancelled {
+		t.Fatalf("cancel lookup message = %+v", message)
+	}
+	onApplicationWorkerRunLookup(m, message)
+	if m.loop != nil || !streamCancelled || !m.turnCancelled || m.applicationWorkerHandoffRunning {
+		t.Fatalf("cancelled projection loop=%#v stream=%v turn=%v handoff=%v", m.loop, streamCancelled, m.turnCancelled, m.applicationWorkerHandoffRunning)
+	}
+	if want := []string{"worker.get"}; !reflect.DeepEqual(bridge.operations, want) {
+		t.Fatalf("controller operations=%v want=%v", bridge.operations, want)
+	}
+}
+
+func TestApplicationCommandCancellationFailsClosedOnNonTerminalProjection(t *testing.T) {
+	m := newBudgetModel(t)
+	active := tuiWorkerRun(stadoruntime.ApplicationWorkerRunActive)
+	application := tuiWorkerApplication(active, &tuiWorkerBridge{response: active})
+	m.loop = &loopState{prompt: active.Prompt, application: application, workerRun: active}
+	m.applicationWorkerHandoffRunning = true
+
+	onApplicationWorkerRunLookup(m, applicationWorkerRunLookupMsg{
+		application: application, run: active, kind: applicationWorkerHandoffCancel,
+	})
+	if m.loop == nil || m.applicationFailureSources[applicationFailureWorkerHandoff] == nil || m.applicationWorkerHandoffRunning {
+		t.Fatalf("non-terminal cancellation loop=%#v failures=%v handoff=%v", m.loop, m.applicationFailureSources, m.applicationWorkerHandoffRunning)
+	}
+}
+
 func TestApplicationWorkerResumeUsesDedicatedNativeCASAndRestartsOnce(t *testing.T) {
 	m := newBudgetModel(t)
 	m.applicationFailure = errors.New("test provider barrier")

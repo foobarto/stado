@@ -4,8 +4,9 @@
 > EP-0065 Linux-only platform scope).
 > Model-facing product tools are signed WASM plugins dispatched through
 > capability-gated host imports; native code supplies the documented runtime
-> primitives. Remaining native model surfaces are shrinking pre-v1 migration
-> debt under EP-0066, not bootstrap exceptions or parallel application policy. See
+> primitives. The stado-owned native model-tool allowlist is empty under
+> EP-0066; the sole exact external MCP adapter is not parallel native
+> application policy. See
 > `docs/eps/0037-tool-dispatch-and-operator-surface.md`,
 > `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`,
 > `docs/eps/0005-capability-based-sandboxing.md`,
@@ -72,8 +73,8 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
   lineage verification; manual forks never inherit it. An ambiguous handoff
   outcome is fail-closed.
 - **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. `stado_ui_approve` is an opt-in yes/no workflow interaction, not an authentication primitive or a blanket containment gate.
-- Linux is the only supported platform now and through v1 (EP-0065). Existing
-  Darwin or Windows source remnants are unsupported and carry no current
+- Linux is the only supported platform now and through v1 (EP-0065). Darwin
+  and Windows are outside the build/runtime contract and carry no current
   containment guarantee. `--no-sandbox` is the explicit Linux override. Broker
   attachment is default-on for TUI, `stado run`, `stado run --headless`, ACP,
   and `mcp-server`; its projected process ceiling reaches all five. Direct
@@ -100,7 +101,7 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
   paths required for audit and conversation persistence (reads remain broad at
   the landlock layer; the capability gate is the tighter read control).
   `--no-sandbox` is the explicit per-run opt-out.
-- Residual risk: capabilities are declared per plugin and approved at install/trust time; an over-broad grant or a trusted-but-coerced tool still operates within its granted scope. There is no per-call confirmation by design (EP-0017).
+- Residual risk: capabilities are approved as a signed package ceiling at install/trust time and may be attenuated per signed tool. An over-broad effective tool grant or a trusted-but-coerced tool still operates within that scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control
 **Surface:** the supported Linux `internal/sandbox` runner (bubblewrap),
@@ -156,6 +157,11 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
   boundaries. Their pause/stop requests are enforced only through the broker's
   scoped scheduling primitives and never gain authority from model prose or a
   mailbox message (EP-0064).
+- EP-60 guidance is weaker still: an opaque broker binding selects bounded
+  current-session facts, the TUI supplies explicitly untrusted input/retrieval
+  observations and its live tool ceiling, and the application may only append
+  bounded advisory system context. It cannot deny, mutate model/history, or
+  widen authority; failure-open faults contribute nothing.
 - Host-import resource caps (v0.75.2): `stado_json_format` output capped at 4 MiB with 64-level nesting limit; `stado_dns_resolve_axfr` capped at 50k records / 120s timeout.
 - Nested `stado_tool_invoke` routes through the session `Executor.Run` when pinned (TUI/`/reload`, `stado run`, headless) so inner calls get the same audit + hook + sandbox path as top-level tools.
 
@@ -201,16 +207,19 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 - Telemetry is opt‑in (`STADO_OTEL_ENABLED` / config).
 - Hooks are operator‑configured; execution is time‑bounded and output is isolated to stderr.
 
-### Supervision reviewers (accepted target, migration in flight)
+### Supervision reviewers (quality application; release pending)
 
-EP-0064 moves `/supervise` workflow policy into the official signed WASM
-application released from `foobarto/stado-plugins`. The plugin owns contract
+EP-0064 places `/supervise` workflow policy in the official WASM application
+under `foobarto/stado-plugins/supervise`. The preserved source checkpoint is a
+signed Git commit, but the plugin manifest/artifact is not yet signed by the
+official offline key or published. Native stado contains no fallback command or
+policy path. Once the exact signed installed application is explicitly enabled,
+it dynamically owns `/supervise` and its three worker tools. The plugin owns contract
 setup, review cadence, deterministic
 detectors, reviewer/verifier prompts, verdict interpretation, stale-result
 policy, retries, plan/completion policy, and recovery workflow. Those are
 quality decisions two supervision applications could make differently; they
-are not native security primitives. The current native workflow implementation
-is migration debt, not a new architectural exception.
+are not native security primitives.
 
 The host and broker own the facts and effects a sandboxed application cannot
 provide for itself: canonical plugin/session identity, broker-stamped current

@@ -52,6 +52,10 @@ type Authority struct {
 	PluginID   string `json:"plugin_id"`
 	Principal  string `json:"principal"`
 	Actor      string `json:"actor"`
+	// Subject is the native-resolved logical git session. It is deliberately
+	// excluded from serialized mutation authority and is used only by bounded
+	// cross-domain fact projections such as session:context:read.
+	Subject string `json:"-"`
 }
 
 type Limits struct {
@@ -75,6 +79,8 @@ type Limits struct {
 	MaxActiveTimers          int
 	MaxTimerPayloadBytes     int
 	MaxTimerHorizon          time.Duration
+	MaxVerificationRecords   int
+	MaxVerificationCommands  int
 	MaxEventRecords          int
 	MaxProjectionItems       int
 }
@@ -101,6 +107,8 @@ func DefaultLimits() Limits {
 		MaxActiveTimers:          256,
 		MaxTimerPayloadBytes:     64 << 10,
 		MaxTimerHorizon:          30 * 24 * time.Hour,
+		MaxVerificationRecords:   1024,
+		MaxVerificationCommands:  64,
 		MaxEventRecords:          16384,
 		MaxProjectionItems:       256,
 	}
@@ -341,6 +349,7 @@ type ProjectionOptions struct {
 	WorkerLimit              int
 	DeferredTaskLimit        int
 	DeferredTaskAfterOrdinal uint64
+	VerificationLimit        int
 	IncludeTerminal          bool
 }
 
@@ -363,6 +372,8 @@ type Projection struct {
 	WorkerRuns              []WorkerRun      `json:"worker_runs"`
 	WorkerRunsTruncated     bool             `json:"worker_runs_truncated"`
 	Timers                  []Timer          `json:"timers"`
+	Verifications           []Verification   `json:"verifications"`
+	VerificationsTruncated  bool             `json:"verifications_truncated"`
 }
 
 // SessionScope is a broker-authenticated session incarnation. Unlike
@@ -1035,6 +1046,10 @@ func (s *Service) Project(ctx context.Context, auth Authority, options Projectio
 	if err != nil {
 		return Projection{}, err
 	}
+	verificationLimit, err := s.projectionLimit(options.VerificationLimit)
+	if err != nil {
+		return Projection{}, err
+	}
 	deferredTaskLimitRequest := options.DeferredTaskLimit
 	if deferredTaskLimitRequest == 0 {
 		deferredTaskLimitRequest = defaultDeferredTaskLimit
@@ -1125,6 +1140,15 @@ func (s *Service) Project(ctx context.Context, auth Authority, options Projectio
 			projection.Timers = append(projection.Timers, timer)
 		}
 	}
+	for _, verification := range state.verifications {
+		if !sameScope(verification.SessionID, verification.Generation, verification.PluginID, auth) {
+			continue
+		}
+		projection.AsOfSequence = max(projection.AsOfSequence, verification.WALSequence)
+		if options.IncludeTerminal || verification.Status != VerificationTerminal {
+			projection.Verifications = append(projection.Verifications, cloneVerification(verification))
+		}
+	}
 	sort.Slice(projection.Holds, func(i, j int) bool { return projection.Holds[i].ID < projection.Holds[j].ID })
 	sort.Slice(projection.WorkerRuns, func(i, j int) bool {
 		if projection.WorkerRuns[i].CreatedAt.Equal(projection.WorkerRuns[j].CreatedAt) {
@@ -1135,6 +1159,16 @@ func (s *Service) Project(ctx context.Context, auth Authority, options Projectio
 	if len(projection.WorkerRuns) > workerLimit {
 		projection.WorkerRunsTruncated = true
 		projection.WorkerRuns = append([]WorkerRun(nil), projection.WorkerRuns[len(projection.WorkerRuns)-workerLimit:]...)
+	}
+	sort.Slice(projection.Verifications, func(i, j int) bool {
+		if projection.Verifications[i].CreatedAt.Equal(projection.Verifications[j].CreatedAt) {
+			return projection.Verifications[i].ID < projection.Verifications[j].ID
+		}
+		return projection.Verifications[i].CreatedAt.Before(projection.Verifications[j].CreatedAt)
+	})
+	if len(projection.Verifications) > verificationLimit {
+		projection.VerificationsTruncated = true
+		projection.Verifications = append([]Verification(nil), projection.Verifications[len(projection.Verifications)-verificationLimit:]...)
 	}
 	sort.Slice(projection.Timers, func(i, j int) bool {
 		if projection.Timers[i].DueAt.Equal(projection.Timers[j].DueAt) {
@@ -1565,6 +1599,7 @@ type eventEnvelope struct {
 	OperatorInput *OperatorInput  `json:"operator_input,omitempty"`
 	Continuation  *Continuation   `json:"continuation,omitempty"`
 	Timer         *Timer          `json:"timer,omitempty"`
+	Verification  *Verification   `json:"verification,omitempty"`
 	Event         *Event          `json:"event,omitempty"`
 	Cursor        *EventCursor    `json:"cursor,omitempty"`
 }
@@ -1579,6 +1614,7 @@ type foldedState struct {
 	operatorInputs         map[string]OperatorInput
 	continuationDeliveries map[string]continuationDelivery
 	timers                 map[string]Timer
+	verifications          map[string]Verification
 	events                 []Event
 	cursors                map[string]EventCursor
 }
@@ -1702,6 +1738,11 @@ func eventResult[T any](event eventEnvelope) (T, error) {
 			return zero, ErrIdempotencyConflict
 		}
 		return any(*event.Timer).(T), nil
+	case Verification:
+		if event.Verification == nil {
+			return zero, ErrIdempotencyConflict
+		}
+		return any(*event.Verification).(T), nil
 	case Event:
 		if event.Event == nil {
 			return zero, ErrIdempotencyConflict
@@ -1735,6 +1776,8 @@ func stampResult[T any](result *T, sequence uint64) {
 		value.WALSequence = sequence
 	case *Timer:
 		value.WALSequence = sequence
+	case *Verification:
+		stampVerification(value, sequence)
 	case *Event:
 		value.WALSequence = sequence
 	case *EventCursor:
@@ -1767,6 +1810,9 @@ func stampEnvelope(event *eventEnvelope, sequence uint64) {
 	if event.Timer != nil {
 		event.Timer.WALSequence = sequence
 	}
+	if event.Verification != nil {
+		stampVerification(event.Verification, sequence)
+	}
 	if event.Event != nil {
 		event.Event.WALSequence = sequence
 	}
@@ -1775,11 +1821,26 @@ func stampEnvelope(event *eventEnvelope, sequence uint64) {
 	}
 }
 
+func stampVerification(value *Verification, sequence uint64) {
+	if value == nil {
+		return
+	}
+	value.WALSequence = sequence
+	if value.Status != VerificationTerminal {
+		return
+	}
+	ref := verificationWALEvidenceRef(sequence)
+	value.EvidenceRefs = appendVerificationRef(value.EvidenceRefs, ref)
+	for i := range value.Commands {
+		value.Commands[i].EvidenceRefs = appendVerificationRef(value.Commands[i].EvidenceRefs, ref)
+	}
+}
+
 func fold(records []wal.Record) (foldedState, error) {
 	state := foldedState{
 		holds: map[string]Hold{}, workerRuns: map[string]WorkerRun{},
 		operatorInputs: map[string]OperatorInput{}, continuationDeliveries: map[string]continuationDelivery{},
-		timers: map[string]Timer{}, cursors: map[string]EventCursor{},
+		timers: map[string]Timer{}, verifications: map[string]Verification{}, cursors: map[string]EventCursor{},
 	}
 	journalIDs := map[string]bool{}
 	controlIDs := map[string]bool{}
@@ -1907,6 +1968,34 @@ func fold(records []wal.Record) (foldedState, error) {
 						WALSequence: record.Sequence, CreatedAt: event.Timer.UpdatedAt,
 					})
 				}
+			case "verification.requested", "verification.running", "verification.terminal":
+				if event.Verification == nil || !entityScopeMatches(event.Meta, event.Verification.SessionID, event.Verification.Generation, event.Verification.PluginID) || event.Verification.Owner != event.Meta.PluginID || event.Verification.ID == "" || event.Verification.RunID == "" || event.Verification.WorkerVersion == 0 || event.Verification.Source.EventSequence == 0 || event.Verification.Source.SessionSequence == 0 || event.Verification.Source.TurnRef == "" || !validTreeDigest(event.Verification.Source.TreeDigest) || event.Verification.CreatedAt.IsZero() || event.Verification.UpdatedAt.IsZero() {
+					return foldedState{}, errors.New("lifecycle application fold: malformed verification event")
+				}
+				recordKey := scope + "\x00" + event.Verification.ID
+				old, exists := state.verifications[recordKey]
+				if err := validateVerificationTransition(raw.Type, old, exists, *event.Verification); err != nil {
+					return foldedState{}, err
+				}
+				projectedVerification := cloneVerification(*event.Verification)
+				if raw.Type == "verification.terminal" {
+					walRef := verificationWALEvidenceRef(record.Sequence)
+					projectedVerification.EvidenceRefs = appendVerificationRef(projectedVerification.EvidenceRefs, walRef)
+					for i := range projectedVerification.Commands {
+						projectedVerification.Commands[i].EvidenceRefs = appendVerificationRef(projectedVerification.Commands[i].EvidenceRefs, walRef)
+					}
+					data, err := json.Marshal(verificationResultEvent(projectedVerification))
+					if err != nil {
+						return foldedState{}, err
+					}
+					state.events = append(state.events, Event{
+						ID:        "verification:" + projectedVerification.ID + ":" + strconv.FormatUint(projectedVerification.Version, 10),
+						SessionID: projectedVerification.SessionID, Generation: projectedVerification.Generation,
+						Kind: VerificationFinishedEvent, Data: data, EvidenceRefs: cloneStrings(projectedVerification.EvidenceRefs), TargetPlugin: projectedVerification.PluginID,
+						WALSequence: record.Sequence, CreatedAt: projectedVerification.UpdatedAt,
+					})
+				}
+				state.verifications[recordKey] = projectedVerification
 			case "event.published":
 				if event.Event == nil || event.Event.ID == "" || event.Event.Kind == "" || len(event.Event.Data) == 0 || !json.Valid(event.Event.Data) || event.Event.CreatedAt.IsZero() || event.Event.SessionID != event.Meta.SessionID || event.Event.Generation != event.Meta.Generation {
 					return foldedState{}, errors.New("lifecycle application fold: malformed published event")
@@ -1932,7 +2021,7 @@ func fold(records []wal.Record) (foldedState, error) {
 
 func envelopePayloads(event eventEnvelope) int {
 	count := 0
-	for _, present := range []bool{event.Journal != nil, event.Hold != nil, event.Control != nil, event.Completion != nil, event.WorkerRun != nil, event.OperatorInput != nil, event.Continuation != nil, event.Timer != nil, event.Event != nil, event.Cursor != nil} {
+	for _, present := range []bool{event.Journal != nil, event.Hold != nil, event.Control != nil, event.Completion != nil, event.WorkerRun != nil, event.OperatorInput != nil, event.Continuation != nil, event.Timer != nil, event.Verification != nil, event.Event != nil, event.Cursor != nil} {
 		if present {
 			count++
 		}
@@ -2162,7 +2251,7 @@ func (s *Service) projectionLimit(limit int) (int, error) {
 }
 
 func validateLimits(l Limits) error {
-	if l.MaxIDBytes < 16 || l.MaxTextBytes < 1 || l.MaxDataBytes < 2 || l.MaxEvidenceRefs < 1 || l.MaxEvidenceRefBytes < 1 || l.MaxJournalEntries < 1 || l.MaxHoldRecords < 1 || l.MaxActiveHolds < 1 || l.MaxHoldTTL <= 0 || l.MaxControlRequests < 1 || l.MaxCompletions < 1 || l.MaxWorkerRuns < 1 || l.MaxWorkerPromptBytes < 1 || l.MaxOperatorInputs < 1 || l.MaxPendingOperatorInputs < 1 || l.MaxPendingOperatorInputs > l.MaxOperatorInputs || l.MaxOperatorInputBytes < 1 || l.MaxOperatorInputBytes > MaxOperatorInputBytes || l.MaxTimerRecords < 1 || l.MaxActiveTimers < 1 || l.MaxTimerPayloadBytes < 2 || l.MaxTimerHorizon <= 0 || l.MaxEventRecords < 1 || l.MaxProjectionItems < 1 || l.MaxActiveHolds > l.MaxHoldRecords || l.MaxActiveTimers > l.MaxTimerRecords {
+	if l.MaxIDBytes < 16 || l.MaxTextBytes < 1 || l.MaxDataBytes < 2 || l.MaxEvidenceRefs < 1 || l.MaxEvidenceRefBytes < 1 || l.MaxJournalEntries < 1 || l.MaxHoldRecords < 1 || l.MaxActiveHolds < 1 || l.MaxHoldTTL <= 0 || l.MaxControlRequests < 1 || l.MaxCompletions < 1 || l.MaxWorkerRuns < 1 || l.MaxWorkerPromptBytes < 1 || l.MaxOperatorInputs < 1 || l.MaxPendingOperatorInputs < 1 || l.MaxPendingOperatorInputs > l.MaxOperatorInputs || l.MaxOperatorInputBytes < 1 || l.MaxOperatorInputBytes > MaxOperatorInputBytes || l.MaxTimerRecords < 1 || l.MaxActiveTimers < 1 || l.MaxTimerPayloadBytes < 2 || l.MaxTimerHorizon <= 0 || l.MaxVerificationRecords < 1 || l.MaxVerificationCommands < 1 || l.MaxEventRecords < 1 || l.MaxProjectionItems < 1 || l.MaxActiveHolds > l.MaxHoldRecords || l.MaxActiveTimers > l.MaxTimerRecords {
 		return fmt.Errorf("%w: invalid lifecycle application limits", ErrInvalid)
 	}
 	return nil

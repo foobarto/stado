@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -36,13 +37,12 @@ import (
 	"github.com/foobarto/stado/internal/tui/providerpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
-	"github.com/foobarto/stado/internal/tui/supervisepicker"
-	"github.com/foobarto/stado/internal/tui/taskpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
 	"github.com/foobarto/stado/internal/tui/treepicker"
 	"github.com/foobarto/stado/internal/tui/vimmode"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
@@ -254,13 +254,16 @@ type (
 	applicationBoundaryMsg struct {
 		continuation applicationBoundaryContinuation
 		applications []*runtime.LoadedLifecycleApplication
+		published    bool
 		completed    bool
 		err          error
+		generation   uint64
 	}
 	applicationPollTickMsg   struct{}
 	applicationPollResultMsg struct {
 		applications []*runtime.LoadedLifecycleApplication
 		err          error
+		generation   uint64
 	}
 	pluginApprovalRequestMsg struct {
 		title    string
@@ -392,24 +395,35 @@ type Model struct {
 	// scheduling under one canonical broker admission.
 	lifecycleApplications            []*runtime.LoadedLifecycleApplication
 	applicationCommands              map[string]*runtime.LoadedLifecycleApplication
+	applicationCommandConflicts      map[string]struct{}
 	applicationFailure               error
 	applicationAdmissionFailure      error
 	applicationFailureSources        map[string]error
 	applicationWorkerRecoveryPending bool
 	applicationPollRunning           bool
+	applicationPollGeneration        uint64
 	applicationCommandRunning        bool
 	applicationWorkerHandoffRunning  bool
-	applicationInputCaptureRunning   bool
-	applicationInputCaptureText      string
-	applicationInputCaptureRetryID   string
-	applicationInputCaptureRetryText string
-	applicationInputDeliveryRunning  bool
-	applicationInputPendingAfter     applicationInputAfter
-	applicationDeferredTaskNotice    string
-	backgroundTickRunning            bool
-	backgroundTickQueued             bool
-	backgroundTickPayload            []byte
-	backgroundPluginIssues           []string
+	applicationVerificationMu        sync.Mutex
+	// applicationVerificationContext is cancelled whenever the admitted
+	// lifecycle composition is replaced or closed. Verification commands run
+	// against a captured context, never by reading mutable Model session fields
+	// from their goroutine. The generation also prevents a late result from an
+	// old composition replacing the newly admitted application set.
+	applicationVerificationContext    context.Context
+	applicationVerificationCancel     context.CancelFunc
+	applicationVerificationGeneration uint64
+	applicationInputCaptureRunning    bool
+	applicationInputCaptureText       string
+	applicationInputCaptureRetryID    string
+	applicationInputCaptureRetryText  string
+	applicationInputDeliveryRunning   bool
+	applicationInputPendingAfter      applicationInputAfter
+	applicationDeferredTaskNotice     string
+	backgroundTickRunning             bool
+	backgroundTickQueued              bool
+	backgroundTickPayload             []byte
+	backgroundPluginIssues            []string
 	// pluginRuntime shared across all background plugins — each
 	// plugin's Module is separate, but the wazero Runtime is the
 	// container. Nil until LoadBackgroundPlugins runs.
@@ -443,10 +457,7 @@ type Model struct {
 	verifyRounds     int
 	verifying        bool
 	verifyGeneration uint64
-	// supervision is the host-owned /supervise run attached to this root
-	// session. It is distinct from the legacy responsive /supervisor lane.
-	supervision *superviseRuntime
-	session     *stadogit.Session
+	session          *stadogit.Session
 	// Cached footer VCS summary. Status rendering happens frequently, so
 	// avoid probing git on every frame.
 	statusGitCwd       string
@@ -457,34 +468,32 @@ type Model struct {
 	sessionUIStates map[string]sessionUIState
 
 	// UI components
-	input         *input.Editor
-	slash         *palette.Model
-	slashInline   bool
-	agentPick     *agentpicker.Model
-	modelPicker   *modelpicker.Model
-	sessionPick   *sessionpicker.Model
-	taskPick      *taskpicker.Model
-	treePick      *treepicker.Model
-	themePick     *themepicker.Model
-	filePicker    *filepicker.Model
-	providerPick  *providerpicker.Model
-	fleetPicker   *fleetpicker.Model
-	supervisePick *supervisepicker.Model
-	fleet         *runtime.Fleet
-	attach        attachState // /session attach RW state (EP-0038 §F)
+	input        *input.Editor
+	slash        *palette.Model
+	slashInline  bool
+	agentPick    *agentpicker.Model
+	modelPicker  *modelpicker.Model
+	sessionPick  *sessionpicker.Model
+	treePick     *treepicker.Model
+	themePick    *themepicker.Model
+	filePicker   *filepicker.Model
+	providerPick *providerpicker.Model
+	fleetPicker  *fleetpicker.Model
+	fleet        *runtime.Fleet
+	attach       attachState // /session attach RW state (EP-0038 §F)
 	// sessionToolOverrides holds /tool enable/disable/autoload/
 	// unautoload edits made without --save. Zero value = no
 	// overrides. EP-0037 §I, BACKLOG #5.
 	sessionToolOverrides sessionToolOverrides
 
-	// activatedTools tracks tools the model brought into the per-turn
-	// surface via tools__describe / tools__activate / plugin__load.
-	// EP-0037 lazy-load: each turn sends only AutoloadedTools(reg, cfg)
-	// + the names in this set. Cleared on /clear and on session-switch.
-	// nil = empty (treat as no activations).
-	activatedTools map[string]bool
-	vp             viewport.Model
-	showHelp       bool
+	// activatedTools is the generic session-scoped expansion chosen by a
+	// signed WASM application through the digest-fenced surface-edit import.
+	// Native code applies complete edits atomically and never infers policy
+	// from a tool result. Cleared on /clear and on session switch.
+	activatedToolsMu sync.RWMutex
+	activatedTools   map[string]bool
+	vp               viewport.Model
+	showHelp         bool
 	// helpScroll is the first visible content line of the help overlay
 	// (the body is taller than the canvas; ↑/↓ scroll it). Reset to 0
 	// whenever the overlay opens; clamped by RenderHelp on every frame.
@@ -526,9 +535,6 @@ type Model struct {
 	// message exists). Pi's pattern — lets the user line up "the next
 	// thing to try" without waiting for the model to finish typing.
 	queuedPrompt string
-	// pendingLearn records a user /learn gesture made while a turn is busy.
-	// It runs only after that turn reaches a durable boundary.
-	pendingLearnFocus *string
 	// steeringMsg is a message the user injected mid-turn (Enter while
 	// busy, or /steer). Unlike queuedPrompt (which waits for the next
 	// turn), it's drained into the live conversation at the next tool
@@ -537,11 +543,15 @@ type Model struct {
 	steeringMsg string
 	// recoveryPrompt is the blocked prompt currently waiting for a
 	// plugin-driven context recovery fork. When the expected plugin
-	// creates a child session, the TUI switches to it and replays this
-	// prompt there instead of dropping it.
-	recoveryPrompt       string
-	recoveryPluginName   string
-	recoveryPluginActive bool
+	// creates a child session, the TUI switches to it and either replays this
+	// ordinary prompt there or, when recoveryApplicationWorker is set,
+	// reconciles the exact broker-owned WorkerRun instead. Treating an
+	// application recurrence prompt as ordinary input would bypass its durable
+	// owner and could race a duplicate recurrence after the handoff.
+	recoveryPrompt            string
+	recoveryPluginName        string
+	recoveryPluginActive      bool
+	recoveryApplicationWorker bool
 
 	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
 	// prompt size (not cumulative) — it's the correct input for the
@@ -725,16 +735,22 @@ type Model struct {
 	toolTickTimer *time.Timer
 
 	// Per-turn accumulators (reset on startStream).
-	turnText       string
-	turnThinking   string
-	turnThinkSig   string
-	turnToolCalls  []agent.ToolUseBlock
-	turnAllowed    map[string]struct{}
-	turnMode       inputMode
-	turnModel      string
-	turnProvider   string
-	turnUsage      agent.Usage
-	turnTreeBefore plumbing.Hash
+	turnText      string
+	turnThinking  string
+	turnThinkSig  string
+	turnToolCalls []agent.ToolUseBlock
+	turnAllowed   map[string]struct{}
+	// turnToolInstances binds each provider-visible name to the exact adapter
+	// projected for that turn. It prevents a response generated against an old
+	// lifecycle application instance from dispatching through a rebound owner.
+	turnToolInstances                       map[string]tool.Tool
+	turnApplicationToolProjectionGeneration uint64
+	applicationToolProjectionGeneration     atomic.Uint64
+	turnMode                                inputMode
+	turnModel                               string
+	turnProvider                            string
+	turnUsage                               agent.Usage
+	turnTreeBefore                          plumbing.Hash
 	// applicationIteration counts provider continuations inside the current
 	// operator turn. It resets only after Session.NextTurn succeeds.
 	applicationIteration int
@@ -863,13 +879,11 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		modelPicker:      modelpicker.New(),
 		personaPicker:    personapicker.New(),
 		sessionPick:      sessionpicker.New(),
-		taskPick:         taskpicker.New(),
 		treePick:         treepicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
 		providerPick:     providerpicker.New(),
 		fleetPicker:      fleetpicker.New(),
-		supervisePick:    supervisepicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
 		vp:               viewport.New(),

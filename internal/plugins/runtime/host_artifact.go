@@ -76,6 +76,12 @@ func registerArtifactImport(builder wazero.HostModuleBuilder, host *Host, operat
 				fail(err.Error())
 				return
 			}
+			operationPayload, err = host.resolveArtifactSelfRequest(operation, operationPayload)
+			if err != nil {
+				host.Logger.Warn(name+" denied", slog.String("err", err.Error()))
+				fail("invalid artifact self-kind request")
+				return
+			}
 
 			caller := ArtifactCaller{Identity: host.Identity, ArtifactCallerContext: host.ArtifactCaller}
 			var response []byte
@@ -152,6 +158,60 @@ func (h *Host) authorizeArtifactRequest(operation artifactOperation, payload []b
 	return nil
 }
 
+// resolveArtifactSelfRequest converts the non-authoritative self#<local-kind>
+// spelling into the namespace from the loader-authenticated RuntimeIdentity.
+// The broker independently resolves the signed capability at admission, so a
+// compromised in-process host cannot broaden this convenience translation.
+func (h *Host) resolveArtifactSelfRequest(operation artifactOperation, payload []byte) ([]byte, error) {
+	if operation != artifactQuery && operation != artifactObserve {
+		return payload, nil
+	}
+	object, err := decodeArtifactRequestObject(payload)
+	if err != nil {
+		return nil, err
+	}
+	resolve := func(value string) (string, error) {
+		if !strings.HasPrefix(value, "self#") {
+			return value, nil
+		}
+		return h.Identity.QualifiedKind(strings.TrimPrefix(value, "self#"))
+	}
+	if raw := object["kinds"]; len(raw) != 0 {
+		var kinds []string
+		if err := json.Unmarshal(raw, &kinds); err != nil {
+			return nil, errors.New("artifact request kinds must be a string array")
+		}
+		for index := range kinds {
+			if kinds[index], err = resolve(kinds[index]); err != nil {
+				return nil, err
+			}
+		}
+		object["kinds"], err = json.Marshal(kinds)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if raw := object["kind"]; len(raw) != 0 {
+		var kind string
+		if err := json.Unmarshal(raw, &kind); err != nil {
+			return nil, errors.New("artifact request kind must be a string")
+		}
+		if kind, err = resolve(kind); err != nil {
+			return nil, err
+		}
+		if operation == artifactQuery {
+			object["kinds"], err = json.Marshal([]string{kind})
+			delete(object, "kind")
+		} else {
+			object["kind"], err = json.Marshal(kind)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(object)
+}
+
 func decodeArtifactRequestObject(payload []byte) (map[string]json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(payload))
 	var object map[string]json.RawMessage
@@ -175,6 +235,9 @@ func artifactRequestString(object map[string]json.RawMessage, field string) (str
 
 func artifactRequestKinds(object map[string]json.RawMessage) ([]string, error) {
 	var kinds []string
+	if len(object["kinds"]) != 0 && len(object["kind"]) != 0 {
+		return nil, errors.New("artifact request cannot contain both kind and kinds")
+	}
 	if raw := object["kinds"]; len(raw) != 0 {
 		if json.Unmarshal(raw, &kinds) != nil {
 			return nil, errors.New("artifact request kinds must be a string array")

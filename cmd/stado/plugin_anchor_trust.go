@@ -15,10 +15,13 @@ package main
 //   - first sight + anchor unreachable or unpublished → refuse: first-time
 //     install requires a reachable anchor (cached owners are unaffected)
 //
-// Distinct from the per-KEY signer TrustStore the install already runs — this
-// is per-OWNER identity continuity, and it binds that identity to the signature.
+// Installs commit owner continuity and the signer key together in the atomic
+// TrustStore file. Pre-v1 legacy split anchor metadata is deliberately not
+// inferred: the operator must remove it and explicitly accept the owner again.
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,6 +42,15 @@ const (
 	anchorRefuseSignerBinding                       // anchor fingerprint != manifest signer
 	anchorRefuseUnreachable                         // first sight + anchor not obtained
 )
+
+type preparedAnchorTrust struct {
+	OwnerKey    string
+	Pubkey      string
+	Fingerprint string
+	FirstSight  bool
+}
+
+var fetchOwnerAnchorPubkey = plugins.FetchAnchorPubkey
 
 // decideAnchor is the pure trust decision. Inputs:
 //   - cachedFP:     the fingerprint stored for this owner ("" = first sight)
@@ -76,29 +88,36 @@ func decideAnchor(cachedFP, anchorFP, manifestFpr string, fetchOK bool) anchorDe
 	}
 }
 
-// enforceAnchorTrust gates a remote install on owner anchor TOFU + signer
-// binding. manifestFpr is the manifest's author_pubkey_fpr; assumeYes accepts a
-// first-sight anchor without prompting (--trust-anchor).
-func enforceAnchorTrust(cmd *cobra.Command, cfg *config.Config, id plugins.Identity, manifestFpr string, assumeYes bool) error {
-	store := plugins.NewAnchorTrustStore(cfg.StateDir())
-	cachedFP, err := store.Fingerprint(id.OwnerKey())
+// prepareAnchorTrust performs every owner/key decision without mutating trust
+// state. The caller must verify digest, signature, package identity, CRL, and
+// dependency policy before committing this candidate through
+// TrustStore.TrustVerifiedAnchor.
+func prepareAnchorTrust(cmd *cobra.Command, cfg *config.Config, id plugins.Identity, manifestFpr string, assumeYes bool) (preparedAnchorTrust, error) {
+	trust := plugins.NewTrustStore(cfg.StateDir())
+	unified, unifiedOK, err := trust.AnchorSigner(id.OwnerKey())
 	if err != nil {
-		return fmt.Errorf("install: anchor trust read: %w", err)
+		return preparedAnchorTrust{}, fmt.Errorf("install: anchor trust read: %w", err)
+	}
+	cachedFP := ""
+	cachedPubkey := ""
+	if unifiedOK {
+		cachedFP, cachedPubkey = unified.Fingerprint, unified.Pubkey
 	}
 
-	anchorFP, fetchOK, fetchErr := fetchAnchorFingerprint(cmd, id)
+	anchorPubkey, anchorFP, fetchOK, fetchErr := fetchAnchorKey(cmd, id)
 
 	switch decideAnchor(cachedFP, anchorFP, manifestFpr, fetchOK) {
 	case anchorProceed:
 		if fetchOK {
 			fmt.Fprintf(cmd.ErrOrStderr(), "anchor: %s trusted (fingerprint %s)\n", id.OwnerKey(), anchorFP)
+			return preparedAnchorTrust{OwnerKey: id.OwnerKey(), Pubkey: anchorPubkey, Fingerprint: anchorFP}, nil
 		} else {
 			fmt.Fprintf(cmd.ErrOrStderr(), "anchor: %s offline — using cached trust (fingerprint %s)\n", id.OwnerKey(), cachedFP)
+			return preparedAnchorTrust{OwnerKey: id.OwnerKey(), Pubkey: cachedPubkey, Fingerprint: cachedFP}, nil
 		}
-		return nil
 
 	case anchorRefuseUnreachable:
-		return fmt.Errorf(
+		return preparedAnchorTrust{}, fmt.Errorf(
 			"install refused: anchor repo at %s not reachable; first-time install requires anchor; cached owners are unaffected%s",
 			id.AnchorURL(), fetchErrSuffix(fetchErr))
 
@@ -107,12 +126,12 @@ func enforceAnchorTrust(cmd *cobra.Command, cfg *config.Config, id plugins.Ident
 		if !fetchOK {
 			ref = cachedFP
 		}
-		return fmt.Errorf(
+		return preparedAnchorTrust{}, fmt.Errorf(
 			"install refused: %s's manifest is signed by %s but the owner's anchor key is %s — the plugin is not signed by the owner's anchor key (EP-0039 step 4)",
 			id.OwnerKey(), manifestFpr, ref)
 
 	case anchorRefuseMismatch:
-		return fmt.Errorf(
+		return preparedAnchorTrust{}, fmt.Errorf(
 			"install refused: anchor fingerprint for %s changed (trusted %s, fetched %s) — possible key rotation or compromise. "+
 				"If the rotation is expected, verify the new key out of band, then clear the pin with `stado plugin untrust-anchor %s` and reinstall",
 			id.OwnerKey(), cachedFP, anchorFP, id.OwnerKey())
@@ -121,34 +140,31 @@ func enforceAnchorTrust(cmd *cobra.Command, cfg *config.Config, id plugins.Ident
 		if !assumeYes {
 			if !promptYesNoTTY(cmd, fmt.Sprintf(
 				"First install from %s. Trust anchor fingerprint %s for this owner's plugins?", id.OwnerKey(), anchorFP)) {
-				return fmt.Errorf(
+				return preparedAnchorTrust{}, fmt.Errorf(
 					"install refused: anchor for %s not trusted on first sight. Re-run with --trust-anchor (after verifying the key out of band) or pre-trust via `stado plugin trust`",
 					id.OwnerKey())
 			}
 		}
-		if err := store.Trust(id.OwnerKey(), anchorFP, plugins.AnchorTrustOwner); err != nil {
-			return fmt.Errorf("install: record anchor trust: %w", err)
-		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "anchor: trusted %s on first sight (fingerprint %s, scope owner)\n", id.OwnerKey(), anchorFP)
-		return nil
+		fmt.Fprintf(cmd.ErrOrStderr(), "anchor: accepted %s on first sight (fingerprint %s); commit waits for package verification\n", id.OwnerKey(), anchorFP)
+		return preparedAnchorTrust{OwnerKey: id.OwnerKey(), Pubkey: anchorPubkey, Fingerprint: anchorFP, FirstSight: true}, nil
 	}
-	return nil
+	return preparedAnchorTrust{}, errors.New("install: unknown anchor trust decision")
 }
 
-// fetchAnchorFingerprint fetches and parses the owner's anchor pubkey, returning
-// its fingerprint, whether the fetch+parse succeeded, and any error (for the
+// fetchAnchorKey fetches and parses the owner's anchor pubkey, returning its
+// canonical hex form, fingerprint, whether fetch+parse succeeded, and error (for the
 // operator-facing message). A 404 (owner publishes no anchor) and a network
 // error both yield fetchOK=false — first-time installs fail closed either way.
-func fetchAnchorFingerprint(cmd *cobra.Command, id plugins.Identity) (fingerprint string, ok bool, err error) {
-	pubStr, ferr := plugins.FetchAnchorPubkey(cmd.Context(), id.AnchorURL())
+func fetchAnchorKey(cmd *cobra.Command, id plugins.Identity) (key, fingerprint string, ok bool, err error) {
+	pubStr, ferr := fetchOwnerAnchorPubkey(cmd.Context(), id.AnchorURL())
 	if ferr != nil {
-		return "", false, ferr
+		return "", "", false, ferr
 	}
 	pub, perr := plugins.ParsePubkey(strings.TrimSpace(pubStr))
 	if perr != nil {
-		return "", false, fmt.Errorf("anchor pubkey parse: %w", perr)
+		return "", "", false, fmt.Errorf("anchor pubkey parse: %w", perr)
 	}
-	return plugins.Fingerprint(pub), true, nil
+	return hex.EncodeToString(pub), plugins.Fingerprint(pub), true, nil
 }
 
 func fetchErrSuffix(err error) string {

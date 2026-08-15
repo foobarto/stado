@@ -35,8 +35,9 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerUIRenderImport(builder, host)
 	registerFSImports(builder, host)
 	registerSessionImports(builder, host)
-	registerLLMImport(builder, host)
+	registerProviderImport(builder, host)
 	registerArtifactImports(builder, host)
+	registerEvidenceImports(builder, host)
 	registerApplicationImports(builder, host)
 	registerCfgImports(builder, host)
 	registerPTYImports(builder, host)
@@ -57,6 +58,8 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerInstanceImports(builder, host)
 	// 2026-05-06: stado_tool_invoke — inter-tool composition (tester #3).
 	registerToolInvokeImport(builder, host)
+	registerRegistryCatalogImports(builder, host)
+	registerContextResourceImports(builder, host)
 	// 2026-05-06: EP-0038f Tier 1 net dial (TCP) — tester #5.
 	registerNetImports(builder, host, r)
 	// EP-0038h: stado_json_get / stado_json_format — host-side JSON

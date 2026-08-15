@@ -97,6 +97,9 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 		n = stadoFSRead(uint32(pathPtr), uint32(len(pathBytes)), uint32(buf), uint32(bufCap))
 	}
 	if n < 0 {
+		if message := lastFSError(); message != "" {
+			return writeError(resPtr, resCap, message)
+		}
 		return writeError(resPtr, resCap, "read failed")
 	}
 	// Full-file reads carry LINE#HASH: prefixes — byte-identical to the

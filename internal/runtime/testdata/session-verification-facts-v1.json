@@ -1,0 +1,52 @@
+{
+  "schema": "stado.dev/session-verification-facts/v1",
+  "verification_id": "verification_fixture",
+  "run_id": "run-fixture",
+  "version": 3,
+  "source": {
+    "event_sequence": 42,
+    "session_sequence": 4294967297,
+    "turn_ref": "git:refs/sessions/fixture/tree@0123456789abcdef0123456789abcdef01234567#turn-1-iteration-1",
+    "tree_digest": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "source_evidence_refs": [
+    "git:refs/sessions/fixture/tree@0123456789abcdef0123456789abcdef01234567"
+  ],
+  "suite_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "command_digests": [
+    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "outcome": "command_failed",
+  "failure_kind": "command_failed",
+  "failure_fingerprint": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "commands": [
+    {
+      "ordinal": 1,
+      "command_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "result_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "outcome": "succeeded",
+      "evidence_refs": [
+        "git:refs/sessions/fixture/trace@1111111111111111111111111111111111111111",
+        "broker:wal:lifecycle_application:45"
+      ]
+    },
+    {
+      "ordinal": 2,
+      "command_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "result_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "outcome": "failed",
+      "failure_kind": "command_failed",
+      "failure_fingerprint": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "evidence_refs": [
+        "git:refs/sessions/fixture/trace@2222222222222222222222222222222222222222",
+        "broker:wal:lifecycle_application:45"
+      ]
+    }
+  ],
+  "evidence_refs": [
+    "git:refs/sessions/fixture/trace@1111111111111111111111111111111111111111",
+    "git:refs/sessions/fixture/trace@2222222222222222222222222222222222222222",
+    "broker:wal:lifecycle_application:45"
+  ]
+}

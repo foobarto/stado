@@ -93,31 +93,69 @@ func TestLoadOneBackgroundRejectsEscapingPluginID(t *testing.T) {
 	}
 }
 
-// seedInstalledAutoCompact pretends an auto-compact plugin is
-// installed by creating a directory under $XDG_DATA_HOME/stado/plugins.
-// The version suffix is configurable per test.
-func seedInstalledAutoCompact(t *testing.T, version string) {
+func seedInstalledAutoCompactAt(t *testing.T, source, version string) plugins.InstalledPackage {
 	t.Helper()
-	root := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", root)
-	dir := filepath.Join(root, "stado", "plugins", "auto-compact-"+version)
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := plugins.Manifest{
+		Name: "auto-compact", Version: version,
+		WASMSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	data, err := manifest.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pluginsRoot := filepath.Join(os.Getenv("XDG_DATA_HOME"), "stado", "plugins")
+	dir := filepath.Join(pluginsRoot, record.StoreKey)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.WriteInstallRecord(dir, record, manifest); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := plugins.RuntimeIdentityForLocalSource(manifest, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plugins.InstalledPackage{Dir: dir, Record: record, Manifest: manifest, Identity: identity}
+}
+
+func seedInstalledAutoCompact(t *testing.T, version string) plugins.InstalledPackage {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", root)
+	return seedInstalledAutoCompactAt(t, filepath.Join(t.TempDir(), "auto-compact"), version)
 }
 
 // TestInstalledAutoCompact_ReturnsDirWhenPresent asserts the scanner
 // finds the plugin directory and returns its name (which the
 // hard-threshold advisory then formats into a /plugin:<name> hint).
 func TestInstalledAutoCompact_ReturnsDirWhenPresent(t *testing.T) {
-	seedInstalledAutoCompact(t, "0.1.0")
+	pkg := seedInstalledAutoCompact(t, "0.1.0")
 
 	rnd, _ := render.New(theme.Default())
 	m := NewModel("/tmp", "m", "p",
 		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
 	got := m.installedAutoCompact()
-	if got != "auto-compact-0.1.0" {
-		t.Errorf("installedAutoCompact = %q, want auto-compact-0.1.0", got)
+	if got != pkg.Identity.Canonical {
+		t.Errorf("installedAutoCompact = %q, want %q", got, pkg.Identity.Canonical)
 	}
 }
 
@@ -127,16 +165,21 @@ func TestInstalledAutoCompact_ReturnsDirWhenPresent(t *testing.T) {
 func TestInstalledAutoCompact_PicksLatestVersion(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", root)
+	source := filepath.Join(t.TempDir(), "auto-compact")
+	var latest plugins.InstalledPackage
 	for _, v := range []string{"0.1.0", "0.2.5", "0.2.3"} {
-		_ = os.MkdirAll(filepath.Join(root, "stado", "plugins", "auto-compact-"+v), 0o755)
+		pkg := seedInstalledAutoCompactAt(t, source, v)
+		if v == "0.2.5" {
+			latest = pkg
+		}
 	}
 
 	rnd, _ := render.New(theme.Default())
 	m := NewModel("/tmp", "m", "p",
 		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
 	got := m.installedAutoCompact()
-	if got != "auto-compact-0.2.5" {
-		t.Errorf("installedAutoCompact = %q, want auto-compact-0.2.5", got)
+	if got != latest.Identity.Canonical {
+		t.Errorf("installedAutoCompact = %q, want %q", got, latest.Identity.Canonical)
 	}
 }
 
@@ -161,7 +204,7 @@ func TestInstalledAutoCompact_IgnoresOtherPluginNames(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", root)
 	for _, name := range []string{"session-inspect-0.1.0", "hello-go-0.1.0", "hello-0.1.0"} {
-		_ = os.MkdirAll(filepath.Join(root, "stado", "plugins", name), 0o755)
+		installFakePlugin(t, name+"-source", plugins.Manifest{Name: name, Version: "0.1.0"})
 	}
 
 	rnd, _ := render.New(theme.Default())
@@ -177,7 +220,7 @@ func TestInstalledAutoCompact_IgnoresOtherPluginNames(t *testing.T) {
 // and force aboveHardThreshold, then read back the advisory the
 // block-renderer would produce via InputSubmit.
 func TestHardThresholdAdvisory_IncludesAutoCompactWhenInstalled(t *testing.T) {
-	seedInstalledAutoCompact(t, "0.1.0")
+	pkg := seedInstalledAutoCompact(t, "0.1.0")
 
 	rnd, _ := render.New(theme.Default())
 	m := NewModel("/tmp", "m", "p",
@@ -200,7 +243,7 @@ func TestHardThresholdAdvisory_IncludesAutoCompactWhenInstalled(t *testing.T) {
 	}
 	// Regression: ensure the format used in the advisory actually
 	// references the full installed directory name.
-	if !strings.Contains("/plugin:"+ac+" compact", "auto-compact-0.1.0") {
+	if ac != pkg.Identity.Canonical || !strings.Contains("/plugin:"+ac+" compact", "@0.1.0") {
 		t.Errorf("advisory format wouldn't include the plugin id: %q", ac)
 	}
 }

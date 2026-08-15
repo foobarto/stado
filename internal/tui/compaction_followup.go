@@ -47,14 +47,8 @@ func (m *Model) maybeEmitContextWarning() {
 // e.g. oaicompat/minimax) and onStreamDone (providers that surface errors as
 // EvError stream events, e.g. the Anthropic family).
 func (m *Model) tryContextOverflowRecovery(err error) (tea.Cmd, bool) {
-	if !isContextOverflowError(err) || !m.hasAutoCompactBackgroundPlugin() {
-		return nil, false
-	}
-	// C35: automatic child transfer is not yet a generic broker primitive.
-	// Forking here would strand or copy an exact-generation application run and
-	// its pending input. Fail closed; the ordinary error path terminalizes the
-	// run and lets C28 recover queued/ready originals in the source session.
-	if m.applicationOwnsOperatorInput() {
+	pluginIdentity := m.autoCompactBackgroundPluginIdentity()
+	if !isContextOverflowError(err) || pluginIdentity == "" {
 		return nil, false
 	}
 	prompt := latestUserPrompt(m.msgs)
@@ -64,8 +58,9 @@ func (m *Model) tryContextOverflowRecovery(err error) (tea.Cmd, bool) {
 	m.state = stateIdle
 	m.errorMsg = ""
 	m.recoveryPrompt = prompt
-	m.recoveryPluginName = "auto-compact"
+	m.recoveryPluginName = pluginIdentity
 	m.recoveryPluginActive = true
+	m.recoveryApplicationWorker = m.applicationOwnsOperatorInput()
 	m.appendBlock(block{kind: "system", body: "context overflow — running auto-compact, then replaying your last prompt in a child session."})
 	m.renderBlocks()
 	return m.tickBackgroundPluginsWithEvent(m.contextOverflowEvent(prompt)), true

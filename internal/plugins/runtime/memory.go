@@ -63,11 +63,12 @@ const (
 	// passed to stado_tool_invoke. 1 KiB is comfortably above the
 	// longest tool name in the registry (~30 chars wire form) while
 	// keeping plugin-driven host allocations bounded. Codex C5/N-a P2.
-	maxPluginRuntimeToolNameBytes        uint32 = 1 << 10
-	maxPluginRuntimeLLMPromptBytes       uint32 = 1 << 20
-	maxPluginRuntimeSessionFieldBytes    uint32 = 128
-	maxPluginRuntimeSessionForkRefBytes  uint32 = 4 << 10
-	maxPluginRuntimeSessionForkSeedBytes uint32 = 1 << 20
+	maxPluginRuntimeToolNameBytes         uint32 = 1 << 10
+	maxPluginRuntimeProviderRequestBytes  uint32 = 1 << 20
+	maxPluginRuntimeProviderResponseBytes uint32 = 1 << 20
+	maxPluginRuntimeSessionFieldBytes     uint32 = 128
+	maxPluginRuntimeSessionForkRefBytes   uint32 = 4 << 10
+	maxPluginRuntimeSessionForkSeedBytes  uint32 = 1 << 20
 
 	// 2026-05-25 deep-dive — Codex P2 + my agent: caps for the wasm
 	// host imports under host_state.go / host_json.go / host_net.go /

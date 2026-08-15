@@ -45,8 +45,7 @@ var Commands = []Command{
 	{"/sandbox", "Show the current sandbox posture — mode, runner, network, binds", "", "Session"},
 	{"/provider", "Open the provider credential manager (add/modify/unset, redacted) or show setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
-	{"/tasks", "Open the shared task manager", "ctrl+x k", "Session"},
-	{"/todo", "Add a todo (/todo <title>) or open the task picker", "", "Session"},
+	{"/todo", "Add a session-local sidebar todo (/todo <title>)", "", "Session"},
 	{"/steer", "Inject a message into the current turn at the next tool boundary (Enter while busy; /steer <msg>)", "", "Session"},
 	{"/queue", "Queue a message to run when the current turn finishes (alt+enter; /queue <msg>)", "", "Session"},
 	{"/interrupt", "Cancel the current turn and run a message now (ctrl+enter; /interrupt [msg])", "", "Session"},
@@ -54,8 +53,6 @@ var Commands = []Command{
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/reload", "Re-read config from disk (tools, system prompt, persona, display) without restarting", "", "Session"},
-	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
-	{"/learn", "Review the completed trajectory and propose evidence-backed lesson candidates", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name> <tool> [json] (append -<ver> to pin)", "", "Session"},
 	{"/tool", "Run a tool by name — /tool fs.read [json], /t for short. Verbs (ls/info/enable/disable/autoload/unautoload/reload) flow through the same command.", "", "Session"},
@@ -69,11 +66,10 @@ var Commands = []Command{
 	{"/ps", "List running fleet agents with status, model, and age", "", "Session"},
 	{"/kill", "Cancel a running agent (/kill <agent-id>, ids from /ps)", "", "Session"},
 	{"/supervisor", "Show or toggle the supervisor lane (/supervisor on|off|status)", "", "Session"},
-	{"/supervise", "Start harness-enforced planned work with an independent watchdog and verifier", "", "Session"},
 	{"/adopt", "Dry-run or apply recent worker subagent changes (/adopt [child] [--apply])", "", "Session"},
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},
-	{"/budget", "Show the cost budget or /budget ack to continue past the hard cap", "", "Session"},
+	{"/budget", "Show token budgets or /budget ack to continue past a hard token cap", "", "Session"},
 	{"/verify", "Toggle completion verification (/verify on|off|status)", "", "Session"},
 	{"/skill", "List loaded skills — /skill:<name> to inject a skill's prompt body", "", "Session"},
 	{"/retry", "Regenerate the last assistant turn from the same user prompt", "", "Session"},
@@ -210,6 +206,13 @@ func (m *Model) refresh() {
 	// this one Model — surface the dynamic layer.
 	cmds := allCommands()
 	q := strings.TrimSpace(strings.TrimPrefix(m.Query, "/"))
+	// Arguments belong to dispatch, not discovery. Rank only the command
+	// token so `/monitor stop` and dynamically registered commands such as
+	// `/supervise status` remain visible while the full query is retained for
+	// the caller to execute on Enter.
+	if fields := strings.Fields(q); len(fields) > 0 {
+		q = fields[0]
+	}
 	if q == "" {
 		m.Matches = append([]Command(nil), cmds...)
 	} else {

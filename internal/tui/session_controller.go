@@ -51,7 +51,20 @@ func (m *Model) openSessionBroker(ctx context.Context, session *stadogit.Session
 	}
 	if session != nil {
 		if transitioner, ok := root.(runtime.BrokerLogicalSessionTransitioner); ok {
-			peer, err := transitioner.OpenLogicalSession(ctx, m.cwd, session.ID)
+			// The sidecar's canonical user-repository root is stable across a
+			// bare first launch, `session resume`, session switching, and process
+			// restart. The operator launch cwd is not: first launch commonly
+			// starts inside the checkout while resume starts inside the detached
+			// session worktree. Binding durable broker adoption to m.cwd would
+			// therefore mint a fresh empty application scope for the same exact
+			// logical subject after restart. The session worktree itself is not a
+			// valid reservation cwd because it sits outside the user repository;
+			// it remains the execution workdir carried by the Session.
+			cwd := m.cwd
+			if session.Sidecar != nil && session.Sidecar.UserRepoRoot != "" {
+				cwd = session.Sidecar.UserRepoRoot
+			}
+			peer, err := transitioner.OpenLogicalSession(ctx, cwd, session.ID)
 			if err != nil {
 				return nil, false, fmt.Errorf("durable broker session transition: %w", err)
 			}

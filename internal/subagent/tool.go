@@ -60,8 +60,16 @@ type Request struct {
 	NarrowTools          []string `json:"narrow_tools,omitempty"`
 	TokenBudget          int      `json:"token_budget,omitempty"`
 	Execution            string   `json:"execution,omitempty"`
+	// ChildToolOwner is host-only provenance for exact signed
+	// agent_child_only projection. Empty means no package owns helper access.
+	ChildToolOwner string `json:"-"`
 	// ChildSessionID is host-only admission output; model JSON cannot set it.
 	ChildSessionID string `json:"-"`
+	// AgentID is the host-only control handle assigned by the Fleet admission
+	// which owns this request. It is distinct from ChildSessionID: callers use
+	// AgentID for list/read/send/cancel and ChildSessionID for immutable session
+	// and evidence coordinates.
+	AgentID string `json:"-"`
 }
 
 type Source struct {

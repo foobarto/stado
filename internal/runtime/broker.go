@@ -85,7 +85,15 @@ type BrokerLogicalSessionHandoff interface {
 // verified native plugin loader. The returned opaque binding never enters WASM
 // memory; host imports retain it and submit bounded guest payloads through it.
 type ArtifactBrokerController interface {
-	BindArtifacts(context.Context, plugins.RuntimeIdentity, plugins.Manifest) (pluginruntime.ArtifactBridgeBinding, error)
+	BindArtifacts(context.Context, plugins.RuntimeIdentity, plugins.Manifest, string) (pluginruntime.ArtifactBridgeBinding, error)
+}
+
+// EvidenceBrokerController is the optional broker extension used by the
+// verified native plugin loader for read-only corpus access and citation
+// integrity. The opaque binding stays native and is scoped to the exact
+// session generation and canonical plugin identity.
+type EvidenceBrokerController interface {
+	BindEvidence(context.Context, plugins.RuntimeIdentity, plugins.Manifest, string) (pluginruntime.EvidenceBridgeBinding, error)
 }
 
 // ApplicationBrokerController admits a persistent WASM application and
@@ -180,9 +188,10 @@ type ApplicationWorkerRunController interface {
 }
 
 var (
-	ErrScheduleHeld    = errors.New("runtime: session held")
-	ErrSchedulePaused  = errors.New("runtime: session paused")
-	ErrScheduleStopped = errors.New("runtime: session stopped")
+	ErrScheduleHeld      = errors.New("runtime: session held")
+	ErrSchedulePaused    = errors.New("runtime: session paused")
+	ErrScheduleStopped   = errors.New("runtime: session stopped")
+	ErrScheduleCompleted = errors.New("runtime: session completed")
 )
 
 type ScheduleBlockedError struct {
@@ -208,6 +217,8 @@ func (e *ScheduleBlockedError) Unwrap() error {
 		return ErrSchedulePaused
 	case ScheduleStopped:
 		return ErrScheduleStopped
+	case ScheduleCompleted:
+		return ErrScheduleCompleted
 	default:
 		return nil
 	}
@@ -266,4 +277,38 @@ func SchedulingDispatchGate(controller BrokerController) tools.DispatchGate {
 		return nil
 	}
 	return scheduleDispatchGate{controller: controller}
+}
+
+type verificationDispatchGate struct {
+	controller BrokerController
+}
+
+// BeforeTool bypasses only ScheduleHeld for a controller-authenticated native
+// verification pump. A quality application is expected to hold recurrence
+// while verification runs; applying the ordinary gate would deadlock that
+// workflow. Pause and stop still block, controller errors still fail closed,
+// and this gate is installed only on an executor copy retained by the native
+// pump, never on the worker executor. Successful completion is terminal here
+// too: unlike an already in-flight ordinary tool, a queued verifier must not
+// begin after completion won the worker race.
+func (g verificationDispatchGate) BeforeTool(ctx context.Context) error {
+	status, err := SchedulingStatus(ctx, g.controller)
+	if err != nil {
+		return err
+	}
+	if status.State == ScheduleHeld || status.State == ScheduleActive || status.State == "" {
+		return nil
+	}
+	return &ScheduleBlockedError{Status: status}
+}
+
+// NativeVerificationDispatchGate is deliberately not selected by guest data.
+// Possession of the native BrokerController and successful verification claim
+// are the authority; the returned gate only narrows an executor copy's handling
+// of the already-authenticated session schedule.
+func NativeVerificationDispatchGate(controller BrokerController) tools.DispatchGate {
+	if _, ok := controller.(SchedulingController); !ok {
+		return nil
+	}
+	return verificationDispatchGate{controller: controller}
 }

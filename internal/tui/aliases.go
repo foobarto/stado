@@ -43,9 +43,7 @@ var reservedSlashNames = map[string]bool{
 	"/help":         true,
 	"/kill":         true,
 	"/loop":         true,
-	"/learn":        true,
 	"/verify":       true,
-	"/memory":       true,
 	"/model":        true,
 	"/monitor":      true,
 	"/new":          true,
@@ -73,11 +71,8 @@ var reservedSlashNames = map[string]bool{
 	"/stop":         true,
 	"/subagents":    true,
 	"/supervisor":   true,
-	"/supervise":    true,
 	"/switch":       true,
 	"/t":            true, // /tool alias
-	"/task":         true,
-	"/tasks":        true,
 	"/theme":        true,
 	"/thinking":     true,
 	"/todo":         true,
@@ -157,13 +152,23 @@ func (m *Model) handleAliasCreate(args []string) tea.Cmd {
 		return nil
 	}
 
-	// Collision: built-in slash command would be shadowed.
-	if IsReservedSlashName("/" + name) {
+	// Collision: neither a native command nor an exact command already owned by
+	// an admitted application/skill may be shadowed. Existing hand-edited stale
+	// aliases are also lower precedence at dispatch time.
+	applicationOwned := m.applicationCommands[name] != nil
+	skillOwned := m.skillSlash[name] != ""
+	if IsReservedSlashName("/"+name) || applicationOwned || skillOwned {
+		owner := "built-in slash command"
+		if applicationOwned {
+			owner = "signed lifecycle application command"
+		} else if skillOwned {
+			owner = "skill slash command"
+		}
 		m.appendBlock(block{
 			kind: "system",
 			body: fmt.Sprintf(
-				"/alias create: %q shadows a built-in slash command and was rejected. Pick a different name. (Run /help for the built-in list.)",
-				name),
+				"/alias create: %q shadows a %s and was rejected. Pick a different name. (Run /help for the active command list.)",
+				name, owner),
 		})
 		return nil
 	}

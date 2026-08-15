@@ -12,7 +12,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -70,14 +69,6 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 	m.streamBufMu.Lock()
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
-	if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
-		m.state = stateIdle
-		m.finalizeStreamingBlocks()
-		m.appendBlock(block{kind: "system", body: "supervise: worker stream ended while scheduling was held for fresh watchdog review"})
-		m.renderBlocks()
-		return m, m.nextSuperviseHostAction()
-	}
-
 	// #19: context-overflow errors that arrive synchronously (oaicompat /
 	// minimax) auto-recover here; the EvError-event path (Anthropic family)
 	// recovers in onStreamDone. See tryContextOverflowRecovery.
@@ -95,13 +86,6 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streamCancel = nil
 	if m.state == stateError {
-		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
-			m.state = stateIdle
-			m.finalizeStreamingBlocks()
-			m.appendBlock(block{kind: "system", body: "supervise: worker stream stopped at the intervention-review boundary"})
-			m.renderBlocks()
-			return m, m.nextSuperviseHostAction()
-		}
 		// #19: providers that surface a context overflow as an EvError
 		// stream event (Anthropic family) land here in stateError — give
 		// the auto-compact backstop a chance before dead-ending.
@@ -132,29 +116,6 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.firePostLLMHook()
 	m.firePostTurnHook()
 	var cmds []tea.Cmd
-	if m.supervision != nil {
-		used, cap := m.totalTokens(), m.budgetHardTokens
-		if used < 0 {
-			used = 0
-		}
-		if cap < 0 {
-			cap = 0
-		}
-		cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
-			Kind:           supervise.WorkerTurnCompleted,
-			CompletedSteps: len(m.supervision.state.CompletedSteps),
-			EvidenceCount:  len(m.supervision.state.Evidence),
-			TreeDigest:     m.superviseTreeDigest(),
-			TokenUsage:     uint64(used),
-			TokenBudget:    uint64(cap),
-		}))
-		if superviseClaimsCompletion(m.turnText) && !superviseTurnUsesControl(m.turnToolCalls, superviseCompletionTool) {
-			cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCompletionClaimed}))
-		}
-		if m.supervision.correctionPending {
-			cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCorrectionFollowup}))
-		}
-	}
 	// Observe the completed worker turn before onTurnComplete can start an
 	// inbox review. Otherwise the classifier captures the previous anchor and
 	// its otherwise-current verdict is guaranteed to be discarded as stale.

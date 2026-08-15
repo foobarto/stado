@@ -75,10 +75,10 @@ type RunArgs struct {
 	SessionID string
 
 	// SessionBridgeBuilder constructs a SessionBridge when the plugin
-	// declares session-aware caps (session:read, session:fork,
-	// llm:invoke). Optional; nil means the plugin sees a no-op bridge
+	// declares session-aware caps (session:read, session:fork) or the generic
+	// provider:invoke capability. Optional; nil means the plugin sees a no-op bridge
 	// that fails gracefully when the cap is exercised. The bool reports
-	// whether the plugin needs an LLM provider (llm:invoke budget > 0).
+	// whether the plugin needs an operator-configured provider.
 	// Returns the bridge, an optional informational note, and an error.
 	SessionBridgeBuilder func(ctx context.Context, sessionID, pluginName string, withLLM bool) (pluginRuntime.SessionBridge, string, error)
 
@@ -100,6 +100,16 @@ type RunArgs struct {
 	// When set, takes precedence over InvokeRegistry.
 	InvokeExecutor *tools.Executor
 
+	// RegistryCatalog is bound by the concrete runtime adapter to the exact
+	// config-filtered registry instance and authenticated caller namespace.
+	// It exposes only generic catalog facts and digest-fenced surface edits.
+	RegistryCatalog *pluginRuntime.RegistryCatalogAccess
+
+	// ContextResources is bound to the exact outer tool-dispatch context. It
+	// exposes generic, digest-fenced host facts; nil means this invocation has
+	// no context-resource surface.
+	ContextResources *pluginRuntime.ContextResourceAccess
+
 	// SessionBridgeNote, when non-nil, receives any informational note
 	// produced by SessionBridgeBuilder (e.g., "session-aware capabilities
 	// declared; pass --session to attach"). Caller decides whether to
@@ -115,13 +125,30 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	if h == nil {
 		return tool.Result{Error: "pluginrun: nil host"}, fmt.Errorf("pluginrun: nil host")
 	}
+	var tdef *plugins.ToolDef
+	for i := range args.Manifest.Tools {
+		if args.Manifest.Tools[i].Name == args.ToolName {
+			tdef = &args.Manifest.Tools[i]
+			break
+		}
+	}
+	if tdef == nil {
+		err := fmt.Errorf("tool %q not declared in plugin manifest %q", args.ToolName, args.Manifest.Name)
+		return tool.Result{Error: err.Error()}, err
+	}
+	effectiveCapabilities, err := args.Manifest.EffectiveToolCapabilities(*tdef)
+	if err != nil {
+		err = fmt.Errorf("tool %q capabilities: %w", args.ToolName, err)
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	// Caller-cap inheritance: when this run is a nested stado_tool_invoke, gate
 	// the inner tool with the CALLER's capabilities, not its own manifest's,
 	// so a plugin can't escalate by invoking a more-powerful tool (#021).
 	mf := args.Manifest
+	mf.Capabilities = effectiveCapabilities
 	if inherited, ok := pluginRuntime.InheritedCaps(ctx); ok {
-		mf.Capabilities = inherited
+		mf.Capabilities = intersectCapabilities(effectiveCapabilities, inherited)
 	}
 	identity := args.Identity
 	if identityErr := identity.ValidateManifest(args.Manifest); identityErr != nil {
@@ -132,6 +159,8 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 		rtHost.StateDir = args.Cfg.StateDir()
 	}
 	rtHost.AttachToolHost(h)
+	rtHost.RegistryCatalog = args.RegistryCatalog
+	rtHost.ContextResources = args.ContextResources
 
 	// EP-0028: the exec:bash refuse-no-runner guard that used to live here is
 	// gone. The exec:bash capability was dropped in EP-no-internal-tools
@@ -151,7 +180,7 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	}
 	rtHost.AttachAuthorityStores(stateDir, rt.InstanceStore(), args.SecretsAudit)
 
-	if err := attachLifecycleBridges(ctx, rtHost, h, identity, args.Manifest); err != nil {
+	if err := attachLifecycleBridges(ctx, rtHost, h, identity, args.Manifest, args.ToolName); err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("pluginrun: attach broker bridge: %w", err)
 	}
 
@@ -178,9 +207,10 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 		}
 	}
 
-	if rtHost.SessionObserve || rtHost.SessionRead || rtHost.SessionFork || rtHost.LLMInvokeBudget > 0 {
+	needsSessionBridge := rtHost.SessionObserve || rtHost.SessionRead || rtHost.SessionFork || (args.SessionID != "" && rtHost.ProviderInvokeBudget > 0)
+	if needsSessionBridge {
 		if args.SessionBridgeBuilder != nil {
-			bridge, note, berr := args.SessionBridgeBuilder(ctx, args.SessionID, identity.Canonical, rtHost.LLMInvokeBudget > 0)
+			bridge, note, berr := args.SessionBridgeBuilder(ctx, args.SessionID, identity.Canonical, rtHost.ProviderInvokeBudget > 0)
 			if berr != nil {
 				return tool.Result{Error: berr.Error()}, berr
 			}
@@ -190,8 +220,8 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 			}
 		} else {
 			// Fallback: minimal session bridge that gracefully fails on
-			// session:* / llm:invoke calls. Same shape the CLI uses
-			// today when --session is not provided.
+			// session:* calls. Provider-only plugins instead use the concrete
+			// tool host's provider bridge and do not need a synthetic session.
 			bridge := pluginRuntime.NewSessionBridge(nil, nil, "")
 			bridge.PluginName = identity.Canonical
 			rtHost.SessionBridge = bridge
@@ -201,29 +231,31 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	if err := pluginRuntime.InstallHostImports(ctx, rt, rtHost); err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("pluginrun: host imports: %w", err)
 	}
-	mod, err := rt.Instantiate(ctx, args.WasmBytes, args.Manifest)
+	mod, err := rt.InstantiateWithIdentity(ctx, args.WasmBytes, args.Manifest, args.Identity)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("pluginrun: instantiate: %w", err)
 	}
 	defer func() { _ = mod.Close(ctx) }()
-
-	var tdef *plugins.ToolDef
-	for i := range args.Manifest.Tools {
-		if args.Manifest.Tools[i].Name == args.ToolName {
-			tdef = &args.Manifest.Tools[i]
-			break
-		}
-	}
-	if tdef == nil {
-		err := fmt.Errorf("tool %q not declared in plugin manifest %q", args.ToolName, args.Manifest.Name)
-		return tool.Result{Error: err.Error()}, err
-	}
 
 	pt, err := pluginRuntime.NewPluginTool(mod, *tdef)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return pt.Run(ctx, args.Args, h)
+}
+
+func intersectCapabilities(selected, inherited []string) []string {
+	allowed := make(map[string]struct{}, len(inherited))
+	for _, capability := range inherited {
+		allowed[capability] = struct{}{}
+	}
+	intersection := make([]string, 0, len(selected))
+	for _, capability := range selected {
+		if _, ok := allowed[capability]; ok {
+			intersection = append(intersection, capability)
+		}
+	}
+	return intersection
 }
 
 // attachLifecycleBridges pulls FleetBridge, PTYManager, ApprovalBridge
@@ -233,21 +265,36 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 // "feature unavailable for this dispatch." Same pattern bundledPluginTool.Run
 // has used since EP-0038c.
 type artifactBrokerProvider interface {
-	ArtifactBrokerBinding(context.Context, plugins.RuntimeIdentity, plugins.Manifest) (pluginRuntime.ArtifactBridgeBinding, error)
+	ArtifactBrokerBinding(context.Context, plugins.RuntimeIdentity, plugins.Manifest, string) (pluginRuntime.ArtifactBridgeBinding, error)
 }
 
-func attachLifecycleBridges(ctx context.Context, rtHost *pluginRuntime.Host, h tool.Host, identity plugins.RuntimeIdentity, manifest plugins.Manifest) error {
+type evidenceBrokerProvider interface {
+	EvidenceBrokerBinding(context.Context, plugins.RuntimeIdentity, plugins.Manifest, string) (pluginRuntime.EvidenceBridgeBinding, error)
+}
+
+func attachLifecycleBridges(ctx context.Context, rtHost *pluginRuntime.Host, h tool.Host, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) error {
 	if rtHost.NeedsArtifactBridge() {
 		provider, ok := h.(artifactBrokerProvider)
 		if !ok {
 			return fmt.Errorf("artifact capabilities declared but no broker binding provider is attached")
 		}
-		binding, err := provider.ArtifactBrokerBinding(ctx, identity, manifest)
+		binding, err := provider.ArtifactBrokerBinding(ctx, identity, manifest, toolName)
 		if err != nil {
 			return err
 		}
 		rtHost.ArtifactBridge = binding.Bridge
 		rtHost.ArtifactCaller = binding.Caller
+	}
+	if rtHost.NeedsEvidenceBridge() {
+		provider, ok := h.(evidenceBrokerProvider)
+		if !ok {
+			return fmt.Errorf("evidence capabilities declared but no broker binding provider is attached")
+		}
+		binding, err := provider.EvidenceBrokerBinding(ctx, identity, manifest, toolName)
+		if err != nil {
+			return err
+		}
+		rtHost.EvidenceBridge = binding.Bridge
 	}
 	if afp, ok := h.(tool.AgentFleetProvider); ok {
 		if fb, ok := afp.AgentFleetBridge().(pluginRuntime.FleetBridge); ok {

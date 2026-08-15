@@ -27,6 +27,10 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 			"artifact:read:github.com/acme/reviewer#*",
 			"artifact:edit:contract",
 			"artifact:observe:github.com/acme/reviewer#contract",
+			"evidence:catalog:artifact",
+			"evidence:search:session",
+			"evidence:open:artifact",
+			"evidence:validate",
 			"cfg:state_dir",
 			"malformed", // no colon → skipped
 		},
@@ -57,6 +61,11 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	}
 	if !h.NeedsArtifactBridge() {
 		t.Error("NeedsArtifactBridge should be true when artifact caps are declared")
+	}
+	if !h.EvidenceCatalog["artifact"] || !h.EvidenceSearch["session"] ||
+		!h.EvidenceOpen["artifact"] || !h.EvidenceValidate || !h.NeedsEvidenceBridge() {
+		t.Errorf("evidence caps not parsed: catalog=%v search=%v open=%v validate=%v",
+			h.EvidenceCatalog, h.EvidenceSearch, h.EvidenceOpen, h.EvidenceValidate)
 	}
 	if h.Logger == nil {
 		t.Error("Logger should default to slog.Default")

@@ -59,7 +59,7 @@ var allBridgeImports = []thunkImport{
 	{"stado_session_read", 4, true},
 	{"stado_session_next_event", 2, true},
 	{"stado_session_fork", 6, true},
-	{"stado_llm_invoke", 4, true},
+	{"stado_provider_invoke", 4, true},
 	// ArtifactBridge
 	{"stado_artifact_propose", 4, true},
 	{"stado_artifact_query", 4, true},
@@ -68,6 +68,7 @@ var allBridgeImports = []thunkImport{
 	// ApplicationBridge
 	{"stado_session_journal_append", 4, true},
 	{"stado_session_projection_read", 4, true},
+	{"stado_session_context_read", 4, true},
 	{"stado_session_hold_acquire", 4, true},
 	{"stado_session_hold_release", 4, true},
 	{"stado_session_request_pause", 4, true},
@@ -78,8 +79,10 @@ var allBridgeImports = []thunkImport{
 	{"stado_session_worker_request", 4, true},
 	{"stado_session_worker_resume", 4, true},
 	{"stado_session_worker_cancel", 4, true},
+	{"stado_session_verification_request", 4, true},
 	{"stado_timer_schedule", 4, true},
 	{"stado_timer_cancel", 4, true},
+	{"stado_artifact_migrate_legacy_memory_v1", 4, true},
 	// ApprovalBridge
 	{"stado_ui_approve", 4, true},
 	// ChoiceBridge
@@ -90,6 +93,16 @@ var allBridgeImports = []thunkImport{
 	{"stado_agent_read_messages", 4, true},
 	{"stado_agent_send_message", 2, true},
 	{"stado_agent_cancel", 4, true},
+	// Registry catalog / session tool surface
+	{"stado_registry_catalog", 4, true},
+	{"stado_session_tool_surface_apply", 4, true},
+	{"stado_context_resource_catalog", 4, true},
+	{"stado_context_resource_open", 4, true},
+	// EvidenceBridge
+	{"stado_evidence_catalog", 4, true},
+	{"stado_evidence_search", 4, true},
+	{"stado_evidence_open", 4, true},
+	{"stado_evidence_validate", 4, true},
 }
 
 // newBridgeHarness builds a harness with no capabilities declared
@@ -128,6 +141,9 @@ func (h *bridgeHarness) withCaps(caps ...string) *bridgeHarness {
 	newH.ApprovalBridge = h.host.ApprovalBridge
 	newH.ChoiceBridge = h.host.ChoiceBridge
 	newH.FleetBridge = h.host.FleetBridge
+	newH.RegistryCatalog = h.host.RegistryCatalog
+	newH.ContextResources = h.host.ContextResources
+	newH.EvidenceBridge = h.host.EvidenceBridge
 	h.host = newH
 	return h
 }
@@ -150,6 +166,11 @@ func (h *bridgeHarness) withChoiceBridge(b ChoiceBridge) *bridgeHarness {
 }
 func (h *bridgeHarness) withFleetBridge(b FleetBridge) *bridgeHarness {
 	h.host.FleetBridge = b
+	return h
+}
+
+func (h *bridgeHarness) withEvidenceBridge(b EvidenceBridge) *bridgeHarness {
+	h.host.EvidenceBridge = b
 	return h
 }
 

@@ -14,7 +14,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/supervise"
 )
 
 func onWindowSize(m *Model, msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
@@ -170,10 +169,17 @@ func onApplicationCommandResult(m *Model, msg applicationCommandResultMsg) (tea.
 		m.applicationWorkerHandoffRunning = true
 		return m, applicationWorkerRunLookupCmd(msg.application, msg.result.ResumeWorkerRunID, applicationWorkerHandoffResume)
 	}
+	if msg.err == nil && msg.result.Status == "ok" && msg.result.CancelWorkerRunID != "" && msg.application != nil {
+		m.applicationWorkerHandoffRunning = true
+		return m, applicationWorkerRunLookupCmd(msg.application, msg.result.CancelWorkerRunID, applicationWorkerHandoffCancel)
+	}
 	return m, nil
 }
 
 func onApplicationBoundaryResult(m *Model, msg applicationBoundaryMsg) (tea.Model, tea.Cmd) {
+	if msg.generation != 0 && msg.generation != m.applicationVerificationGeneration {
+		return m, nil
+	}
 	if msg.applications != nil {
 		survivors := msg.applications[:0:len(msg.applications)]
 		for _, application := range msg.applications {
@@ -182,6 +188,15 @@ func onApplicationBoundaryResult(m *Model, msg applicationBoundaryMsg) (tea.Mode
 			}
 		}
 		m.lifecycleApplications = survivors
+	}
+	// Publication commits this provider iteration's immutable session anchor
+	// before event dispatch and schedule enforcement. A later pause, stop, or
+	// callback failure must therefore still consume the local low-word
+	// iteration. Otherwise an explicit worker resume would publish a distinct
+	// turn at the already-used session_sequence and the application would
+	// correctly reject it as a replay.
+	if msg.published {
+		m.applicationIteration++
 	}
 	if msg.err != nil {
 		if !errors.Is(msg.err, runtime.ErrSchedulePaused) && !errors.Is(msg.err, runtime.ErrScheduleStopped) {
@@ -204,7 +219,6 @@ func onApplicationBoundaryResult(m *Model, msg applicationBoundaryMsg) (tea.Mode
 		return m, nil
 	}
 	m.clearApplicationFailureSource(applicationFailureTurnBoundary)
-	m.applicationIteration++
 	if msg.completed {
 		m.closeTurnWithoutTools()
 		m.loop = nil
@@ -230,7 +244,14 @@ func onApplicationBoundaryResult(m *Model, msg applicationBoundaryMsg) (tea.Mode
 }
 
 func onApplicationPollResult(m *Model, msg applicationPollResultMsg) (tea.Model, tea.Cmd) {
+	if msg.generation != 0 && msg.generation != m.applicationVerificationGeneration {
+		return m, nil
+	}
+	if msg.generation != 0 && m.applicationPollGeneration != 0 && msg.generation != m.applicationPollGeneration {
+		return m, nil
+	}
 	m.applicationPollRunning = false
+	m.applicationPollGeneration = 0
 	if msg.applications != nil {
 		survivors := msg.applications[:0:len(msg.applications)]
 		for _, application := range msg.applications {
@@ -256,13 +277,21 @@ func onRecoveryTimeout(m *Model, _ recoveryTimeoutMsg) (tea.Model, tea.Cmd) {
 	if !m.recoveryPluginActive {
 		return m, nil
 	}
+	recoverApplicationWorker := m.recoveryApplicationWorker
+	m.input.SetValue(mergeRecoveryInput(m.recoveryPrompt, m.queuedPrompt, m.input.Value()))
+	m.queuedPrompt = ""
+	m.recoveryPrompt = ""
 	m.recoveryPluginActive = false
 	m.recoveryPluginName = ""
+	m.recoveryApplicationWorker = false
 	m.appendBlock(block{
 		kind: "system",
 		body: "auto-recovery did not produce a compacted child session. Your blocked prompt is still in the editor; use /compact or session fork if you want to recover manually.",
 	})
 	m.renderBlocks()
+	if recoverApplicationWorker && m.loop != nil && m.loop.application != nil {
+		return m, m.cancelApplicationLoop("automatic context recovery did not produce a child session", false)
+	}
 	return m, nil
 }
 
@@ -277,19 +306,5 @@ func onLocalHint(m *Model, msg localHintMsg) (tea.Model, tea.Cmd) {
 
 func onSubagentEvent(m *Model, msg subagentEventMsg) (tea.Model, tea.Cmd) {
 	m.recordSubagentEvent(msg.ev)
-	var cmds []tea.Cmd
-	cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
-		Kind:        supervise.WorkerChildLifecycle,
-		ChildID:     msg.ev.ChildSession,
-		ChildStatus: msg.ev.Status,
-	}))
-	if len(msg.ev.ScopeViolations) > 0 {
-		cmds = append(cmds, m.observeSupervise(supervise.WorkerEvent{
-			Kind:            supervise.WorkerTreeChanged,
-			TreeDigest:      m.superviseTreeDigest(),
-			ChangedPaths:    append([]string(nil), msg.ev.ChangedFiles...),
-			OutOfScopePaths: append([]string(nil), msg.ev.ScopeViolations...),
-		}))
-	}
-	return m, tea.Batch(cmds...)
+	return m, nil
 }

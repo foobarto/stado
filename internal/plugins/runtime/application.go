@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tetratelabs/wazero/api"
 
@@ -25,6 +27,7 @@ import (
 const (
 	lifecycleSchemaV1        = "stado.dev/lifecycle/v1"
 	maxLifecyclePayloadBytes = 1 << 20
+	maxSystemContribution    = 16 << 10
 )
 
 var applicationWorkerRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]*$`)
@@ -102,9 +105,10 @@ const (
 )
 
 type lifecycleDecisionWire struct {
-	Decision string          `json:"decision"`
-	Reason   string          `json:"reason,omitempty"`
-	Mutation json.RawMessage `json:"mutation,omitempty"`
+	Decision     string          `json:"decision"`
+	Reason       string          `json:"reason,omitempty"`
+	Mutation     json.RawMessage `json:"mutation,omitempty"`
+	Contribution json.RawMessage `json:"contribution,omitempty"`
 }
 
 type eventResultWire struct {
@@ -119,6 +123,7 @@ type CommandResult struct {
 	Message           string `json:"message,omitempty"`
 	WorkerRunID       string `json:"worker_run_id,omitempty"`
 	ResumeWorkerRunID string `json:"resume_worker_run_id,omitempty"`
+	CancelWorkerRunID string `json:"cancel_worker_run_id,omitempty"`
 }
 
 // serializedCallGate is a context-aware binary semaphore. A plain sync.Mutex
@@ -201,7 +206,7 @@ func LoadLifecycleApplication(ctx context.Context, rt *Runtime, wasmBytes []byte
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		return nil, fmt.Errorf("lifecycle: host imports: %w", err)
 	}
-	mod, err := rt.Instantiate(ctx, wasmBytes, host.Manifest)
+	mod, err := rt.InstantiateWithIdentity(ctx, wasmBytes, host.Manifest, host.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("lifecycle: instantiate: %w", err)
 	}
@@ -298,8 +303,17 @@ func validateCommandResult(result CommandResult) error {
 	if result.ResumeWorkerRunID != "" && (result.Status != "ok" || len(result.ResumeWorkerRunID) > 256 || !applicationWorkerRunIDPattern.MatchString(result.ResumeWorkerRunID)) {
 		return errors.New("application command resume_worker_run_id is invalid")
 	}
-	if result.WorkerRunID != "" && result.ResumeWorkerRunID != "" {
-		return errors.New("application command cannot request initial and resume worker handoffs together")
+	if result.CancelWorkerRunID != "" && (result.Status != "ok" || len(result.CancelWorkerRunID) > 256 || !applicationWorkerRunIDPattern.MatchString(result.CancelWorkerRunID)) {
+		return errors.New("application command cancel_worker_run_id is invalid")
+	}
+	handoffs := 0
+	for _, runID := range []string{result.WorkerRunID, result.ResumeWorkerRunID, result.CancelWorkerRunID} {
+		if runID != "" {
+			handoffs++
+		}
+	}
+	if handoffs > 1 {
+		return errors.New("application command cannot request multiple worker handoffs together")
 	}
 	return nil
 }
@@ -323,17 +337,17 @@ func (a *LifecycleApplication) Points() []hooks.Point {
 // facts, and session anchors always remain host-owned.
 func (a *LifecycleApplication) Run(ctx context.Context, point hooks.Point, payload hooks.Payload) (hooks.HookResult, error) {
 	if a == nil || a.lifecycleFn == nil {
-		return hooks.Continue(), errors.New("lifecycle application is unavailable")
+		return a.lifecycleFault(point, "lifecycle application is unavailable", errors.New("callback export is unavailable"))
 	}
 	if !a.caps.CanObserve(string(point)) {
-		return hooks.Continue(), fmt.Errorf("lifecycle point %q is not authorized", point)
+		return a.lifecycleFault(point, "lifecycle application is not authorized", fmt.Errorf("point %q is not authorized", point))
 	}
 	if err := a.callGate.lock(ctx); err != nil {
-		return hooks.Continue(), err
+		return a.lifecycleFault(point, "lifecycle application callback failed", err)
 	}
 	defer a.callGate.unlock()
 	if a.closed {
-		return hooks.Continue(), errors.New("lifecycle application is closed")
+		return a.lifecycleFault(point, "lifecycle application callback failed", errors.New("application is closed"))
 	}
 	a.sequence++
 	input, err := json.Marshal(lifecycleCallEnvelope{
@@ -341,46 +355,58 @@ func (a *LifecycleApplication) Run(ctx context.Context, point hooks.Point, paylo
 		Anchor: a.Anchor, Sequence: a.sequence, Payload: payload,
 	})
 	if err != nil {
-		return hooks.Continue(), err
+		return a.lifecycleFault(point, "lifecycle application callback failed", err)
 	}
 	out, err := a.callJSON(ctx, a.lifecycleFn, input)
 	if err != nil {
-		if a.Manifest.Lifecycle.Failure == "closed" {
-			return hooks.Deny("lifecycle application failed closed: " + err.Error()), nil
-		}
-		return hooks.Continue(), err
+		return a.lifecycleFault(point, "lifecycle application failed closed", err)
 	}
-	result, err := decodeLifecycleDecision(point, payload, out, a.caps.CanDecide(string(point)))
-	if err != nil && a.Manifest.Lifecycle.Failure == "closed" {
-		return hooks.Deny("lifecycle application returned an invalid decision: " + err.Error()), nil
+	result, err := decodeLifecycleDecision(point, payload, out, a.caps.CanDecide(string(point)), a.caps.CanContribute(string(point)))
+	if err != nil {
+		return a.lifecycleFault(point, "lifecycle application returned an invalid decision", err)
 	}
-	return result, err
+	return result, nil
 }
 
-func decodeLifecycleDecision(point hooks.Point, current hooks.Payload, raw []byte, canDecide bool) (hooks.HookResult, error) {
+// lifecycleFault makes the signed application's own failure posture
+// authoritative before the generic lifecycle runner sees the callback result.
+// In particular, a global fail-closed setting for operator policy hooks must
+// not turn a failure-open, contribute-only application into an unrelated turn
+// gate. Failure-open applications log the fault and contribute nothing.
+func (a *LifecycleApplication) lifecycleFault(point hooks.Point, closedReason string, err error) (hooks.HookResult, error) {
+	if a != nil && a.Manifest.Lifecycle != nil && a.Manifest.Lifecycle.Failure == "closed" {
+		return hooks.Deny(closedReason + ": " + err.Error()), nil
+	}
+	if a != nil && a.Host != nil && a.Host.Logger != nil {
+		a.Host.Logger.Warn("lifecycle application failed open; contribution ignored", "point", point, "err", err)
+	}
+	return hooks.Continue(), nil
+}
+
+func decodeLifecycleDecision(point hooks.Point, current hooks.Payload, raw []byte, canDecide, canContribute bool) (hooks.HookResult, error) {
 	var wire lifecycleDecisionWire
 	if err := decodeStrictJSON(raw, &wire); err != nil {
 		return hooks.Continue(), err
 	}
 	switch wire.Decision {
 	case "continue":
-		if wire.Reason != "" || len(wire.Mutation) != 0 {
-			return hooks.Continue(), errors.New("continue decision cannot carry reason or mutation")
+		if wire.Reason != "" || len(wire.Mutation) != 0 || len(wire.Contribution) != 0 {
+			return hooks.Continue(), errors.New("continue decision cannot carry reason, mutation, or contribution")
 		}
 		return hooks.Continue(), nil
 	case "deny":
 		if !canDecide {
 			return hooks.Continue(), errors.New("lifecycle:decide capability required for deny")
 		}
-		if wire.Reason == "" || len(wire.Reason) > 4096 || len(wire.Mutation) != 0 {
-			return hooks.Continue(), errors.New("deny requires a bounded reason and no mutation")
+		if wire.Reason == "" || len(wire.Reason) > 4096 || len(wire.Mutation) != 0 || len(wire.Contribution) != 0 {
+			return hooks.Continue(), errors.New("deny requires a bounded reason and no mutation or contribution")
 		}
 		return hooks.Deny(wire.Reason), nil
 	case "mutate":
 		if !canDecide {
 			return hooks.Continue(), errors.New("lifecycle:decide capability required for mutation")
 		}
-		if wire.Reason != "" || len(wire.Mutation) == 0 {
+		if wire.Reason != "" || len(wire.Mutation) == 0 || len(wire.Contribution) != 0 {
 			return hooks.Continue(), errors.New("mutate requires only a mutation object")
 		}
 		next, err := applyLifecycleMutation(point, current, wire.Mutation)
@@ -388,9 +414,55 @@ func decodeLifecycleDecision(point hooks.Point, current hooks.Payload, raw []byt
 			return hooks.Continue(), err
 		}
 		return hooks.Mutate(next), nil
+	case "contribute":
+		if !canContribute {
+			return hooks.Continue(), errors.New("lifecycle:contribute capability required")
+		}
+		if wire.Reason != "" || len(wire.Mutation) != 0 || len(wire.Contribution) == 0 {
+			return hooks.Continue(), errors.New("contribute requires only a contribution object")
+		}
+		next, err := applyLifecycleContribution(point, current, wire.Contribution)
+		if err != nil {
+			return hooks.Continue(), err
+		}
+		return hooks.Mutate(next), nil
 	default:
 		return hooks.Continue(), fmt.Errorf("unknown lifecycle decision %q", wire.Decision)
 	}
+}
+
+// applyLifecycleContribution is intentionally separate from mutation. An
+// application holding only lifecycle:contribute:pre_llm can add one bounded
+// low-priority context section, but cannot echo/replace the system prompt,
+// select a model, rewrite history, or deny the provider turn (EP-0060/0064).
+func applyLifecycleContribution(point hooks.Point, current hooks.Payload, raw json.RawMessage) (hooks.Payload, error) {
+	if point != hooks.PointPreLLM {
+		return nil, fmt.Errorf("lifecycle contribution is unsupported at %q", point)
+	}
+	base, ok := current.(*hooks.PreLLMPayload)
+	if !ok {
+		return nil, errors.New("pre_llm contribution payload type mismatch")
+	}
+	var contribution struct {
+		SystemAppend *string `json:"system_append"`
+	}
+	if err := decodeStrictJSON(raw, &contribution); err != nil || contribution.SystemAppend == nil {
+		return nil, errors.New("pre_llm contribution requires only system_append")
+	}
+	appendix := strings.TrimSpace(*contribution.SystemAppend)
+	if appendix == "" || len(appendix) > maxSystemContribution {
+		return nil, fmt.Errorf("pre_llm system_append must be 1..%d bytes", maxSystemContribution)
+	}
+	if len(base.System)+2+len(appendix) > maxLifecyclePayloadBytes {
+		return nil, errors.New("pre_llm contributed system exceeds lifecycle payload bound")
+	}
+	next := *base
+	if strings.TrimSpace(next.System) == "" {
+		next.System = appendix
+	} else {
+		next.System += "\n\n" + appendix
+	}
+	return &next, nil
 }
 
 func applyLifecycleMutation(point hooks.Point, current hooks.Payload, raw json.RawMessage) (hooks.Payload, error) {
@@ -571,7 +643,21 @@ func (a *LifecycleApplication) callJSONWithTimeout(ctx context.Context, fn api.F
 		return nil, errors.New("lifecycle callback returned no length")
 	}
 	n := api.DecodeI32(ret[0])
-	if n <= 0 || n > maxLifecyclePayloadBytes {
+	if n < 0 {
+		errorLength := -int64(n)
+		if errorLength <= 0 || errorLength > maxLifecyclePayloadBytes {
+			return nil, fmt.Errorf("lifecycle callback returned invalid error length %d", n)
+		}
+		out, ok := a.Module.wasmMod.Memory().Read(outPtr, uint32(errorLength))
+		if !ok {
+			return nil, errors.New("lifecycle error memory read failed")
+		}
+		if !utf8.Valid(out) {
+			return nil, errors.New("lifecycle callback returned invalid UTF-8 error payload")
+		}
+		return nil, errors.New(string(out))
+	}
+	if n == 0 || n > maxLifecyclePayloadBytes {
 		return nil, fmt.Errorf("lifecycle callback returned invalid length %d", n)
 	}
 	out, ok := a.Module.wasmMod.Memory().Read(outPtr, uint32(n))

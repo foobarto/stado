@@ -70,7 +70,7 @@ database or embedding index into the authority for future model behavior.
     "anchor_session_id":"required for session",
     "anchor_fork_point":"optional immutable evidence for session"
   },
-  "authority": "candidate|active|legacy_active|rejected|superseded|retired|deleted",
+  "authority": "candidate|active|rejected|superseded|retired|deleted",
   "summary": "bounded title",
   "content": "bounded body",
   "trigger": "required for behavioral artifacts",
@@ -91,9 +91,8 @@ database or embedding index into the authority for future model behavior.
 not confidence. Confidence, when present, describes evidence quality and cannot
 activate an artifact.
 
-Valid transitions are candidate→active|rejected|deleted;
-active→candidate(review)|superseded|retired|deleted; and
-legacy_active→candidate|active(operator reactivation)|retired|deleted. Editing an
+Valid transitions are candidate→active|rejected|deleted and
+active→candidate(review)|superseded|retired|deleted. Editing an
 active artifact creates a candidate version while the prior active version stays
 current. Deleted is a terminal tombstone; restoration uses a fresh ID.
 
@@ -178,7 +177,7 @@ does not mandate retention.
 
 ### Derived SQLite index
 
-`${XDG_CACHE_HOME}/stado/memory/index-v1.sqlite` contains folded artifacts,
+`${XDG_CACHE_HOME}/stado/artifacts/index-v1.sqlite` contains folded artifacts,
 FTS5 content, normalized tags, groups, and usage aggregates. It
 contains no authority not reconstructible from the canonical log.
 
@@ -197,16 +196,20 @@ the initial contract.
   semantics, and retain untouched old bytes as an archive whose digest/schema/
   converter version is anchored in the new genesis event. Historical edit/actor
   equivalence is promised only where uncompacted old events still contain it.
-- Preserve IDs through an alias table so CLI references remain explainable.
-- Convert approved ordinary memories to `active`; approved lessons become the
-  migration-only `legacy_active` state requiring operator reaffirmation. Preserve
-  candidate, rejected, superseded, and deleted states exactly.
+- Preserve historical aliases as bounded `legacy-id:<value>` provenance
+  references and in the migration marker. There is no memory-shaped
+  `legacy_id` field in the generic artifact envelope.
+- Convert historically approved ordinary memories and lessons uniformly to
+  `active`; this preserves authority already granted by the legacy operator
+  workflow and does not create fresh authority. Preserve candidate, rejected,
+  superseded, and deleted states exactly.
 - Existing tags migrate after normalization with alias events for changed spellings.
 - Migration derives immutable bindings from trusted old fields/current principal.
-  Unbindable/corrupt items are quarantined, never broadened. Behavioral
-  `legacy_active` items require explicit reactivation under the new review model.
-- Migration is one-way, transactional, idempotent, and refuses downgrade/mixed
-  old+new writers; failure leaves the old store untouched.
+  Unbindable or corrupt items are quarantined, never broadened.
+- Migration is one-way, logically atomic, idempotent, and refuses
+  downgrade/mixed old+new writers. Bounded inert stages become visible only
+  after one final completion marker validates the complete stage set; failure
+  leaves the old store untouched.
 
 ## Failure modes
 

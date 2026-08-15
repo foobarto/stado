@@ -123,7 +123,7 @@ func TestBuildSandboxedCmd_PolicyWithoutRunnerErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when policy requested but no runner available")
 	}
-	if !strings.Contains(err.Error(), "no native sandbox runner") {
+	if !strings.Contains(err.Error(), "no Linux sandbox runner") {
 		t.Errorf("error should mention missing runner; got %q", err.Error())
 	}
 }

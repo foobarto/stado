@@ -305,7 +305,7 @@ In `plugin.manifest.json` fill in every field *before* signing:
   "name":             "my-plugin",
   "version":          "0.3.1",
   "author":           "alice@example.com",
-  "capabilities":     ["session:read", "llm:invoke:50000"],
+  "capabilities":     ["session:read", "provider:invoke:50000"],
   "tools":            [ /* ... */ ],
   "min_stado_version": "0.9.0",
   "timestamp_utc":    "2026-04-20T10:15:00Z",

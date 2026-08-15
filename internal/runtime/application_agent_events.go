@@ -49,6 +49,7 @@ type AgentDownFactsV1 struct {
 }
 
 type AgentTerminalFactsV1 struct {
+	AgentID   string `json:"agent_id,omitempty"`
 	SessionID string `json:"session_id"`
 	Status    string `json:"status"`
 	Role      string `json:"role,omitempty"`
@@ -479,6 +480,7 @@ func BuildAgentDownFacts(event SubagentEvent) (AgentDownFactsV1, []string, error
 	facts := AgentDownFactsV1{
 		Schema: AgentDownSchemaV1,
 		Child: AgentTerminalFactsV1{
+			AgentID:   boundedFactText(strings.TrimSpace(event.AgentID), maxAgentFactIDBytes).text,
 			SessionID: childID,
 			Status:    status,
 			Role:      boundedFactText(strings.TrimSpace(event.Role), maxAgentFactTextBytes).text,

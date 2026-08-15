@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/foobarto/stado/internal/brokercredential"
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/headless"
 	"github.com/foobarto/stado/internal/hooks"
@@ -54,17 +54,6 @@ var (
 	runTopP        float64
 	runTopK        int
 )
-
-func activeSessionID(sess *stadogit.Session, fallback string) string {
-	if sess != nil {
-		return sess.ID
-	}
-	return fallback
-}
-
-func hasRetrievedMemory(body string) bool {
-	return guidance.HasRetrievedMemory(body)
-}
 
 var (
 	runLoadConfig    = config.Load
@@ -273,8 +262,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 			if continueWorktree != "" {
 				promptWorkdir = continueWorktree
 			}
-			memoryContext := buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, continueSessID, runPrompt)
-
 			maxTurns := runMaxTurns
 			if runNoTurnLimit {
 				// math.MaxInt32 is "effectively unlimited" without
@@ -310,7 +297,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 				System:               sysPrompt,
 				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
-				MemoryContext:        memoryContext,
 				TokenCap:             cfg.Budget.HardTokens,
 				InputTokenCap:        cfg.Budget.HardInputTokens,
 				OutputTokenCap:       cfg.Budget.HardOutputTokens,
@@ -344,8 +330,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				recorder := trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: sess.ID, Principal: trajectory.LocalPrincipal()}
 				recorder.EnsureObjective(runPrompt)
 				opts.OnToolOutcome = recorder.ToolOutcome
-				opts.MemoryContext = buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, sess.ID, runPrompt)
-				opts.Research = buildRunResearch(cfg, prov, sess, cwd)
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
@@ -386,16 +370,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
 				}
 			}
-			opts.GuidanceContext = func() string {
-				return guidance.Build(guidance.Options{StateDir: cfg.StateDir(), SessionID: activeSessionID(activeSession, continueSessID), Prompt: runPrompt, FastContext: hasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
-					if opts.Executor == nil || opts.Executor.Registry == nil {
-						return false
-					}
-					_, ok := opts.Executor.Registry.Get(name)
-					return ok
-				}})
-			}
-
 			cwd, _ := os.Getwd()
 			baseCtx, _ := telemetry.LoadParentTraceparent(runCtx, cwd)
 			ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
@@ -420,6 +394,23 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					fmt.Fprintf(os.Stderr, "stado run: broker session.terminate: %v\n", closeErr)
 				}
 			}()
+			if activeSession != nil {
+				credentialStore, credentialErr := brokercredential.New(cfg.StateDir())
+				if credentialErr != nil {
+					return fmt.Errorf("stado run: durable broker session credentials: %w", credentialErr)
+				}
+				brokerSession.logicalCredentials = credentialStore
+				logical, logicalErr := brokerSession.OpenLogicalSession(ctx, cwd, activeSession.ID)
+				if logicalErr != nil {
+					return fmt.Errorf("stado run: durable broker session: %w", logicalErr)
+				}
+				opts.Broker = logical
+				defer func() {
+					if closeErr := logical.Close(); closeErr != nil {
+						fmt.Fprintf(os.Stderr, "stado run: durable broker session close: %v\n", closeErr)
+					}
+				}()
+			}
 
 			// Apply the same broker decision used by every other executor-owning
 			// surface. This preserves skipped attaches and makes --no-sandbox an

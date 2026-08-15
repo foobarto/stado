@@ -114,21 +114,20 @@ func (m *Model) registerSkillSlashCommands(emit func(string)) {
 	cmds, byCommand, warnings := skillSlashCommands(m.skills)
 	m.skillSlash = byCommand
 	var applicationCommands []palette.Command
-	for _, application := range m.lifecycleApplications {
+	for name, application := range m.applicationCommands {
 		if application == nil {
 			continue
 		}
+		description := "Run the " + application.Identity.Canonical + " application command"
 		for _, command := range application.Manifest.Commands {
-			full := "/" + command.Name
-			// A native command already has a static palette row. /supervise is
-			// the temporary migration overlap and deliberately reuses that row.
-			if palette.CheckSlashCollision(full) || IsReservedSlashName(full) {
-				continue
+			if command.Name == name && strings.TrimSpace(command.Description) != "" {
+				description = command.Description
+				break
 			}
-			applicationCommands = append(applicationCommands, palette.Command{
-				Name: full, Desc: command.Description, Group: applicationSlashGroup,
-			})
 		}
+		applicationCommands = append(applicationCommands, palette.Command{
+			Name: "/" + name, Desc: description, Group: applicationSlashGroup,
+		})
 	}
 	sort.Slice(applicationCommands, func(i, j int) bool { return applicationCommands[i].Name < applicationCommands[j].Name })
 	cmds = append(cmds, applicationCommands...)

@@ -35,7 +35,7 @@ What happens on a switch:
 
 Resolution order, highest first:
 
-1. **Per-call override** — `--persona` CLI flag (at launch), the `persona` arg on `agent.spawn`, or the `persona` arg on a server's `session.new` / `stado_llm_invoke` call.
+1. **Per-call override** — `--persona` CLI flag (at launch), the `persona` arg on `agent.spawn`, or the `persona` arg on a server's `session.new` call.
 2. **`[defaults].persona`** in **user** `config.toml` — your saved default. The interactive `/persona` command writes here, so an in-chat switch sticks across restarts. A repo cannot set this via project config (stripped — EP-0044).
 3. **Bundled `default`** — the fallback when nothing else resolves.
 
@@ -63,10 +63,12 @@ bundled personas still resolve normally.
 
 ```sh
 stado run --persona prose-writer "Draft a 600-word post about ..."
-stado mcp-server --persona software-engineer
 ```
 
-`--persona` on `mcp-server` pins the default for the server's lifetime. Clients can override per-call via the `persona` arg on `llm.invoke` / `agent.spawn`. (To switch persona *inside* an interactive session, use `/persona` — see above.)
+`agent.spawn` and server `session.new` requests may select a persona for the
+agent session they create. The generic provider bridge has no persona option;
+an installed model-facing plugin owns any system-text policy it exposes. To
+switch persona inside an interactive session, use `/persona` as described above.
 
 ### Config
 
@@ -88,13 +90,11 @@ persona = "researcher"
 
 ### Inside wasm plugins
 
-The `stado_llm_invoke` host import takes a JSON envelope:
-
-```json
-{"prompt": "...", "persona": "researcher", "model": "claude-sonnet-4-6"}
-```
-
-When `persona` is empty the call inherits the active session's persona.
+The generic `stado_provider_invoke` primitive deliberately has no `persona`
+field. It supplies authenticated, token-bounded provider access and facts, not
+application prompt policy. A plugin that wants persona-like behavior composes
+the relevant system text in WASM and exposes that choice in its own signed tool
+schema; native stado does not silently resolve a persona for a provider call.
 
 ## Writing your own
 
@@ -212,4 +212,4 @@ The persona body REPLACES stado's default operating-manual prompt. The project's
 ## Related
 
 - [`docs/features/instructions.md`](instructions.md) — `AGENTS.md` / `CLAUDE.md` mechanics
-- [`docs/plugins/abi-reference.md`](../plugins/abi-reference.md) — `stado_llm_invoke` JSON-args shape including `persona`
+- [`docs/plugins/host-imports.md`](../plugins/host-imports.md#stado_provider_invoke) — provider primitive request/facts contract and its deliberate lack of persona authority

@@ -31,14 +31,20 @@ narrower: progress, permission, and completion are different kinds of claim,
 and one model inside one conversation is the wrong component to own all three.
 
 I also need to be precise about where this design lives. The architecture in
-this article is the accepted EP-64 target now being implemented, not a claim
-that the earlier native `/supervise` workflow was the final shape. Supervision
-is an official signed WASM lifecycle application released from
-`foobarto/stado-plugins`. It may be a large application. It owns
+this article is the EP-64 application, not the earlier native `/supervise`
+workflow. Supervision lives in the official WASM lifecycle application under
+`foobarto/stado-plugins/supervise`. It may be a large application. It owns
 the contract wizard, cadence, detectors, prompts, verdict policy, and workflow.
 Native stado supplies the things a sandboxed application cannot: broker-stamped
 facts, durable ordering, scoped capabilities, and scheduling effects it can
 actually enforce.
+
+The source is preserved in a signed local `stado-plugins` commit. That is not
+the same thing as a signed plugin release. The intended first package is
+`supervise/v0.1.0`, compatible with stado 0.80.0; its manifest and WASM artifact
+have not yet been signed with the official offline key or published. Until they
+are, an ordinary stado installation has no `/supervise` command. There is no
+native copy kept as a fallback.
 
 The ordinary response is to add instructions. Be systematic. Read the repository
 guidance. Do not repeat a failed command without changing something. Verify your
@@ -93,7 +99,7 @@ duplicate rows were supposed to mean, duplicate handling has become whatever
 was easiest to implement.
 
 The
-[premature-completion scenario](../../evals/supervise/scenarios/premature-completion.json)
+[premature-completion scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/premature-completion.json)
 is built around exactly that temptation. The task is resumable batch import.
 Duplicates, cancellation, restart after partial progress, malformed input,
 compatibility, and documentation all need defined behaviour. The fixture also
@@ -122,7 +128,7 @@ same tool call produced the same failure three times. The host already observed
 the tool name, argument digest, result, turn anchor, and stable error
 fingerprint. It exposes those bounded, ordered facts; the supervise application
 decides which comparisons matter. The
-[retry-thrash scenario](../../evals/supervise/scenarios/retry-thrash.json)
+[retry-thrash scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/retry-thrash.json)
 exists to make that difference visible: the unsupported command should be tried
 no more than twice, the repository instructions should be read, and the tactic
 should change.
@@ -276,7 +282,7 @@ defend against a malicious worker or malicious source tree.
 
 ## Useful is not the same as authorized
 
-The [scope-drift scenario](../../evals/supervise/scenarios/scope-drift.json) is
+The [scope-drift scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/scope-drift.json) is
 almost insultingly small. Empty labels should render as `(untitled)`. Preserve
 public APIs. Add a regression test. Do not clean up anything else.
 
@@ -298,7 +304,7 @@ request a quality confirmation; security authorization remains central policy
 or a separately trusted operator grant.
 
 The distinction becomes sharper when the original plan is actually wrong. The
-[bad-pivot scenario](../../evals/supervise/scenarios/bad-pivot.json) asks the
+[bad-pivot scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/bad-pivot.json) asks the
 worker to preserve an export API and output ordering while adding streaming
 through a documented adapter. The fixture removes an upstream symbol the
 adapter needs. A tempting replacement package exists, but it changes ordering.
@@ -324,9 +330,13 @@ done. Fluency makes those roles look like one continuous activity. They are not.
 
 Under `/supervise`, the worker submits a completion request with evidence linked
 to each approved criterion after every plan step has advanced. The application
-requests the configured deterministic verification commands through the normal
-audited executor and receives host-recorded results. A failure returns the run
-to work with bounded feedback under supervise's policy.
+names the exact pending turn and asks stado to run the operator-configured Verify
+Work suite. It cannot supply a command or choose a more convenient tree. The
+broker derives the anchor; the TUI uses the ordinary audited executor and sends
+back bounded facts and evidence references, not command output or a native
+opinion. No configured suite is recorded as absence, not success. A failed
+command returns the run to work with bounded factual feedback under supervise's
+policy.
 
 If verification passes, a fresh verifier instance examines the anchored
 contract, tree, and evidence. It is separate from the worker and separate from
@@ -344,7 +354,7 @@ The worker writes the code. The worker does not certify the code.
 ## Put the promises somewhere forgetting cannot edit them
 
 The
-[multistage-context-loss scenario](../../evals/supervise/scenarios/multistage-context-loss.json)
+[multistage-context-loss scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/multistage-context-loss.json)
 is the long version of the problem. Migrate an envelope format from v1 to v2.
 Inventory callers. Define compatibility. Implement dual-read and single-write.
 Migrate fixtures. Verify downgrade behaviour. Update API and operations
@@ -382,7 +392,7 @@ Delegation makes agent work faster in the same way it makes organizations
 faster: it creates more places where somebody can say their part is done.
 
 The
-[subagent-accountability scenario](../../evals/supervise/scenarios/subagent-accountability.json)
+[subagent-accountability scenario](https://github.com/foobarto/stado-plugins/blob/main/supervise/evals/scenarios/subagent-accountability.json)
 provides three adapters and one shared conformance suite. A local test for one
 adapter passes while the integrated contract fails. One scripted child also
 makes an out-of-scope documentation edit.
@@ -478,8 +488,10 @@ The loop can do the work. It cannot be the only witness to what happened.
 
 ---
 
-The executable scenarios and paired-run protocol live under
-[`evals/supervise`](../../evals/supervise/README.md). The operator reference is
+The executable scenarios and paired-run protocol live with the official
+application under
+[`supervise/evals`](https://github.com/foobarto/stado-plugins/tree/main/supervise/evals).
+The operator reference is
 [Supervised work (`/supervise`)](../features/supervise.md), and the state machine and
 authority decisions are recorded in
 [EP-0062](../eps/0062-harness-enforced-supervised-work.md). Its plugin/host

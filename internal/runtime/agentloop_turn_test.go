@@ -2,9 +2,8 @@ package runtime
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -13,6 +12,20 @@ import (
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+type inactiveApplicationBroker struct {
+	recordingBrokerController
+	publishes int
+}
+
+func (b *inactiveApplicationBroker) ApplicationEventContext() ApplicationEventContext {
+	return ApplicationEventContext{SessionID: "inactive", Generation: 0}
+}
+
+func (b *inactiveApplicationBroker) PublishApplicationEvent(context.Context, HostApplicationEvent) (uint64, error) {
+	b.publishes++
+	return 0, errors.New("inactive application event scope must not be used")
+}
 
 func TestAgentLoopCreatesTurnBoundaryOnSession(t *testing.T) {
 	root := t.TempDir()
@@ -43,33 +56,29 @@ func TestAgentLoopCreatesTurnBoundaryOnSession(t *testing.T) {
 	}
 }
 
-func TestAgentLoopAddsMemoryContextToSystemPrompt(t *testing.T) {
-	prov := &systemCaptureProvider{}
-	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
-		Provider:      prov,
-		Model:         "m",
-		Messages:      []agent.Message{agent.Text(agent.RoleUser, "hi")},
-		MaxTurns:      1,
-		MemoryContext: "Memory snippets supplied by installed plugins.\n- [global/preference mem_1] Prefer focused tests.",
-	})
+func TestAgentLoopDoesNotPublishTurnsWithoutAdmittedApplicationGeneration(t *testing.T) {
+	root := t.TempDir()
+	sc, err := stadogit.OpenOrInitSidecar(filepath.Join(root, "sessions.git"), root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := stadogit.CreateSession(sc, filepath.Join(root, "worktrees"), "inactive-application", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := &inactiveApplicationBroker{}
+	if _, _, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: &systemCaptureProvider{},
+		Executor: &tools.Executor{Registry: tools.NewRegistry(), Session: sess},
+		Broker:   broker,
+		Model:    "m",
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")},
+		MaxTurns: 1,
+	}); err != nil {
 		t.Fatalf("AgentLoop: %v", err)
 	}
-	if got := prov.system; got == "" || !strings.Contains(got, "Memory snippets supplied by installed plugins") {
-		t.Fatalf("system prompt missing memory context:\n%s", got)
-	}
-}
-
-func TestBuildTurnSystemRefreshesBoundedGuidance(t *testing.T) {
-	n := 0
-	opts := AgentLoopOptions{Provider: &systemCaptureProvider{}, Model: "m", GuidanceContext: func() string {
-		n++
-		return "host guidance revision " + fmt.Sprint(n)
-	}}
-	first := buildTurnSystem(opts)
-	second := buildTurnSystem(opts)
-	if !strings.Contains(first, "revision 1") || !strings.Contains(second, "revision 2") {
-		t.Fatalf("guidance was not refreshed: first=%q second=%q", first, second)
+	if broker.publishes != 0 {
+		t.Fatalf("inactive application publisher calls = %d, want 0", broker.publishes)
 	}
 }
 

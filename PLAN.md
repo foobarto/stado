@@ -35,102 +35,114 @@ PR #257 began as a native implementation of supervised work. Review found both
 valuable defects and a deeper architecture drift: large native application
 policy, model-visible native tools, direct TUI/WASM-side WAL access, hardcoded
 artifact concepts, and plugin capabilities too weak to host the application the
-EP architecture actually calls for.
+EP architecture actually calls for. The corrective cutover removed native
+supervise policy/tools/evaluator and preserved the complete official
+application source in the checkpoint identified below.
 
 The correction is deliberately sweeping and pre-v1. Preserve authoritative
 data through explicit one-way migration, but do not preserve obsolete imports,
 wrappers, aliases, config, fallback writers, native application paths, or
 platform shims merely for compatibility.
 
-The release sequence is:
+The source cutover and generic host work are complete. The authoritative
+official-source checkpoint is signed Git commit
+`987906479e9675b2aa9f972802b5ab3716d4af48`; the complete-history recovery
+bundle is `.agent/stado-plugins-official-20260815-completion.bundle` (SHA-256
+`7eb946fe4c35b3630086f68eadab69d1bd3e5e6a3d702852648c2a1bd88c19ea`).
+Neither the checkpoint nor the bundle is a signed plugin release.
 
-1. **Architecture compass and guardrails.** Rewrite DESIGN/PLAN, accept
-   [EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md),
-   [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md),
-   [EP-0065](docs/eps/0065-linux-only-platform-scope.md),
-   [EP-0066](docs/eps/0066-canonical-plugin-authority-and-application-placement.md),
-   and
-   [EP-0067](docs/eps/0067-session-controller-and-application-selection.md),
-   correct stale EP
-   relationships/status, and add executable drift/documentation checks.
-2. **Canonical plugin authority and generic artifacts.** Remove display-name
-   identity from secrets, instance state, artifacts, lifecycle instances, and
-   audit attribution. Require loader-supplied canonical lock/bundled identity
-   on every production path, make local identity source-bound and explicitly
-   unstable. Mint an unguessable broker session-controller capability, retain
-   only its hash, require it for native session-bound broker operations, and
-   make lifecycle admission exclusive per exact session/generation/plugin
-   namespace. This authenticates session control but must not be described as
-   proof of a fresh operator gesture. Then finish plugin-defined
-   schemas/projections, archived descriptors, dynamic `data`, and idempotent
-   memory/lesson migration.
-3. **Broker-owned artifact API.** Add authenticated kind registration and typed
-   propose/query/edit/observe RPC. Derive principal, repository, session,
-   ancestry, generation, capability ceiling, idempotency, and actor from a
-   broker-minted admission binding independently verified against installed
-   package, signature, lock identity, session, and policy. The guest never sees
-   that binding. Keep authority-grant issuance private to the broker. A
-   separate exact activation coordinator may accept a candidate reference, but
-   security-significant fresh operator intent requires a predeclared policy or
-   presenter outside the hostile orchestrator boundary; an in-process TUI
-   confirmation is only a quality/user-experience step. Remove
-   `stado_memory_*`, direct legacy JSONL, and every non-broker canonical writer.
-4. **WASM lifecycle applications.** Implement one persistent serialized
-   per-session instance across tools, EP-51 hooks, durable broker events, ticks,
-   UI, and close. Make reentrancy, ordering, timeout, failure posture,
-   acknowledgement, and restart behavior explicit.
-5. **Generic orchestration primitives.** Operation-scoped
-   `agent:{spawn,list,read,send,cancel}` capabilities and exact retained-source
-   pinning are implemented; the obsolete `agent:fleet` aggregate grants
-   nothing. Finish mailboxes, journal projections, timers, budgets, jobs,
-   leases, scheduling holds, exact-parent terminal events, successful
-   completion, followup/continuation delivery, and lifecycle composition
-   recovery. That includes broker-owned logical-session admission/adoption
-   across full process restart and an ancestry-checked transfer for automatic
-   compacted-child recovery. The latter reassigns the whole existing broker
-   application scope to the broker-minted child and fences the source; it must
-   not copy worker/input/hold records into a second authority. Surviving WAL
-   bytes are not recovery while their authoritative scope is unreachable. Keep mailbox data separate from
-   pause/stop/cancel/down authority.
-6. **Supervise application migration.** Move contract flow, tools, detectors,
-   cadence, evidence policy, prompts, reviewer/verifier orchestration, stale
-   verdict handling, correction, pivot, and completion policy into the official
-   sandboxed WASM application. Keep only generic facts and enforcement native.
-7. **Delete drift.** Remove every stado-owned native model tool and workflow:
-   supervise, registry meta-tools, skills loading, research dispatchers, tasks,
-   and the carve-outs in `docs/features/no-internal-tools.md`. Keep external MCP
-   tools explicitly classified as typed external implementations rather than
-   stado-owned native applications. Remove TUI direct WAL opens, artifact
-   compatibility aliases, currency-based budget caps, native fallback writers, and
-   obsolete platform/release targets. Add architecture tests that make each
-   removal permanent.
-8. **Conformance and documentation.** Run EP-62 eval scenarios plus strict-live,
-   periodic-event, stale-steer, stale-stop-confirmation, restart, trap, lease,
-   and surface-parity cases. Update feature references, ABI/host imports, threat
-   model, README, and the narrative articles with the final implementation.
-9. **Pre-release review and validation.** Treat Copilot/Codex findings as hypotheses; validate
-   them against EPs and agreed tradeoffs. Obtain clean raw reviews and green
-   focused/race/full/static/reproducibility/PTY gates. Prepare the real official
-   signing workflow, but do not merge or publish yet. An ephemeral `/tmp` key is
-   permitted only for local path testing.
-10. **Repository-wide EP drift audit.** After every preceding item, compare the
-    complete implementation and current documentation against all accepted EPs
-    and decision records. Reproduce suspected mismatches, correct confirmed
-    drift, and require operator review for any changed tradeoff. This remains
-    the final item of the corrective sequence.
+Two broad implementation-versus-EP passes corrected the source and forward
+ledger. Their full test, race, vet, architecture/document, EP relationship, and
+Accepted/Partial-to-PLAN checks are green. They are not the terminal audit:
+subsequent conformance and adversarial-boundary work found C92-C103 and changed
+the source. The original release order therefore still requires one final
+repository-wide drift audit
+after conformance and live review freeze the candidate. Any source correction
+after that audit invalidates it and requires a repeat.
 
-The release is blocked until all ten items are complete. A clean item-10 audit
-then unlocks merge, real-key build/sign/publish, independent fetch, and v0.80.0
-verification. Green CI on the old native architecture is not sufficient.
+The supervise conformance proof is complete against an ephemeral signing root.
+It covers all eight source packages, source-keyed installation, explicit
+lifecycle admission, dynamic command ownership, absence of native fallback,
+setup/cancellation, exact review and pivot policy, immutable operator-input
+routing, Verify Work and independent completion, transactional reload, cold
+session resume, and automatic compacted-child transfer of the existing broker
+scope. The compacted-child PTY binds the authenticated canonical auto-compact
+identity, does not replay the application prompt as ordinary input, reconciles
+the exact WorkerRun once in the child, advances it only from a child-anchored
+review, and terminalizes it cleanly. Plugin-owned scenarios and the focused,
+race, reproducibility, and PTY gates are green. Real-key repetition belongs to
+the release ceremony, not the development proof.
+
+Only these corrective-release gates remain, in order:
+
+1. **Resolve the live PR review.** Authenticate to the forge, fetch the current
+   PR #257 review/thread state, inspect the complete raw Copilot review including
+   suppressed findings, and obtain the repository-required fresh final-head
+   Codex connector/adversarial review. Map every finding to the final generic
+   regression or a new correction, and require green CI. The native shell/GH
+   parser and unsafe cross-session child forwarding were deleted; review
+   resolution must cite the replacement generic tests rather than revive them.
+2. **Repeat the terminal implementation-versus-EP audit.** Audit the frozen
+   root and official-plugin source against every Accepted decision, later
+   counter-requirement, cleanup-ledger item, ABI/reference claim, and current
+   product document. Re-run the full tests, selected race matrix, vet,
+   architecture/document/EP guards, reproducible builds, and final diff review.
+   This is the last source-changing gate; a finding reopens the audit.
+   "Terminal" here means the final source-changing gate of this corrective
+   release, not completion or removal of the v1 workstreams and next product
+   proposal recorded below.
+3. **Perform the real release ceremony.** Freeze the official supervise package
+   at immutable `0.1.0`, build it reproducibly from the checkpointed source,
+   sign only with the operator-held offline plugin key, publish
+   `supervise/v0.1.0`, and independently fetch/install/verify it in a clean trust
+   root against the v0.80.0 candidate. Repeat the complete conformance matrix
+   against those exact signed bytes. Development keys and unsigned manifests
+   must not cross this boundary.
+4. **Merge and publish v0.80.0.** Merge only the audited, reviewed source,
+   produce the Linux-only signed release artifacts through the real workflow,
+   verify install/update/rollback and the official application from clean
+   state, then record the released hashes and evidence in the changelog.
+
+The completed development proof included the following progression:
+
+1. The isolated ephemeral-key
+   proof already covers all eight source packages, source-keyed install,
+   explicit lifecycle admission, dynamic command ownership, tasks across
+   reload and cold restart, absence of native fallback, supervise setup
+   cancellation, the default fresh baseline child, and operator rejection of
+   the baseline proposal. It also confirms that proposal, activates the exact
+   WorkerRun, crosses the anchorless first iteration and exact anchored progress
+   claim, admits a fresh pinned read-only watchdog, advances the plan only from
+   its current-anchor approval, proves the review barrier blocks parent-provider
+   follow-up, and cancels the terminal workflow cleanly. A further PTY path
+   captures ordinary input during a live worker stream, claims and classifies
+   it through a fresh pinned reviewer, proves it cannot steer that in-flight
+   provider request, and delivers the immutable original only after the turn
+   boundary to the next recurrence. The pivot path now also proves exact
+   pinned review, recommendation-only handling, explicit user confirmation,
+   artifact CAS, plan re-anchor, revised recurrence, and cancellation. The
+   proof now also crosses operator-owned Verify Work, exact source-content
+   anchoring, watchdog review, a fresh independent verifier, durable successful
+   completion, exact hold release, transactional `/reload`, and an explicit
+   cold `session resume` that re-adopts the same broker scope without duplicate
+   recurrence. The final automatic-compaction path transfers the same durable
+   scope to the authenticated direct child and reconciles its exact WorkerRun
+   instead of replaying it as ordinary input.
+
+Other staged official applications remain unsigned source candidates unless
+their own Accepted EP gates close. In particular, memory/learn remains
+candidate-only until a separately trusted presenter exists; provider reply loss
+is still cost-ambiguous; truncated learning-journal recovery fails closed;
+measured adaptive ranking and the exact `memory__search` fast path are not
+implemented. None of those gaps may be hidden behind a native fallback or a
+release claim.
 
 ## V1 workstreams after the corrective release
 
 ### Linux security closure
 
-Owning EPs: [EP-0030](docs/eps/0030-security-research-default-harness.md),
-[EP-0050](docs/eps/0050-broker.md),
-[EP-0059](docs/eps/0059-durable-event-and-budget-substrate.md), and
-[EP-0065](docs/eps/0065-linux-only-platform-scope.md).
+Owning EPs: [EP-0030](docs/eps/0030-security-research-default-harness.md) and
+[EP-0050](docs/eps/0050-broker.md).
 
 Remaining gates:
 
@@ -140,48 +152,49 @@ Remaining gates:
 - complete narrow ssh-agent/git-child construction, fetch-oriented dispatch,
   scoped egress, deterministic teardown, and removal of broad main-session
   socket forwarding;
-- remove unsupported OS runners, release jobs, docs, and portability-only
-  abstractions that weaken Linux clarity;
 - exercise mount, namespace, Landlock, seccomp, credential-mask, and network
   invariants in real Linux integration tests;
 - finish the adversarial default harness and make its declared status honest.
 
 ### Plugin application platform closure
 
-Owning EPs: [EP-0002](docs/eps/0002-all-tools-as-plugins.md),
-[EP-0028](docs/eps/0028-plugin-run-tool-host.md),
-[EP-0037](docs/eps/0037-tool-dispatch-and-operator-surface.md),
-[EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md),
+Owning EPs: [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md),
 [EP-0039](docs/eps/0039-plugin-distribution-and-trust.md),
-[EP-0042](docs/eps/0042-binaries-out-of-source-tree.md),
 [EP-0045](docs/eps/0045-model-invocable-skills.md),
+[EP-0054](docs/eps/0054-addressable-context-and-research-agents.md),
 [EP-0063](docs/eps/0063-plugin-defined-harness-artifacts.md),
 [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md),
 [EP-0066](docs/eps/0066-canonical-plugin-authority-and-application-placement.md),
-and
-[EP-0067](docs/eps/0067-session-controller-and-application-selection.md).
+[EP-0067](docs/eps/0067-session-controller-and-application-selection.md), and
+draft [EP-0068](docs/eps/0068-signed-plugin-cli-commands.md).
 
 Remaining gates:
 
-- eliminate every model-visible native tool and wrapper-shaped implementation;
-- finish exact remote identity/resolved-commit propagation into runtime and
-  artifacts;
-- make lifecycle-only applications loadable without a synthetic model tool;
 - make every host import documented, capability-scoped, bounded, and covered by
   ABI tests;
-- finish plugin-run/tool-host and model-invocable skill surfaces where their EPs
-  remain Partial;
-- publish official application source and reproducible unsigned build output
-  from `foobarto/stado-plugins`, then sign release manifests only with the
-  operator-held offline key;
+- complete the remaining broader [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md)
+  and [EP-0039](docs/eps/0039-plugin-distribution-and-trust.md) surface and
+  distribution phases without restoring name-based or compatibility authority;
+- finish EP-45's separately trusted project-resource enablement path, then
+  sign/publish and clean-install the explicit official skills package; project
+  `allowed-tools` remains inert until that authority decision exists;
+- implement EP-54's exact `memory__search` fast path and release-verify the
+  isolated research package before calling that Accepted contract shipped;
+- publish only the official applications whose own Accepted gates are closed;
+  sign `supervise/v0.1.0` only with the operator-held offline key;
 - test install, trust, update, rollback, removal, archived-schema rendering, and
   deterministic bundled builds end to end.
+- evaluate EP-68's explicit signed one-shot CLI command profile after v0.80;
+  current memory/learn application commands deliberately remain TUI-only, and
+  no native compatibility handler or inferred lifecycle-command promotion is
+  permitted.
 
 ### Quality and long-running work
 
 Owning EPs: [EP-0033](docs/eps/0033-responsive-supervisor-worker-lanes.md),
 [EP-0046](docs/eps/0046-verify-work-phase.md),
-[EP-0052](docs/eps/0052-learn-trajectory-refinement.md) through
+[EP-0052](docs/eps/0052-learn-trajectory-refinement.md),
+[EP-0058](docs/eps/0058-measured-adaptive-retrieval.md),
 [EP-0060](docs/eps/0060-native-harness-guidance.md), and
 [EP-0062](docs/eps/0062-harness-enforced-supervised-work.md) through
 [EP-0064](docs/eps/0064-wasm-lifecycle-applications.md).
@@ -192,14 +205,22 @@ Remaining gates:
   executor or confusing judgment with authority;
 - complete responsive frontline lanes separately from independent watchdog
   review; shared primitives do not imply shared policy;
-- graduate adaptive retrieval beyond shadow mode only with measured evidence;
+- implement measured retrieval ranking, shadow evaluation, and reporting before
+  any adaptive policy may change prompt contents; no shadow evaluator exists in
+  the current source;
+- implement C86's separately trusted artifact-activation presenter before the
+  official memory/learn package can leave candidate-only status. The presenter
+  must reload the broker's exact candidate and commit one actor-bound,
+  version/digest/scope-exact, reply-loss-idempotent grant issue/consume/
+  activation transaction; a guest import, controller token, ordinary TUI
+  callback, or application-rendered prose is not operator authority;
 - validate retained-agent recovery, mailboxes, recursive budgets, and lifecycle
   holds under crash, cancellation, stale generation, and backpressure;
-- ship supervise with token-only reviewer ceilings, durable stop authority, and
-  the accepted asymmetric stale-verdict behavior;
-- keep native bounded facts generic as application wording and policy move to
-  WASM, including migration of EP-60's learn/research/coordination guidance
-  policy into a lifecycle application.
+- release-verify supervise's token-only reviewer ceilings, durable stop
+  authority, and accepted asymmetric stale-verdict behavior;
+- prove, offline-sign, publish, install, and pin the official TUI-only EP-60
+  `guidance` lifecycle application; its native facts, append-only contribution
+  seam, source migration, and native composition deletion are complete.
 
 ### Shared surfaces and operator experience
 
@@ -227,6 +248,8 @@ Remaining gates:
 - maintain TUI/PTY behavior through real terminal tests on Linux.
 
 ## Architecture and documentation maintenance
+
+Owning decision: [EP-0001](docs/eps/0001-ep-purpose-and-guidelines.md).
 
 The following checks are v1 release requirements, not optional housekeeping:
 

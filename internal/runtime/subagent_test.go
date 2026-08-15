@@ -395,9 +395,13 @@ func TestSubagentRunnerPropagatesParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var events []SubagentEvent
 
-	done := make(chan error, 1)
+	type terminalResult struct {
+		result subagent.Result
+		err    error
+	}
+	done := make(chan terminalResult, 1)
 	go func() {
-		_, err := (SubagentRunner{
+		result, err := (SubagentRunner{
 			Config:    cfg,
 			Parent:    parent,
 			Provider:  blockingSubagentProvider{},
@@ -413,13 +417,13 @@ func TestSubagentRunnerPropagatesParentCancellation(t *testing.T) {
 			MaxTurns:       1,
 			TimeoutSeconds: 60,
 		})
-		done <- err
+		done <- terminalResult{result: result, err: err}
 	}()
 
 	cancel()
-	err := <-done
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
+	got := <-done
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", got.err)
 	}
 	if len(events) != 2 {
 		t.Fatalf("events = %d, want started+finished: %+v", len(events), events)
@@ -429,6 +433,9 @@ func TestSubagentRunnerPropagatesParentCancellation(t *testing.T) {
 	}
 	if !strings.Contains(events[1].Error, "context canceled") {
 		t.Fatalf("finished event error = %q", events[1].Error)
+	}
+	if got.result.Status != "error" || got.result.Error != events[1].Error || !reflect.DeepEqual(got.result.Terminal, events[1].Terminal) {
+		t.Fatalf("terminal error result diverged from finished event: result=%+v event=%+v", got.result, events[1])
 	}
 }
 

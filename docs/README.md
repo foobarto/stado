@@ -33,8 +33,8 @@ Shorter forms live in:
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
 | `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, sign, and scaffold WASM plugins |
-| `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
-| `stado learn` | [commands/learning.md](commands/learning.md) | Review trajectories and manage evidence-backed lessons |
+| `/memory` application | [commands/memory.md](commands/memory.md) | Future signed TUI lifecycle command; staged source is unsigned/unpublished |
+| `/learn` application | [commands/learning.md](commands/learning.md) | Future candidate-only TUI review; no native CLI fallback |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
 | `stado run --headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
@@ -47,7 +47,6 @@ Shorter forms live in:
 | `stado harness` / `stado integrations` | [commands/operations.md](commands/operations.md) | Security harness setup and external-agent discovery |
 | `stado schedule` / `stado usage` | [commands/operations.md](commands/operations.md) | Persistent scheduled runs and audit-derived usage reports |
 | `stado install` / `stado uninstall` | [commands/operations.md](commands/operations.md) | User-local binary installation lifecycle |
-| `stado supervise-eval` | [features/supervise.md](features/supervise.md#evaluation) | Validate and score paired supervised-work evaluations |
 
 ## Features
 
@@ -60,8 +59,8 @@ Shorter forms live in:
 | `[hooks]` shell hook | [features/hooks.md](features/hooks.md) | Fire-and-forget shell hook on completed TUI, CLI, and headless turns |
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
-| Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
-| Supervised work (EP-64 migration in flight) | [features/supervise.md](features/supervise.md) | Accepted quality-gate behavior being moved into the official signed `supervise` plugin |
+| Tasks application (release pending) | [features/tasks.md](features/tasks.md) | Explicit TUI lifecycle application with global broker artifacts and no native fallback |
+| Supervised work (plugin release pending) | [features/supervise.md](features/supervise.md) | Official WASM quality gate; source/evaluator live in `foobarto/stado-plugins`, with real-key signing and publication still pending |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |

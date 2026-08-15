@@ -6,10 +6,49 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
+
+// withPluginFileLock serializes a read-modify-write transaction across stado
+// processes. Linux is the only supported platform (EP-0065), so flock is the
+// deliberately small host primitive here. The lock itself is opened beneath
+// the same no-symlink user-state resolver as the protected file.
+func withPluginFileLock(path string, fn func() error) error {
+	root, name, err := pluginStateRoot(path+".lock", true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	var before os.FileInfo
+	if info, statErr := root.Lstat(name); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("plugin state lock is not a regular file: %s", path+".lock")
+		}
+		before = info
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !opened.Mode().IsRegular() || (before != nil && !os.SameFile(before, opened)) {
+		return fmt.Errorf("plugin state lock changed while opening: %s", path+".lock")
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	return fn()
+}
 
 const maxPluginStateFileBytes int64 = 16 << 20
 
@@ -117,7 +156,11 @@ func pluginStateRoot(path string, createDir bool) (*os.Root, string, error) {
 	}
 	uc := workdirpath.NewUserConfigResolver()
 	if createDir {
-		if err := uc.MkdirAll(dir, 0o700); err != nil {
+		// The no-symlink mkdir walker can lose a benign create race between
+		// processes after both observe a missing final component. EEXIST only
+		// means another contender created something at that name; OpenRoot below
+		// still validates that it is a real directory beneath the trusted anchor.
+		if err := uc.MkdirAll(dir, 0o700); err != nil && !os.IsExist(err) {
 			return nil, "", err
 		}
 	}

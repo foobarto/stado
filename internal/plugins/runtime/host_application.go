@@ -25,6 +25,7 @@ type applicationImport struct {
 var applicationImports = []applicationImport{
 	{"stado_session_journal_append", "journal.append", "session:journal:append"},
 	{"stado_session_projection_read", "projection.read", "session:projection:read"},
+	{"stado_session_context_read", "context.read", "session:context:read"},
 	{"stado_session_hold_acquire", "hold.acquire", "session:schedule"},
 	{"stado_session_hold_release", "hold.release", "session:schedule"},
 	{"stado_session_request_pause", "session.pause", "session:schedule"},
@@ -35,8 +36,10 @@ var applicationImports = []applicationImport{
 	{"stado_session_worker_request", "worker.request", "session:worker:request"},
 	{"stado_session_worker_resume", "worker.resume", "session:worker:resume"},
 	{"stado_session_worker_cancel", "worker.cancel", "session:worker:cancel"},
+	{"stado_session_verification_request", "verification.request", "session:verification:request"},
 	{"stado_timer_schedule", "timer.schedule", "timer:schedule"},
 	{"stado_timer_cancel", "timer.cancel", "timer:schedule"},
+	{"stado_artifact_migrate_legacy_memory_v1", "artifact.migrate.legacy-memory-v1", "artifact:migrate:legacy-memory-v1"},
 }
 
 // registerApplicationImports exposes uniform bounded request/response calls:

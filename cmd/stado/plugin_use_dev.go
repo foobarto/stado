@@ -12,7 +12,6 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
-	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // ── plugin use ────────────────────────────────────────────────────────────
@@ -20,63 +19,32 @@ import (
 // pluginUseCmd switches the active version for a plugin in the scope where it
 // is installed. Project-local and global installs keep independent markers.
 var pluginUseCmd = &cobra.Command{
-	Use:   "use <name>@<version>",
-	Short: "Switch the active version for an installed plugin in its install scope",
-	Long: "Writes the active-version marker for the named plugin.\n" +
+	Use:   "use [project:|global:]<canonical-source|store-key>",
+	Short: "Switch the active package for one installed source namespace",
+	Long: "Writes a source-keyed active-package marker.\n" +
 		"Project-local and global installs keep independent active versions.\n" +
-		"The version must already be installed (`stado plugin installed` to list).\n" +
-		"Example: stado plugin use my-plugin@v2.0.0",
+		"Use project: or global: to disambiguate a package present in both roots.\n" +
+		"A display-name alias is accepted only when it identifies exactly one installed package.\n" +
+		"Example: stado plugin use github.com/acme/plugins/reviewer@v2.0.0",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		nameVer := args[0]
-		parts := strings.SplitN(nameVer, "@", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("usage: plugin use <name>@<version>")
-		}
-		name, version := parts[0], parts[1]
-
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		installDir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name+"-"+version)
+		pkg, _, err := resolveManagedInstalledPackage(cfg, args[0])
 		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("plugin %q is not installed (use `stado plugin install` first)", args[0])
+			}
 			return err
 		}
-		if _, err := os.Stat(installDir); os.IsNotExist(err) {
-			return fmt.Errorf("plugin %s@%s is not installed (use `stado plugin install` first)", name, version)
-		}
-
-		if err := writePluginActiveMarker(installDir, name, version); err != nil {
+		if err := plugins.WriteActivePackageMarker(filepath.Dir(pkg.Dir), pkg); err != nil {
 			return err
 		}
-		fmt.Printf("active: %s → %s\n", name, version)
+		fmt.Fprintf(cmd.OutOrStdout(), "active: %s → %s\n", pkg.Identity.Namespace, pkg.Identity.Canonical)
 		return nil
 	},
-}
-
-func writePluginActiveMarker(installDir, name, version string) error {
-	if _, err := plugins.InstalledDir(".", name); err != nil {
-		return fmt.Errorf("plugin use: %w", err)
-	}
-	if _, err := plugins.InstalledDir(".", version); err != nil {
-		return fmt.Errorf("plugin use: invalid version: %w", err)
-	}
-	// Keep the marker beside the selected install root so project-local
-	// version choices do not change the global or another project's choice.
-	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(installDir))
-	if err != nil {
-		return fmt.Errorf("plugin use: open install root: %w", err)
-	}
-	defer func() { _ = root.Close() }()
-	resolver := workdirpath.NewRootResolver(root)
-	if err := resolver.MkdirAll("active", 0o755); err != nil {
-		return fmt.Errorf("plugin use: create active dir: %w", err)
-	}
-	if err := resolver.WriteFileAtomic(filepath.Join("active", name), []byte(version), 0o644); err != nil {
-		return fmt.Errorf("plugin use: write marker: %w", err)
-	}
-	return nil
 }
 
 var pluginDevWatch bool

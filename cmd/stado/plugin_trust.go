@@ -88,8 +88,7 @@ var pluginUntrustAnchorCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		store := plugins.NewAnchorTrustStore(cfg.StateDir())
-		if err := store.Remove(args[0]); err != nil {
+		if err := plugins.NewTrustStore(cfg.StateDir()).RemoveAnchor(args[0]); err != nil {
 			return fmt.Errorf("untrust-anchor: %w", err)
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), "cleared anchor pin for", args[0])
@@ -127,16 +126,14 @@ var pluginListCmd = &cobra.Command{
 			trusted     bool
 			bundled     bool // indicates a binary-bundled plugin
 			caps        int
+			source      string
+			storeKey    string
 		}
 
 		var rows []row
 		for _, location := range locations {
-			mf, _, loadErr := plugins.LoadFromDir(location.Dir)
-			if loadErr != nil {
-				// Show even if manifest is broken.
-				rows = append(rows, row{name: location.ID, version: "?", author: "manifest load failed", path: location.Dir})
-				continue
-			}
+			pkg := location.Package
+			mf := &pkg.Manifest
 			var toolNames []string
 			for _, t := range mf.Tools {
 				toolNames = append(toolNames, t.Name)
@@ -156,6 +153,8 @@ var pluginListCmd = &cobra.Command{
 				path:        filepath.Join(location.Dir, "plugin.wasm"),
 				trusted:     trusted,
 				caps:        len(mf.Capabilities),
+				source:      pkg.Identity.Canonical,
+				storeKey:    pkg.Record.StoreKey,
 			})
 		}
 
@@ -176,6 +175,8 @@ var pluginListCmd = &cobra.Command{
 				trusted:     true,
 				bundled:     true,
 				caps:        len(b.Capabilities),
+				source:      "stado.dev/bundled/" + b.Name + "@" + b.Version,
+				storeKey:    "-",
 			})
 		}
 
@@ -185,7 +186,7 @@ var pluginListCmd = &cobra.Command{
 			return nil
 		}
 
-		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+		sort.Slice(rows, func(i, j int) bool { return rows[i].source < rows[j].source })
 
 		bundledCount, installedCount, trustedCount := 0, 0, 0
 		for _, r := range rows {
@@ -216,8 +217,8 @@ var pluginListCmd = &cobra.Command{
 		}
 		fmt.Fprintln(w)
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "NAME\tVERSION\tTOOLS\tAUTHOR\tFINGERPRINT\tSTATUS\tPATH")
-		fmt.Fprintln(w, "────\t───────\t─────\t──────\t───────────\t──────\t────")
+		fmt.Fprintln(w, "SOURCE\tALIAS\tVERSION\tTOOLS\tAUTHOR\tFINGERPRINT\tSTATUS\tSTORE KEY")
+		fmt.Fprintln(w, "──────\t─────\t───────\t─────\t──────\t───────────\t──────\t─────────")
 		for _, r := range rows {
 			status := "✓ trusted"
 			switch {
@@ -236,8 +237,8 @@ var pluginListCmd = &cobra.Command{
 			// version.Version (git-describe, already 'v0.64.0'), so the 'v%s'
 			// format printed 'vv0.64.0' for them (P2.15). Disk plugins'
 			// manifest versions usually have no 'v'. Normalise to exactly one.
-			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\t%s\n",
-				r.name, strings.TrimPrefix(r.version, "v"), r.tools, r.author, fpr, status, r.path)
+			fmt.Fprintf(w, "%s\t%s\tv%s\t%d\t%s\t%s\t%s\t%s\n",
+				r.source, r.name, strings.TrimPrefix(r.version, "v"), r.tools, r.author, fpr, status, r.storeKey)
 		}
 		_ = w.Flush()
 
@@ -246,7 +247,7 @@ var pluginListCmd = &cobra.Command{
 		// via ResolveInstalledPluginDir. The old `<name>-<version>` hint never
 		// resolved a bundled plugin (the common case), and the vv version bug
 		// made a copy-pasted id doubly wrong (P2.16).
-		fmt.Fprintln(cmd.OutOrStdout(), "Tools per plugin: stado plugin info <name>")
+		fmt.Fprintln(cmd.OutOrStdout(), "Tools per plugin: stado plugin info <canonical-source|store-key>")
 		fmt.Fprintln(cmd.OutOrStdout(), "Trust a new key:  stado plugin trust <pubkey>")
 		return nil
 	},
@@ -258,7 +259,7 @@ var pluginListCmd = &cobra.Command{
 // the directory names that `plugin doctor` / `plugin info` <id> expect.
 var pluginInstalledCmd = &cobra.Command{
 	Use:   "installed",
-	Short: "List installed plugins (matches directory names under state/plugins)",
+	Short: "List installed plugins by canonical source and exact store key",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -274,14 +275,11 @@ var pluginInstalledCmd = &cobra.Command{
 			return nil
 		}
 		for _, location := range locations {
-			mf, _, err := plugins.LoadFromDir(location.Dir)
-			if err != nil {
-				fmt.Printf("%s  scope=%s  (manifest load failed: %v)\n", location.ID, location.Scope, err)
-				continue
-			}
+			pkg := location.Package
+			mf := &pkg.Manifest
 			tools := len(mf.Tools)
-			fmt.Printf("%s  scope=%s  author=%s  tools=%d  caps=%d\n",
-				location.ID, location.Scope, mf.Author, tools, len(mf.Capabilities))
+			fmt.Printf("%s  store=%s  alias=%s  scope=%s  author=%s  tools=%d  caps=%d\n",
+				pkg.Identity.Canonical, pkg.Record.StoreKey, mf.Name, location.Scope, mf.Author, tools, len(mf.Capabilities))
 		}
 		return nil
 	},

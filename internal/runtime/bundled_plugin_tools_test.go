@@ -57,16 +57,11 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	if !ok {
 		t.Fatal("read tool missing")
 	}
-	// Step 7 of EP-no-internal-tools: fs__read is now a wasm tool
-	// registered via newBundledWasmTool, which wraps in renamedTool
-	// (not the legacy *bundledPluginTool that wrapped natives).
-	rt, ok := got.(*renamedTool)
+	// The concrete adapter gets its visible name directly from the embedded
+	// manifest; no Go-owned renaming wrapper participates in registration.
+	pt, ok := got.(*bundledPluginTool)
 	if !ok {
-		t.Fatalf("fs__read type = %T, want *renamedTool", got)
-	}
-	pt, ok := rt.inner.(*bundledPluginTool)
-	if !ok {
-		t.Fatalf("renamedTool.inner = %T, want *bundledPluginTool", rt.inner)
+		t.Fatalf("fs__read type = %T, want *bundledPluginTool", got)
 	}
 	if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
 		t.Fatalf("fs__read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
@@ -92,8 +87,8 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	}
 	if got, ok := reg.Get("agent__spawn"); !ok {
 		t.Fatal("agent__spawn tool missing")
-	} else if _, ok := got.(*renamedTool); !ok {
-		t.Fatalf("agent__spawn type = %T, want *renamedTool", got)
+	} else if _, ok := got.(*bundledPluginTool); !ok {
+		t.Fatalf("agent__spawn type = %T, want *bundledPluginTool", got)
 	}
 	for name, capabilities := range map[string][]string{
 		"agent__spawn":         {"agent:spawn", "agent:spawn:configure"},
@@ -107,14 +102,9 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 			t.Errorf("%s tool missing", name)
 			continue
 		}
-		rt, ok := registered.(*renamedTool)
+		pt, ok := registered.(*bundledPluginTool)
 		if !ok {
-			t.Errorf("%s type = %T, want *renamedTool", name, registered)
-			continue
-		}
-		pt, ok := rt.inner.(*bundledPluginTool)
-		if !ok {
-			t.Errorf("%s inner = %T, want *bundledPluginTool", name, rt.inner)
+			t.Errorf("%s type = %T, want *bundledPluginTool", name, registered)
 			continue
 		}
 		if !reflect.DeepEqual(pt.manifest.Capabilities, capabilities) {

@@ -14,6 +14,32 @@ history:
   - date: 2026-08-14
     status: Partial
     note: >
+      Replaced the historical planned bundled-only registry list/describe bridge
+      with generic `registry:catalog` and `session:tool-surface` imports. The
+      host projects only bounded loader-bound facts, exact caller/lifecycle
+      exclusions, a complete-projection freshness digest, and atomic
+      config/session-ceiling enforcement. The official opt-in WASM package owns
+      all registry discovery and activation workflow.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      The old stado_llm_invoke application-shaped ABI and optional/default
+      llm:invoke capability are retired. The exact provider:invoke:<tokens>
+      capability gates a strict provider facts primitive; all prompt, request,
+      output, and model-tool policy lives in WASM. The MCP-only native tool and
+      persona flag are deleted.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      The bundled-core transition is complete: every core model-tool module has
+      a source-adjacent manifest embedded in the release binary, one verified
+      loader owns the complete model contract and ABI export mapping, and the
+      native fallback switches, parity harness, wrappers, aliases, and duplicate
+      Go metadata are deleted. Partial status remains for the other native
+      model-visible and identity debt tracked by EP-0002 and EP-0066.
+  - date: 2026-08-14
+    status: Partial
+    note: >
       EP-0065 replaces this EP's historical macOS/Windows host-integration and
       packaging goals with Linux-only current and v1 support. The ABI,
       capability, and all-tools-as-WASM decisions remain in force.
@@ -56,7 +82,7 @@ history:
       Implemented in v0.33.0. Handle registry; stado_proc_*/stado_exec; stado_bundled_bin;
       stado_fs_read_partial (D24); stado_dns_resolve; stado_hash/hmac; stado_compress/decompress;
       stado_agent_* Tier 1+ imports + FleetBridgeAdapter; agent/fs/shell/rg/readctx wasm modules
-      with parity tests passing; ApplyWasmMigration with [runtime.use_wasm] flags;
+      with parity tests passing through the temporary rollout gates;
       /ps /top /kill /stats /sandbox /config TUI introspection commands;
       [YOU] multi-producer renderer marker; sandbox MaybeRewrap wrap-mode re-exec.
       /session attach RW deferred — stub present, full implementation follow-on.
@@ -79,45 +105,24 @@ history:
 
 # EP-0038: ABI v2, bundled wasm tools, and runtime surface
 
+> **Implementation status:** The bundled-core manifest/WASM cutover, generic
+> registry and provider primitives, and removal of native model-tool fallbacks
+> are complete. The EP remains Partial for its wider deferred ABI/session
+> phases (including read-write session attach) and release-level conformance;
+> those gaps are not permission to restore a native wrapper.
+
 ## Problem
 
 Three problems concentrate at the runtime layer.
 
 ### 1. EP-0002's invariant has drifted
 
-EP-0002 declared "all tools as wasm plugins" and was marked
-`Implemented` at v0.1.0. The visible LLM-facing tool surface IS
-plugin-shaped (`buildBundledPluginRegistry` in
-`internal/runtime/bundled_plugin_tools.go` wraps every native tool
-with `newBundledPluginTool`). But the wrapper is a façade. The actual
-implementations are direct `r.Register(NativeTool{})` calls:
-
-```go
-// internal/runtime/bundled_plugin_tools.go:32-46
-r.Register(fs.ReadTool{})
-r.Register(fs.WriteTool{})
-r.Register(fs.EditTool{})
-r.Register(fs.GlobTool{})
-r.Register(fs.GrepTool{})
-r.Register(bash.BashTool{Timeout: 60 * time.Second})
-r.Register(webfetch.WebFetchTool{})
-r.Register(rg.Tool{})
-r.Register(astgrep.Tool{})
-r.Register(readctx.Tool{})
-def := &lspfind.FindDefinition{}
-r.Register(def)
-r.Register(&lspfind.FindReferences{Definition: def})
-r.Register(&lspfind.DocumentSymbols{Definition: def})
-r.Register(&lspfind.Hover{Definition: def})
-// + tasktool, subagent
-```
-
-The wasm wrapper layer wraps these AS THEY APPEAR to the model, but
-the implementation is native Go. EP-0002's stated invariant —
-"the implementation behind a tool name is a plugin module running in
-the wazero host" — is not currently true. The user's instruction:
-"this slipped through the cracks somewhere between versions /
-iterations." That's exactly the drift this EP closes.
+EP-0002 declared "all tools as wasm plugins", but a later implementation
+presented native Go tools through plugin-shaped wrappers. That historical
+façade made the model surface look compliant while retaining a second runtime,
+contract source, and fallback path. This EP closed that drift. Bundled core
+tools now execute only as WASM, and their source-adjacent embedded manifests
+are the sole source of model-visible metadata and per-export capabilities.
 
 ### 2. Program-specific host imports are wrong shape
 
@@ -305,39 +310,21 @@ stado_fs_read_partial(path, offset, length, buf, bufcap) -> bytes
 stado_bundled_bin(name: string) -> string      # lazy-extract path; flock-serialised, sha-keyed cache
 
 stado_session_*                                 # kept; observable per EP-0006
-stado_llm_invoke                                # kept
+stado_provider_invoke                          # generic authenticated provider facts; exact token cap
 stado_log                                       # kept
 stado_approval_request                          # kept; per EP-0017
 ```
 
-##### Privileged-built-in imports (Tier 1+)
+##### Generic bounded registry and agent imports (Tier 1+)
 
-The bundled `tools` and `agent` plugins need host capabilities
-that don't fit the generic-primitive Tier 1 surface — registry
-introspection (which tools exist, what their schemas are) and
-agent fleet operations (spawn/list/read/write/cancel against the
-runtime's Fleet registry). Codex review #8 surfaced that not
-naming these as ABI imports leaves them as un-specified
-privileged operations.
-
-The ABI defines them as **Tier 1+**: real wasm imports with
-explicit capability gates, but the only plugins that may declare
-the gating caps are bundled signatures (the `tools` and `agent`
-plugins shipped from `internal/bundledplugins/wasm/`). User-
-installed plugins declaring these caps fail at install with
-`reserved capability ... only available to bundled plugins
-shipped with stado` — the gate is on capability *acceptance* at
-install time, not on the import surface itself, so a future EP
-can promote selected operations to general use without an ABI
-change.
+Registry facts and agent operations are capabilities the WASM garden cannot
+obtain from the OS. They are therefore real, typed, capability-gated imports—not
+native model tools and not privileges reserved to a hardcoded bundled signer.
+Any signed plugin the operator admits may declare the exact capability.
 
 ```
-stado_registry_list() -> [{name, summary, categories, ...}]
-                                                # what tools.search backs onto
-stado_registry_describe(names: [string]) -> [{schema, docs, caps, ...}]
-                                                # what tools.describe backs onto
-                                                # ALSO activates the schema(s) into the model's
-                                                # available tool surface for this session
+stado_registry_catalog(request) -> RegistryCatalogPage
+stado_session_tool_surface_apply(request) -> ToolSurfaceEditResult
 
 stado_agent_spawn(req: AgentSpawnRequest) -> {id, session_id}
 stado_agent_list(filter: AgentListFilter?) -> [AgentEntry]
@@ -346,21 +333,17 @@ stado_agent_send_message(id, msg)
 stado_agent_cancel(id)
 ```
 
-Caps (bundled-only):
+`registry:catalog` returns paged loader-bound manifest/runtime facts from one
+exact registry instance and current config/session ceiling. It excludes the
+calling namespace and every persistent-lifecycle surface. A complete-projection
+digest fences later pages. `session:tool-surface` accepts a digest plus exact
+wire names and validates the complete batch before an atomic session edit. The
+host contains no search, summary, grouping, or describe-and-activate policy.
 
-- `registry:list` — gates `stado_registry_list`. Bundled `tools`
-  plugin declares.
-- `registry:describe` — gates `stado_registry_describe`. Bundled
-  `tools` plugin declares.
-- `agent:fleet` — gates the five `stado_agent_*` imports together.
-  Bundled `agent` plugin declares.
-
-User-installed plugins that want similar functionality drive it
-through `tools.search`/`tools.describe`/`agent.*` (the wasm
-plugin surface) which is the indirection layer. The `tools` and
-`agent` plugins enforce any policy a user-plugin's tool call
-should be subject to — they're not bypass paths, they're
-enforcement points.
+Agent operations use their operation-specific `agent:spawn`, `agent:list`,
+`agent:read`, `agent:send`, and `agent:cancel` capabilities; the historical
+aggregate `agent:fleet` cap grants nothing. EP-0064 and EP-0066 supply the
+identity/session/generation ownership rules around persistent applications.
 
 ##### Transport enum for `stado_net_dial` / `stado_net_listen`
 
@@ -680,8 +663,7 @@ Inventory shipping with EP-0038:
 | `rg`             | `rg.search`                                                         | Uses `stado_bundled_bin("ripgrep")` + `stado_exec` |
 | `astgrep`        | `astgrep.search`                                                    | Uses `stado_bundled_bin("astgrep")` + `stado_exec` |
 | `readctx`        | `readctx.read`                                                      | Pure compute over `stado_fs_read` |
-| `task`           | `task.add`, `task.list`, `task.update`, `task.complete`             | Uses `stado_fs_*` against `cfg:state_dir/tasks` |
-| `agent`          | `agent.spawn`, `agent.list`, `agent.read_messages`, `agent.send_message`, `agent.cancel` | Uses `stado_session_*`, `stado_llm_invoke`, fleet host imports (§D) |
+| `agent`          | `agent.spawn`, `agent.list`, `agent.read_messages`, `agent.send_message`, `agent.cancel` | Uses `stado_session_*` and operation-scoped `stado_agent_*` host imports (§D) |
 | `mcp`            | `mcp.connect`, `mcp.list_tools`, `mcp.call`                         | Uses `stado_http_client_*` (HTTP transport) and `stado_proc_*` (stdio transport) |
 | `image`          | `image.info`                                                        | Pure compute over `stado_fs_read`; recompile-only from existing example |
 | `dns`            | `dns.resolve`, `dns.reverse`                                        | Uses `stado_dns_*` |
@@ -1320,7 +1302,7 @@ internal/host/
   hash.go         # stado_hash, stado_hmac
   compression.go  # stado_compress, stado_decompress
   session.go      # stado_session_* (existing)
-  llm.go          # stado_llm_invoke (existing)
+  provider.go     # stado_provider_invoke: construction, credentials, token enforcement, bounded facts
   log.go          # stado_log (existing)
   approval.go     # stado_approval_request (existing)
 ```
@@ -1332,149 +1314,27 @@ host/*` paths. Some becomes obsolete (the `tool.Tool` interface
 implementations themselves, the schema metadata that's now in the
 wasm plugin's manifest).
 
-`internal/runtime/bundled_plugin_tools.go` is **deleted entirely**.
-Its replacement is the bundled-plugin loader from
-`internal/bundledplugins/`, which already exists for `auto-compact`
-and gets extended to load every default tool plugin from
-`internal/bundledplugins/wasm/*.wasm`.
+`internal/runtime/bundled_plugin_tools.go` now contains only the generic
+manifest-to-registry adapter. Embedded manifests are loaded from
+`internal/plugins/bundled`; model contract literals do not live in Go.
 
-## Migration / rollout
+## Completed bundled-tool cutover
 
-Pre-1.0; user is the sole operator; temporary instability accepted.
-**Even so, the migration is gated by per-tool parity checks
-rather than landed wholesale.** Codex review #13 surfaced that
-"one large refactor PR set" risks losing native fallback before
-parity is proven. The actual rollout is staged behind per-tool
-feature flags:
+The pre-v1 dual implementation rollout is over. Every bundled core model tool
+is registered from a verified embedded manifest authored beside its WASM
+source. The loader rejects malformed schemas/classes, missing export mappings,
+duplicate model names, duplicate capabilities, and a manifest whose declared
+source does not match the source directory and embedded module identity.
 
-- For each native tool currently registered in
-  `internal/runtime/bundled_plugin_tools.go`, the EP-0038
-  rollout adds a wasm equivalent AND a parity flag
-  `[runtime.use_wasm.<tool>]` defaulting to `false`.
-- A **golden parity test** for each tool replays a curated set of
-  representative inputs against both implementations and asserts
-  identical observable outputs (tool result JSON, stdout, error
-  shapes). Test fixtures live in
-  `internal/runtime/parity-fixtures/<tool>/`.
-- A tool's parity flag flips to `true` *only* when its golden
-  parity test passes. The native implementation stays in the
-  binary as fallback for one full release after the flag flips.
-- After all flags are flipped + one release of bake-in, the
-  native implementations and the `bundled_plugin_tools.go`
-  registrations get deleted (the deletion is the closing PR of
-  the migration, not the opening one).
+The manifest is the sole source of model name, description, schema, mutation
+class, categories, per-export capabilities, and WASM export suffix. Go owns
+only the generic adapter and the source-bound build identity. There is no
+native implementation selector, fallback registry, duplicated contract table,
+or legacy bare-name filter language.
 
-The phase order below is the **dependency order** for adding
-capabilities; the parity-flag flip happens within each phase
-once the wasm tool exists. A phase is "done" when:
-
-1. Wasm plugin compiles and is embedded.
-2. Golden parity test passes against the native equivalent.
-3. The flag has been flipped to `true` and exercised in dev.
-
-EP-0038 phase plan:
-
-1. **Add Tier 1 host imports.** `stado_proc_*`, `stado_terminal_*`,
-   `stado_net_*`, `stado_net_icmp_*`, `stado_bundled_bin`. Each
-   implementation lives in `internal/host/*`. ABI manifest version
-   bumps to v2; v1 plugins continue working against the v1-shaped
-   imports (those are kept as aliases for one release).
-2. **Add Tier 2 host imports.** `stado_http_client_*`, `stado_dns_*`,
-   `stado_secrets_*`. Same shape.
-3. **Add Tier 3 host imports.** `stado_json_*`, `stado_hash`,
-   `stado_hmac`, `stado_compress`, `stado_decompress`.
-4. **Write bundled wasm plugins.** Each native tool gets a wasm
-   reimplementation that calls Tier 1/2/3 imports. The five
-   existing example plugins (`web-search`, `mcp-client`, `ls`,
-   `image-info`, `browser`) recompile against the new SDK.
-5. **Embed wasm plugins** in `internal/bundledplugins/wasm/`. Extend
-   `internal/bundledplugins/embed.go` to enumerate them; loader
-   registers each on startup unless `[tools.disabled]` says
-   otherwise.
-6. **Delete `bundled_plugin_tools.go`'s registrations.** Delete
-   `newBundledPluginTool`. Delete `internal/tools/*` directories
-   that don't have host-import surviving content (or move them
-   under `internal/host/*`).
-7. **Wire agent surface.** `agent.spawn`/`list`/`read_messages`/
-   `send_message`/`cancel` shipping as a wasm plugin. Backed by
-   a `Fleet`-shaped runtime registry (per EP-0034's design,
-   adapted) plus session-per-agent forking via existing
-   `session:fork` machinery.
-8. **Wire `[sandbox]` implementation.** `mode = "wrap"` re-exec
-   logic. `allow_env` filtering. `plugin_runtime_caps_*`. Proxy
-   environment injection.
-9. **Wire `/ps`, `/top`, `/kill`, `/stats`, `/sandbox`,
-   `/config`** — handle ID convention in place; runtime
-   introspection slash commands.
-10. **Wire `/session attach` (RW)** — multi-producer message
-    metadata, renderer changes, `[YOU]` marker.
-11. **EP-0028 deprecation.** `--with-tool-host` becomes default;
-    `refuse_no_runner` flag added; D1's hard refusal opt-in.
-12. **EP-0014 amendment.** "Active-session-only execution" relaxed
-    for async agents owning their own sessions. The TUI's
-    "active session" now means "session whose transcript is in the
-    foreground viewport" — agent-driven sessions can stream and
-    run tools in the background.
-13. **Documentation pass.** README, DESIGN.md, PLAN.md, SECURITY.md,
-    every `docs/commands/*.md` file referenced from EPs being
-    superseded or amended.
-
-### Deviation: `buildNativeRegistry()` retained as parity backstop
-
-EP-0038 phase 7 (Migration step 6 above) called for deletion of
-`internal/runtime/bundled_plugin_tools.go`'s native registrations
-plus removal of `internal/tools/{fs,bash,webfetch,rg,astgrep,readctx,
-lspfind}` once each tool's wasm equivalent passed parity.
-
-**Status (2026-05-06):** parity tests are green and every native
-tool has a wasm equivalent in `internal/bundledplugins/wasm/`. The
-migration knob (`[runtime.use_wasm.<tool>]`) lets operators flip
-each family wasm-side at runtime via `ApplyWasmMigration`. The
-no-native-tools invariant holds at the **model-facing surface** —
-when wasm is enabled the native tools are unregistered and
-unreachable.
-
-**Decision: retain native `buildNativeRegistry()` indefinitely** as
-the parity-test backstop and as a fallback path during regressions.
-Three reasons:
-
-1. The dual-path structure is what makes the parity tests
-   meaningful — golden inputs are replayed against both
-   implementations. Deleting the native side loses the cross-check
-   for any future ABI / host-import drift.
-2. `ApplyWasmMigration` is the operational opt-out: an operator can
-   disable a wasm family that's misbehaving in production, fall
-   back to native, and stado keeps running while the wasm bug is
-   investigated. Without the native path that escape hatch
-   disappears.
-3. The maintenance cost is low — `internal/tools/*` are stable,
-   well-tested, and not under active feature work. The native code
-   is small (a few hundred lines per tool) and rarely touched.
-
-This is a deliberate deviation from the original Migration step 6
-recommendation, formalised here so future readers see "still
-present, intentionally" rather than "still present, oversight."
-
-If a future maintainer wants to revisit, the case for deletion
-strengthens when (a) all wasm families have shipped in production
-for at least one full release without parity-test failures or
-operational opt-outs, AND (b) ABI v3 lands and the v2 native
-fallback adds maintenance burden disproportionate to its parity
-backstop value. Neither condition is satisfied as of 2026-05-06.
-
-### Backward compatibility
-
-- ABI v1 plugins continue working against the v1-shaped imports
-  for one release after EP-0038 lands; v1 imports are aliases for
-  the v2 ones where semantics match. After one release, v1 imports
-  are removed and v1 plugins must be recompiled.
-- `--with-tool-host` accepted with deprecation warning for one
-  release; removed after.
-- All retired internal tool registrations (`fs.ReadTool{}` etc.)
-  are gone; the model sees identically-named wasm-backed tools.
-  No model-visible regression.
-- Plugin manifests declaring `exec:bash` continue to work as
-  before; the cap is aliased to `exec:proc` for one release.
+Because stado is pre-v1, the obsolete rollout compatibility surface was
+deleted rather than retained. Behavioral regression coverage now exercises
+the actual embedded WASM modules and their host-import boundaries directly.
 
 ## Failure modes
 
@@ -1506,9 +1366,12 @@ backstop value. Neither condition is satisfied as of 2026-05-06.
   `spawn` call returns error `agent_max_depth_exceeded`;
   caller's responsibility to handle.
 - **Two plugins both register a tool with colliding wire form.**
-  Second registration fails at startup with a clear error
-  (per EP-0037 failure modes); first registration wins; second
-  plugin's other tools register normally.
+  Admission preflights the complete installed surfaces in deterministic
+  source order, rejects every package participating in a cross-source
+  collision, and exposes none of their tools. A collision with a pre-existing
+  bundled, native, or external owner rejects the entire installed package
+  before registration starts. Only an explicit operator-owned
+  `[tools].overrides` selector may replace an existing owner.
 - **Operator runs `/kill plugin:fs` while another plugin holds a
   handle owned by `plugin:fs`.** Holders get a structured error
   on next read/write attempt (`handle_owner_terminated`); they
@@ -1824,26 +1687,21 @@ backstop value. Neither condition is satisfied as of 2026-05-06.
   is the conservative choice; explicit opt-out for the rare
   "what if the human hadn't intervened" replay use case.
 
-### D17. Privileged-built-in imports for registry and agent fleet
+### D17. Generic bounded imports for registry and agent operations
 
-- **Decided:** `stado_registry_*` and `stado_agent_*` imports
-  are real wasm imports; capability gating prevents user-installed
-  plugins from declaring the relevant caps (`registry:list`,
-  `registry:describe`, `agent:fleet`). Bundled `tools` and
-  `agent` plugins are the only signers permitted to declare
-  these caps.
-- **Alternatives:** put the operations on the generic Tier 1/2/3
-  surface available to any plugin (over-broadens privileged
-  operations); make these stado-internal not exposed via wasm
-  ABI at all (loses the ability to swap or rewrite the meta-
-  tool / agent plugins post-EP).
-- **Why:** codex review #8 surfaced that meta-tool dispatch and
-  agent-fleet operations need real host APIs that the original
-  Tier 1/2/3 didn't list. Defining them as bundled-only caps
-  keeps the privilege boundary clear (operator can't acquire a
-  user plugin that exposes registry introspection or fleet
-  manipulation), while keeping the door open to redefining the
-  bundled plugins later without an ABI break.
+- **Decided:** registry and agent operations are real capability-gated WASM
+  imports available to any signed package the operator admits. Registry uses
+  `registry:catalog` plus `session:tool-surface`; agent operations use exact
+  per-operation caps. There is no bundled-signer allowlist.
+- **Alternatives:** hardcode a privileged bundled signer; retain native
+  `tools.*`/`plugin.*` applications; expose an unbounded registry or a
+  tool-shaped host delegate.
+- **Why:** WASM needs a bridge to facts and effects unavailable inside its
+  garden, not native ownership of product workflow. Bounded factual projection,
+  exact identity exclusion, complete-projection freshness, and atomic ceiling
+  enforcement are native primitives. Search, formatting, grouping, and
+  activation policy can then innovate in replaceable signed plugins without
+  widening ambient OS authority.
 
 ### D18. HTTP imports enforce equivalent net-dial caps
 
@@ -2012,10 +1870,11 @@ backstop value. Neither condition is satisfied as of 2026-05-06.
   plugins need them: `cfg:config_dir`, `cfg:plugin_install_dir`,
   `cfg:worktree_dir`. Each its own additive EP-0029-shape change;
   tracked in §B.
-- **EP-0031** (`fs:read:cfg:state_dir/...` path templates) — used.
-  Bundled-as-wasm `task` plugin declares
-  `fs:read:cfg:state_dir/tasks` + `fs:write:cfg:state_dir/tasks`;
-  same pattern for any other plugin that operates against
+- **EP-0031** (`fs:read:cfg:state_dir/...` path templates) — used. The
+  explicit tasks lifecycle application declares narrowly rooted
+  `fs:read:cfg:state_dir/tasks` + `fs:write:cfg:state_dir/tasks` only for its
+  one-way legacy import; ordinary CRUD uses broker artifacts. The same generic
+  path-template pattern applies to other plugins that operate against
   state-dir-relative paths.
 - **EP-0034** (Background Agents Fleet) — **superseded by
   EP-0038**. EP-0034's `Fleet` registry concept survives as the

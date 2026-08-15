@@ -9,13 +9,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/foobarto/stado/internal/config"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
-	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/llmtool"
-	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -48,18 +46,6 @@ func TestMCPServer_ToolsExposedWithSchemas(t *testing.T) {
 		if _, ok := decoded["type"]; !ok {
 			t.Errorf("tool %s: schema missing 'type' key: %s", tl.Name(), raw)
 		}
-	}
-}
-
-func TestMCPServer_ExposesTasksTool(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	cfg := &config.Config{}
-	reg := runtime.BuildDefaultRegistry(nil)
-	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
-	runtime.ApplyToolFilter(reg, cfg)
-
-	if _, ok := reg.Get("tasks"); !ok {
-		t.Fatal("tasks tool missing from MCP registry")
 	}
 }
 
@@ -136,39 +122,45 @@ func TestStadoMCPHost_NoSandboxRemovesDefaultPolicy(t *testing.T) {
 	}
 }
 
-// Codex C1/I-c P1 regression: the mcp-server registers llm.invoke
-// AFTER runtime.BuildRegistryWithPlugins → ApplyToolFilter has run.
-// Pre-fix that meant `[tools].disabled=["llm.invoke"]` couldn't
-// actually remove it (filter had already passed). Same shape as the
-// pre-#50 bugs PR #50 closed in /tool slash + runToolByName: every
-// dispatch surface must consult [tools]. After fix the mcp-server
-// re-runs ApplyToolFilter after the registration so the filter sees
-// llm.invoke. This test reproduces the registration order + asserts
-// the resulting registry honours [tools].disabled.
-func TestMCPServer_LLMInvokeRespectsDisabledFilter(t *testing.T) {
+func TestMCPServerHasNoNativeLLMInvokeRegistration(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := &config.Config{}
-	cfg.Tools.Disabled = []string{"llm.invoke"}
-
-	// Mirror the mcp-server registration order:
-	//   1. BuildRegistryWithPlugins (calls ApplyToolFilter internally)
-	//   2. reg.Register(llmtool.Tool{...})
-	//   3. ApplyToolFilter again (Codex C1/I-c fix)
 	reg, err := runtime.BuildRegistryWithPlugins(cfg)
 	if err != nil {
 		t.Fatalf("BuildRegistryWithPlugins: %v", err)
 	}
-	reg.Register(llmtool.Tool{
-		Provider:       func() (agent.Provider, error) { return nil, nil },
-		DefaultModel:   "test-model",
-		DefaultPersona: "default",
-		CWD:            t.TempDir(),
-		ConfigDir:      t.TempDir(),
-	})
-	runtime.ApplyToolFilter(reg, cfg)
-
 	if _, ok := reg.Get("llm__invoke"); ok {
-		t.Error("llm__invoke should be filtered out when [tools].disabled=[\"llm.invoke\"]; it is still registered")
+		t.Fatal("native llm__invoke registration returned; only an explicitly installed WASM plugin may provide it")
 	}
+}
+
+func TestStadoMCPHostSuppliesOwnedProviderPrimitive(t *testing.T) {
+	provider := mcpTestProvider{}
+	host := stadoMCPHost{
+		providerFactory: func() (agent.Provider, error) { return provider, nil },
+		defaultModel:    "default-model",
+	}
+	bridge, err := host.PluginProviderBridge("github.com/example/plugin@v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := bridge.InvokeProvider(context.Background(), "github.com/example/plugin@v1", pluginRuntime.ProviderInvokeRequest{
+		Messages: []pluginRuntime.ProviderInvokeMessage{{Role: "user", Content: "hello"}},
+	}, 100)
+	if err != nil || facts.Status != "completed" || facts.Text != "answer" || facts.Model != "default-model" {
+		t.Fatalf("facts=%+v err=%v", facts, err)
+	}
+}
+
+type mcpTestProvider struct{}
+
+func (mcpTestProvider) Name() string                     { return "mcp-test" }
+func (mcpTestProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (mcpTestProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	ch := make(chan agent.Event, 2)
+	ch <- agent.Event{Kind: agent.EvTextDelta, Text: "answer"}
+	ch <- agent.Event{Kind: agent.EvDone, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 1}}
+	close(ch)
+	return ch, nil
 }

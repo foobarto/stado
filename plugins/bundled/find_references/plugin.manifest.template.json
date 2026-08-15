@@ -1,0 +1,22 @@
+{
+  "name": "stado-builtin-tool-find_references",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["fs:read:.", "lsp:query"],
+  "tools": [
+    {
+      "name": "lsp__references",
+      "description": "LSP textDocument/references — every usage of a symbol.",
+      "export": "references",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"column\":{\"description\":\"1-indexed column\",\"type\":\"integer\"},\"include_declaration\":{\"description\":\"default true\",\"type\":\"boolean\"},\"line\":{\"description\":\"1-indexed line\",\"type\":\"integer\"},\"path\":{\"type\":\"string\"}},\"required\":[\"path\",\"line\",\"column\"],\"type\":\"object\"}",
+      "categories": ["lsp", "code-search"],
+      "capabilities": ["fs:read:.", "lsp:query"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-find_references"
+}

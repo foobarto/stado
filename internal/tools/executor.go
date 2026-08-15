@@ -65,10 +65,44 @@ type DispatchGate interface {
 	BeforeTool(context.Context) error
 }
 
+// ExecutionEvidence names the exact signed git commits produced for one tool
+// dispatch. It contains references only, never command or result plaintext.
+// TreeRef is empty when the tool did not advance the session tree.
+type ExecutionEvidence struct {
+	TraceRef string
+	TreeRef  string
+}
+
 // Run invokes a tool by name. Returns the tool result and writes the commit
 // trailers for audit. If the tool isn't registered, returns an error without
 // touching refs.
 func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	return e.run(ctx, name, nil, args, h, nil)
+}
+
+// RunWithEvidence follows the exact ordinary Run path and additionally
+// returns the audit commits that path itself created. Native fact producers use
+// this instead of sampling mutable ref heads after the call.
+func (e *Executor) RunWithEvidence(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, ExecutionEvidence, error) {
+	var evidence ExecutionEvidence
+	result, err := e.run(ctx, name, nil, args, h, &evidence)
+	return result, evidence, err
+}
+
+// RunExpected is the exact-instance form used when a provider received a tool
+// definition from one persistent lifecycle-application instance. A name-only
+// second lookup could otherwise race an application rebind and dispatch the
+// call through a different module than the one the provider saw. The expected
+// pointer is checked against the registry once, then carried through the same
+// sandbox, lifecycle-hook, audit, and telemetry path as Run.
+func (e *Executor) RunExpected(ctx context.Context, name string, expected tool.Tool, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if expected == nil {
+		return tool.Result{Error: "expected tool is required"}, errors.New("expected tool is required")
+	}
+	return e.run(ctx, name, expected, args, h, nil)
+}
+
+func (e *Executor) run(ctx context.Context, name string, expected tool.Tool, args json.RawMessage, h tool.Host, evidence *ExecutionEvidence) (tool.Result, error) {
 	metricStart := time.Now()
 	metricOutcome := "error"
 	defer func() {
@@ -92,7 +126,15 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	if !ok {
 		return tool.Result{Error: "unknown tool"}, fmt.Errorf("unknown tool: %s", name)
 	}
+	if expected != nil && t != expected {
+		return tool.Result{Error: "tool instance changed"}, fmt.Errorf("tool %s instance changed before dispatch", name)
+	}
 	class := e.Registry.ClassOf(name)
+	if expected != nil {
+		if classifier, ok := expected.(tool.Classifier); ok {
+			class = classifier.Class()
+		}
+	}
 
 	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanToolCall,
 		trace.WithAttributes(
@@ -171,9 +213,11 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 					DenyReason:   decision.Reason,
 					DeniedByHook: decision.HookName,
 				}
-				if _, err := e.Session.CommitToTrace(denyMeta); err != nil {
+				commit, err := e.Session.CommitToTrace(denyMeta)
+				if err != nil {
 					return tool.Result{Error: reason}, fmt.Errorf("commit deny trace: %w", err)
 				}
+				setExecutionTraceEvidence(evidence, e.Session, commit)
 			}
 			return tool.Result{Error: reason}, nil
 		case hooks.DecisionMutate:
@@ -401,11 +445,17 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		// (runErr/res.Error/snapshot-skip). Append the blob-skip note too
 		// when the MUTATED Content overflows the cap.
 		meta.Error = appendBlobSkipNote(meta.Error, "mutated", int64(len(res.Content)))
-		if _, _, err := e.Session.CommitToTraceBlob(meta, []byte(res.Content)); err != nil {
+		commit, _, err := e.Session.CommitToTraceBlob(meta, []byte(res.Content))
+		if err != nil {
 			return res, fmt.Errorf("commit mutation trace: %w", err)
 		}
-	} else if _, err := e.Session.CommitToTrace(meta); err != nil {
-		return res, fmt.Errorf("commit trace: %w", err)
+		setExecutionTraceEvidence(evidence, e.Session, commit)
+	} else {
+		commit, err := e.Session.CommitToTrace(meta)
+		if err != nil {
+			return res, fmt.Errorf("commit trace: %w", err)
+		}
+		setExecutionTraceEvidence(evidence, e.Session, commit)
 	}
 
 	if !treeHash.IsZero() {
@@ -421,13 +471,29 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		treeMeta := meta
 		treeMeta.OriginalResultSHA = ""
 		treeMeta.MutatedByHook = ""
-		if _, err := e.Session.CommitToTree(treeHash, treeMeta); err != nil {
+		commit, err := e.Session.CommitToTree(treeHash, treeMeta)
+		if err != nil {
 			return res, fmt.Errorf("commit tree: %w", err)
 		}
+		setExecutionTreeEvidence(evidence, e.Session, commit)
 	}
 
 	metricOutcome = outcome
 	return res, runErr
+}
+
+func setExecutionTraceEvidence(evidence *ExecutionEvidence, session *stadogit.Session, hash plumbing.Hash) {
+	if evidence == nil || session == nil || hash.IsZero() {
+		return
+	}
+	evidence.TraceRef = "git:" + stadogit.TraceRef(session.ID).String() + "@" + hash.String()
+}
+
+func setExecutionTreeEvidence(evidence *ExecutionEvidence, session *stadogit.Session, hash plumbing.Hash) {
+	if evidence == nil || session == nil || hash.IsZero() {
+		return
+	}
+	evidence.TreeRef = "git:" + stadogit.TreeRef(session.ID).String() + "@" + hash.String()
 }
 
 // turnIndex returns the current session turn for hook payloads, or 0 when

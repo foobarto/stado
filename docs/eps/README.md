@@ -25,7 +25,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | #    | Title | Type | Status |
 |------|-------|------|--------|
 | 0001 | [EP Purpose and Guidelines](./0001-ep-purpose-and-guidelines.md) | Process | Accepted |
-| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Partial |
+| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Implemented |
 | 0003 | [Provider-Native Agent Interface](./0003-provider-native-agent-interface.md) | Standards | Implemented |
 | 0004 | [Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md) | Standards | Implemented |
 | 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Superseded |
@@ -51,7 +51,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 | 0027 | [Repo-root discovery — single predicate, single helper](./0027-repo-root-discovery.md) | Standards | Implemented |
-| 0028 | [stado plugin run --with-tool-host + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
+| 0028 | [stado plugin run --with-tool-host + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Implemented |
 | 0029 | [Config-introspection host imports — `cfg:*` capability vocabulary](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness — agent / subagent / skills / plugins](./0030-security-research-default-harness.md) | Standards | Partial |
 | 0031 | [Path-templated fs capabilities — `fs:read:cfg:state_dir/...`](./0031-fs-cap-path-templates.md) | Standards | Implemented |
@@ -62,7 +62,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |
 | 0037 | [Tool dispatch, naming, and operator surface](./0037-tool-dispatch-and-operator-surface.md) | Standards | Implemented |
 | 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Partial |
-| 0039 | [Plugin distribution and trust — anchor repo, versioned identity, lock file](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
+| 0039 | [Plugin distribution and trust — anchor repo, versioned identity, lock file](./0039-plugin-distribution-and-trust.md) | Standards | Partial |
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
 | 0041 | [Shell PTY tool naming — read_until and screenshot for tool-selection affordance](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
 | 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins distributed via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
@@ -73,24 +73,30 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Partial |
 | 0051 | [Lua Lifecycle Hook Contract](./0051-lua-lifecycle-hook-contract.md) | Standards | Implemented |
-| 0052 | [Learn — Evidence-Backed Trajectory Refinement](./0052-learn-trajectory-refinement.md) | Standards | Implemented |
+| 0052 | [Learn — Evidence-Backed Trajectory Refinement](./0052-learn-trajectory-refinement.md) | Standards | Accepted |
 | 0053 | [Versioned Harness Artifacts and Rebuildable Index](./0053-versioned-harness-artifacts-and-index.md) | Standards | Implemented |
-| 0054 | [Memory and Session Research Agents](./0054-addressable-context-and-research-agents.md) | Standards | Implemented |
+| 0054 | [Memory and Session Research Agents](./0054-addressable-context-and-research-agents.md) | Standards | Accepted |
 | 0055 | [Retained and Resumable Sub-agent Sessions](./0055-retained-resumable-subagents.md) | Standards | Implemented |
 | 0056 | [Durable Agent Mailboxes and Supervision](./0056-agent-mailboxes-and-supervision.md) | Standards | Implemented |
 | 0057 | [Session State, Journal, Decisions, and Signals](./0057-session-state-journal-decisions-and-signals.md) | Standards | Implemented |
-| 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Implemented |
+| 0058 | [Measured Adaptive Retrieval](./0058-measured-adaptive-retrieval.md) | Standards | Accepted |
 | 0059 | [Durable Broker Event and Budget Substrate](./0059-durable-event-and-budget-substrate.md) | Standards | Implemented |
-| 0060 | [Native Bounded Harness Guidance](./0060-native-harness-guidance.md) | Standards | Partial |
+| 0060 | [Bounded Lifecycle Guidance](./0060-native-harness-guidance.md) | Standards | Accepted |
 | 0061 | [Linked EP Relationship Metadata](./0061-linked-ep-relationship-metadata.md) | Process | Implemented |
 | 0062 | [Harness-Enforced Supervised Work](./0062-harness-enforced-supervised-work.md) | Standards | Accepted |
 | 0063 | [Plugin-Defined Harness Artifacts](./0063-plugin-defined-harness-artifacts.md) | Standards | Accepted |
 | 0064 | [WASM Lifecycle Applications](./0064-wasm-lifecycle-applications.md) | Standards | Accepted |
-| 0065 | [Linux-Only Platform Scope](./0065-linux-only-platform-scope.md) | Standards | Accepted |
+| 0065 | [Linux-Only Platform Scope](./0065-linux-only-platform-scope.md) | Standards | Implemented |
 | 0066 | [Canonical Plugin Authority and Application Placement](./0066-canonical-plugin-authority-and-application-placement.md) | Standards | Accepted |
 | 0067 | [Session Controller Capabilities and Non-Authority Application Selection](./0067-session-controller-and-application-selection.md) | Standards | Accepted |
+| 0068 | [Signed Plugin CLI Commands](./0068-signed-plugin-cli-commands.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
+
+EP-0062 and EP-0064 intentionally remain **Accepted**: the generic TUI host and
+official supervise source exist and native fallback has been removed, but the
+`supervise/v0.1.0` plugin artifact is not yet signed with the offline release
+key, published, or proven through the final cross-repository install matrix.
 
 ## Status legend
 

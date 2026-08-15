@@ -29,6 +29,26 @@ type LifecycleRunner struct {
 	// hard gate — if the gate can't be evaluated, the action is vetoed.
 	// Wired from cfg.Hooks.FailClosed by BuildLifecycleRunner.
 	FailClosed bool
+	// rejectMutations is set only on a native fact-producing clone. Hooks still
+	// observe and deny in their configured order, but an attempted payload
+	// rewrite becomes a denial instead of changing the fact being measured.
+	// The live runner is never mutated.
+	rejectMutations bool
+}
+
+// WithoutMutations returns an independent runner view that preserves hook
+// observation, errors, and denials while converting every otherwise-valid
+// mutation into a denial. Native verification uses this so its persisted
+// command/result digests describe the operator-configured command rather than
+// a hook-rewritten surrogate. Nil remains nil.
+func (r *LifecycleRunner) WithoutMutations() *LifecycleRunner {
+	if r == nil {
+		return nil
+	}
+	clone := *r
+	clone.hooks = append([]HookScript(nil), r.hooks...)
+	clone.rejectMutations = true
+	return &clone
 }
 
 // NewLifecycleRunner builds a runner over the given hooks, preserving
@@ -146,6 +166,13 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 				// fail-open and keep the current payload.
 				r.log("hook %q at %s returned an invalid mutation (fail-open, ignoring): %v", h.Name(), point, perr)
 				continue
+			}
+			if r.rejectMutations {
+				return HookResult{
+					Decision: DecisionDeny,
+					Reason:   fmt.Sprintf("hook %q attempted to mutate a native verification fact", h.Name()),
+					HookName: h.Name(),
+				}, cur
 			}
 			cur = next
 			mutated = true

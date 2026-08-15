@@ -101,12 +101,51 @@ func TestPluginInstall_WithSignerTOFU(t *testing.T) {
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	dst := filepath.Join(cfg.StateDir(), "plugins", "demo-1.0.0")
+	pkg, err := plugins.ResolveInstalledPackage([]string{filepath.Join(cfg.StateDir(), "plugins")}, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := pkg.Dir
 	if _, err := os.Stat(filepath.Join(dst, "plugin.wasm")); err != nil {
 		t.Errorf("install did not copy wasm: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "plugin.manifest.json")); err != nil {
 		t.Errorf("install did not copy manifest: %v", err)
+	}
+}
+
+func TestPluginInstallActivationFailureLeavesNoReceiptOrPackage(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPlugin(t, priv, pub, "activation-failure", "1.0.0")
+	mf, _, err := plugins.LoadFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(src, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
+	if err := os.MkdirAll(pluginsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A regular file at the reserved marker directory makes activation fail
+	// after copy, record verification, and receipt creation.
+	if err := os.WriteFile(filepath.Join(pluginsRoot, "active"), []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pluginInstallSigner = hex.EncodeToString(pub)
+	pluginInstallForce = false
+	t.Cleanup(func() { pluginInstallSigner = ""; pluginInstallForce = false })
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err == nil || !strings.Contains(err.Error(), "activate local package") {
+		t.Fatalf("activation error = %v", err)
+	}
+	if err := plugins.CheckInstallReceipt(cfg.StateDir(), pluginsRoot, record); err == nil {
+		t.Fatal("activation failure left an authoritative install receipt")
+	}
+	if _, err := os.Stat(filepath.Join(pluginsRoot, record.StoreKey)); !os.IsNotExist(err) {
+		t.Fatalf("activation failure left package bytes: %v", err)
 	}
 }
 
@@ -134,13 +173,17 @@ func TestPluginInstall_LocalUsesProjectDirAndGlobalTrust(t *testing.T) {
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("install --local: %v", err)
 	}
-	localDst := filepath.Join(projectStado, "plugins", "local-demo-1.0.0")
+	pkg, err := plugins.ResolveInstalledPackage([]string{filepath.Join(projectStado, "plugins")}, "local-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localDst := pkg.Dir
 	if _, err := os.Stat(filepath.Join(localDst, "plugin.wasm")); err != nil {
 		t.Fatalf("local install did not copy wasm: %v", err)
 	}
-	globalDst := filepath.Join(cfg.StateDir(), "plugins", "local-demo-1.0.0")
-	if _, err := os.Stat(globalDst); !os.IsNotExist(err) {
-		t.Fatalf("local install also wrote global destination, stat error = %v", err)
+	globalPackages, err := plugins.ListInstalledPackages(filepath.Join(cfg.StateDir(), "plugins"))
+	if err != nil || len(globalPackages) != 0 {
+		t.Fatalf("local install also wrote global destination: packages=%v err=%v", globalPackages, err)
 	}
 	globalTrust := plugins.NewTrustStore(cfg.StateDir()).Path
 	if _, err := os.Stat(globalTrust); err != nil {
@@ -233,6 +276,11 @@ func TestPluginInstall_Autoload(t *testing.T) {
 // Used by --autoload tests.
 func buildTestPluginWithTools(t *testing.T, priv ed25519.PrivateKey, pub ed25519.PublicKey, name, version string, tools []plugins.ToolDef) string {
 	t.Helper()
+	for i := range tools {
+		if tools[i].Capabilities == nil {
+			tools[i].Capabilities = plugins.CapabilitySubset()
+		}
+	}
 	dir := t.TempDir()
 	wasm := []byte("pretend-wasm-blob-" + name)
 	if err := os.WriteFile(filepath.Join(dir, "plugin.wasm"), wasm, 0o644); err != nil {
@@ -286,7 +334,11 @@ func TestPluginInstall_NormalizesInstalledPermissions(t *testing.T) {
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	dst := filepath.Join(cfg.StateDir(), "plugins", "demo-1.0.0")
+	pkg, err := plugins.ResolveInstalledPackage([]string{filepath.Join(cfg.StateDir(), "plugins")}, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := pkg.Dir
 	assertPerm := func(path string, want os.FileMode) {
 		t.Helper()
 		info, err := os.Stat(path)
@@ -600,7 +652,7 @@ func TestPluginInstall_Idempotent(t *testing.T) {
 	}
 }
 
-func TestPluginInstall_SignerDoesNotResetRollbackState(t *testing.T) {
+func TestPluginInstall_LocalVersionsUseDistinctInstalledSourceFloors(t *testing.T) {
 	_ = isolatedHome(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	pluginInstallSigner = hex.EncodeToString(pub)
@@ -612,8 +664,19 @@ func TestPluginInstall_SignerDoesNotResetRollbackState(t *testing.T) {
 	}
 
 	srcLow := buildTestPlugin(t, priv, pub, "demo", "1.0.0")
-	err := pluginInstallCmd.RunE(pluginInstallCmd, []string{srcLow})
-	if err == nil || !strings.Contains(err.Error(), "rollback") {
-		t.Fatalf("install low version with --signer = %v, want rollback rejection", err)
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{srcLow}); err != nil {
+		t.Fatalf("install separately source-bound local version: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := plugins.NewTrustStore(cfg.StateDir()).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := entries[plugins.Fingerprint(pub)]
+	if len(entry.VersionFloors) != 2 || entry.LastVersion != "" {
+		t.Fatalf("local installed-source floors = %#v legacy=%q", entry.VersionFloors, entry.LastVersion)
 	}
 }

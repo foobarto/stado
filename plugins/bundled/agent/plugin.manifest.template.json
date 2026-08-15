@@ -1,0 +1,58 @@
+{
+  "name": "stado-builtin-tool-agent",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["agent:cancel", "agent:list", "agent:read", "agent:send", "agent:spawn", "agent:spawn:configure"],
+  "tools": [
+    {
+      "name": "agent__cancel",
+      "description": "Cancel a running agent. The child exits at its next yield point.",
+      "export": "cancel",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+      "categories": ["agent"],
+      "capabilities": ["agent:cancel"]
+    },
+    {
+      "name": "agent__list",
+      "description": "List agents in caller's spawn tree. Returns [{id, session_id, status, model, started_at, last_turn_at, cost_so_far_usd}].",
+      "export": "list",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\"}",
+      "categories": ["agent"],
+      "capabilities": ["agent:list"]
+    },
+    {
+      "name": "agent__read_messages",
+      "description": "Read assistant-role messages from an agent's output channel. Optional since/timeout for incremental polling. Returns {messages, offset, status}.",
+      "export": "read_messages",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"string\"},\"since\":{\"type\":\"integer\"},\"timeout_ms\":{\"type\":\"integer\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+      "categories": ["agent"],
+      "capabilities": ["agent:read"]
+    },
+    {
+      "name": "agent__send_message",
+      "description": "Send a user-role message into an agent's inbox. Delivered at the agent's next yield point.",
+      "export": "send_message",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}},\"required\":[\"id\",\"message\"],\"type\":\"object\"}",
+      "categories": ["agent"],
+      "capabilities": ["agent:send"]
+    },
+    {
+      "name": "agent__spawn",
+      "description": "Spawn an attenuated sub-agent, optionally from an immutable historical session point. Returns {id, session_id, status, final_text?}. execution=retained creates an addressable child; async controls whether this call waits. Model and persona inherit by default.",
+      "export": "spawn",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"allowed_tools\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"async\":{\"type\":\"boolean\"},\"ephemeral\":{\"type\":\"boolean\"},\"execution\":{\"type\":\"string\"},\"max_restarts\":{\"type\":\"integer\"},\"max_turns\":{\"type\":\"integer\"},\"mode\":{\"type\":\"string\"},\"model\":{\"type\":\"string\"},\"narrow_tools\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"ownership\":{\"type\":\"string\"},\"parent_session\":{\"type\":\"string\"},\"persona\":{\"description\":\"Persona for the child (operating manual). Empty = inherit parent's persona.\",\"type\":\"string\"},\"prompt\":{\"type\":\"string\"},\"provider\":{\"type\":\"string\"},\"reasoning_effort\":{\"type\":\"string\"},\"role\":{\"type\":\"string\"},\"sandbox_profile\":{\"type\":\"string\"},\"source\":{\"properties\":{\"at\":{\"type\":\"string\"},\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"],\"type\":\"object\"},\"supervision\":{\"type\":\"string\"},\"thinking\":{\"type\":\"string\"},\"thinking_budget_tokens\":{\"type\":\"integer\"},\"timeout_seconds\":{\"type\":\"integer\"},\"token_budget\":{\"type\":\"integer\"},\"tool_profile\":{\"type\":\"string\"},\"write_scope\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"}},\"required\":[\"prompt\"],\"type\":\"object\"}",
+      "categories": ["agent"],
+      "capabilities": ["agent:spawn", "agent:spawn:configure"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-agent"
+}

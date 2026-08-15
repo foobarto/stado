@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -22,44 +21,36 @@ type recordingSessionBridge struct {
 	readCalls  atomic.Int32
 	eventCalls atomic.Int32
 	forkCalls  atomic.Int32
-	llmCalls   atomic.Int32
 
 	// Last-call args (forwarding contract: assert the import passes
 	// arguments verbatim to the bridge).
 	lastReadField string
 	lastForkAt    string
 	lastForkSeed  string
-	lastLLMPrompt string
-	lastLLMOpts   LLMInvokeOpts
 
 	// Programmable outputs.
 	readResult  []byte
 	eventResult []byte
 	forkResult  string
-	llmReply    string
-	llmTokens   int
 
-	// readErr / eventErr / forkErr / llmErr let tests force the
+	// readErr / eventErr / forkErr let tests force the
 	// bridge to surface an error.
 	readErr  error
 	eventErr error
 	forkErr  error
-	llmErr   error
 
-	// blockEvent / blockFork / blockLLM make the corresponding
+	// blockEvent / blockFork make the corresponding
 	// method block on its ctx. Used by the cancel-propagation
 	// contract: tests cancel the ctx and expect the bridge call to
 	// return ctx.Err().
 	blockEvent bool
 	blockFork  bool
-	blockLLM   bool
 
-	// lastEventCtx / lastForkCtx / lastLLMCtx carry the ctx the
+	// lastEventCtx / lastForkCtx carry the ctx the
 	// bridge was invoked with so cancel-propagation tests can
 	// verify the same ctx the import received reached the bridge.
 	lastEventCtx context.Context
 	lastForkCtx  context.Context
-	lastLLMCtx   context.Context
 }
 
 func (b *recordingSessionBridge) NextEvent(ctx context.Context) ([]byte, error) {
@@ -104,24 +95,6 @@ func (b *recordingSessionBridge) Fork(ctx context.Context, atTurn, seed string) 
 	return res, err
 }
 
-func (b *recordingSessionBridge) InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (string, int, error) {
-	b.llmCalls.Add(1)
-	b.mu.Lock()
-	b.lastLLMCtx = ctx
-	b.lastLLMPrompt = prompt
-	b.lastLLMOpts = opts
-	block := b.blockLLM
-	res := b.llmReply
-	tok := b.llmTokens
-	err := b.llmErr
-	b.mu.Unlock()
-	if block {
-		<-ctx.Done()
-		return "", 0, ctx.Err()
-	}
-	return res, tok, err
-}
-
 // ---- Contract 1: capability gate ---------------------------------------
 //
 // When the manifest doesn't carry the required cap, the host import
@@ -141,7 +114,6 @@ func TestSessionBridge_CapGate_DeniesEveryImportWithoutCap(t *testing.T) {
 		{"stado_session_read", []uint64{0, 0, 0, 0}},
 		{"stado_session_next_event", []uint64{0, 0}},
 		{"stado_session_fork", []uint64{0, 0, 0, 0, 0, 0}},
-		{"stado_llm_invoke", []uint64{0, 0, 0, 0}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -151,7 +123,7 @@ func TestSessionBridge_CapGate_DeniesEveryImportWithoutCap(t *testing.T) {
 			}
 		})
 	}
-	if n := br.readCalls.Load() + br.eventCalls.Load() + br.forkCalls.Load() + br.llmCalls.Load(); n != 0 {
+	if n := br.readCalls.Load() + br.eventCalls.Load() + br.forkCalls.Load(); n != 0 {
 		t.Errorf("bridge invoked while caps denied: counters total=%d", n)
 	}
 }
@@ -164,7 +136,7 @@ func TestSessionBridge_CapGate_DeniesEveryImportWithoutCap(t *testing.T) {
 
 func TestSessionBridge_NilBridge_AllImportsReturnSentinel(t *testing.T) {
 	h := newBridgeHarness(t).
-		withCaps("session:read", "session:observe", "session:fork", "llm:invoke").
+		withCaps("session:read", "session:observe", "session:fork").
 		// no bridge wired — host.SessionBridge stays nil
 		install()
 
@@ -175,7 +147,6 @@ func TestSessionBridge_NilBridge_AllImportsReturnSentinel(t *testing.T) {
 		{"stado_session_read", []uint64{0, 0, 0, 0}},
 		{"stado_session_next_event", []uint64{0, 0}},
 		{"stado_session_fork", []uint64{0, 0, 0, 0, 0, 0}},
-		{"stado_llm_invoke", []uint64{0, 0, 0, 0}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -277,67 +248,6 @@ func TestSessionBridge_Forwarding_SessionNextEvent(t *testing.T) {
 	}
 }
 
-func TestSessionBridge_Forwarding_LLMInvoke(t *testing.T) {
-	br := &recordingSessionBridge{llmReply: "hi from llm", llmTokens: 7}
-	h := newBridgeHarness(t).
-		withCaps("llm:invoke").
-		withSessionBridge(br).
-		install()
-
-	// Cover every llmInvokeArgs field so per-call options reach
-	// the bridge unchanged.
-	args := llmInvokeArgs{
-		Prompt:      "say hi",
-		Persona:     "researcher",
-		Model:       "claude-x",
-		System:      "be terse",
-		MaxTokens:   64,
-		Temperature: 0.7,
-	}
-	argBytes, _ := json.Marshal(args)
-	h.memWrite(0, argBytes)
-	const outPtr, outCap = 256, 256
-
-	n := h.callImport(context.Background(), "stado_llm_invoke",
-		0, uint64(len(argBytes)),
-		outPtr, outCap)
-	if n <= 0 {
-		t.Fatalf("expected positive bytes-written, got %d", n)
-	}
-	if br.llmCalls.Load() != 1 {
-		t.Errorf("llmCalls = %d, want 1", br.llmCalls.Load())
-	}
-	if br.lastLLMPrompt != args.Prompt {
-		t.Errorf("forwarded prompt = %q, want %q", br.lastLLMPrompt, args.Prompt)
-	}
-	got := br.lastLLMOpts
-	if got.Persona != args.Persona {
-		t.Errorf("Persona = %q, want %q", got.Persona, args.Persona)
-	}
-	if got.Model != args.Model {
-		t.Errorf("Model = %q, want %q", got.Model, args.Model)
-	}
-	if got.System != args.System {
-		t.Errorf("System = %q, want %q", got.System, args.System)
-	}
-	if got.MaxTokens != args.MaxTokens {
-		t.Errorf("MaxTokens = %d, want %d", got.MaxTokens, args.MaxTokens)
-	}
-	if got.Temperature != args.Temperature {
-		t.Errorf("Temperature = %v, want %v", got.Temperature, args.Temperature)
-	}
-	// stado_llm_invoke writes the bare reply string back (token
-	// count is tracked internally on host.llmTokensUsed; not
-	// part of the wire payload). Assert the reply and the host's
-	// running budget total.
-	if reply := h.memRead(outPtr, uint32(n)); string(reply) != "hi from llm" {
-		t.Errorf("reply buffer = %q, want %q", reply, "hi from llm")
-	}
-	if h.host.llmTokensUsed != 7 {
-		t.Errorf("host.llmTokensUsed = %d, want 7 (bridge-reported)", h.host.llmTokensUsed)
-	}
-}
-
 // ---- Contract 4: cancel propagation ------------------------------------
 //
 // Where the bridge method takes ctx, the host import must pass its
@@ -412,33 +322,5 @@ func TestSessionBridge_Cancel_PropagatesToFork(t *testing.T) {
 	if !errors.Is(br.lastForkCtx.Err(), context.DeadlineExceeded) &&
 		!errors.Is(br.lastForkCtx.Err(), context.Canceled) {
 		t.Errorf("bridge fork ctx not cancelled: %v", br.lastForkCtx.Err())
-	}
-}
-
-func TestSessionBridge_Cancel_PropagatesToLLMInvoke(t *testing.T) {
-	br := &recordingSessionBridge{blockLLM: true}
-	h := newBridgeHarness(t).
-		withCaps("llm:invoke").
-		withSessionBridge(br).
-		install()
-
-	args := llmInvokeArgs{Prompt: "blocked"}
-	argBytes, _ := json.Marshal(args)
-	h.memWrite(0, argBytes)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	fn := h.thunkMod.ExportedFunction("thunk_stado_llm_invoke")
-	_, _ = fn.Call(ctx, 0, uint64(len(argBytes)), 256, 256)
-
-	if br.llmCalls.Load() != 1 {
-		t.Errorf("bridge llmCalls = %d, want 1", br.llmCalls.Load())
-	}
-	if br.lastLLMCtx == nil {
-		t.Fatal("bridge never recorded an llm ctx")
-	}
-	if !errors.Is(br.lastLLMCtx.Err(), context.DeadlineExceeded) &&
-		!errors.Is(br.lastLLMCtx.Err(), context.Canceled) {
-		t.Errorf("bridge llm ctx not cancelled: %v", br.lastLLMCtx.Err())
 	}
 }

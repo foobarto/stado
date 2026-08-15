@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/textutil"
 )
 
@@ -22,9 +24,9 @@ import (
 // favour of `tool run` — c2cd90d; the EP-0028 `--with-tool-host` flag
 // became default behaviour under EP-0038.)
 var pluginDoctorCmd = &cobra.Command{
-	Use:   "doctor <plugin-id>",
+	Use:   "doctor [project:|global:]<canonical-source|store-key>",
 	Short: "Inspect an installed plugin and explain which surfaces / flags it needs",
-	Long: "Reads the plugin's manifest from `<state-dir>/plugins/<id>/`,\n" +
+	Long: "Resolves an exact canonical source/store key and reads its signed manifest,\n" +
 		"classifies each declared capability, and prints a checklist\n" +
 		"of compatible surfaces with the exact flags to pass. Useful\n" +
 		"when `tool run` returns the documented \"plugin host has no\n" +
@@ -36,17 +38,14 @@ var pluginDoctorCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		dir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
+		pkg, _, err := resolveManagedInstalledPackage(cfg, args[0])
 		if err != nil {
-			return err
-		}
-		if _, err := os.Stat(dir); err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
 			return fmt.Errorf("plugin %s not installed (run `stado plugin install <plugin-dir>` after building + signing it)", args[0])
 		}
-		mf, _, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			return fmt.Errorf("read manifest: %w", err)
-		}
+		dir, mf := pkg.Dir, &pkg.Manifest
 		report, err := buildPluginDoctorReport(mf, dir)
 		if err != nil {
 			return err
@@ -93,6 +92,14 @@ type capabilityNote struct {
 func classifyCapability(cap string) capabilityNote {
 	cn := capabilityNote{cap: cap}
 	switch {
+	case cap == "cfg:state_dir":
+		cn.requirement = requireNothing
+		cn.note = "operator state-directory fact; stado resolves the rooted path before plugin execution"
+		return cn
+	case strings.HasPrefix(cap, "fs:read:cfg:state_dir/") || strings.HasPrefix(cap, "fs:write:cfg:state_dir/"):
+		cn.requirement = requireNothing
+		cn.note = "operator state-directory rooted; requires the exact cfg:state_dir capability and stays beneath that root"
+		return cn
 	case strings.HasPrefix(cap, "fs:read:") || strings.HasPrefix(cap, "fs:write:"):
 		path := cap[strings.IndexByte(cap, ':')+1:]
 		path = path[strings.IndexByte(path, ':')+1:]
@@ -128,14 +135,55 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireToolHost
 		cn.note = "bundled-tool import (LSP); provided by `stado tool run`"
 		return cn
-	case strings.HasPrefix(cap, "session:") || cap == "llm:invoke" || strings.HasPrefix(cap, "llm:invoke:") ||
-		strings.HasPrefix(cap, "memory:"):
+	case cap == "registry:catalog":
+		cn.requirement = requireToolHost
+		cn.note = "bounded authenticated registry projection; needs the current tool registry supplied by a tool host or agent loop"
+		return cn
+	case strings.HasPrefix(cap, "context:resource:"):
+		cn.requirement = requireFullAgentLoop
+		cn.note = "bounded current-context resource catalog; available only inside a context-bearing agent loop"
+		return cn
+	case strings.HasPrefix(cap, "evidence:"):
+		cn.requirement = requireSession
+		cn.note = "broker-authenticated evidence capability; requires an owned session and exact evidence binding"
+		return cn
+	case strings.HasPrefix(cap, "provider:invoke:"):
+		tokens, err := strconv.Atoi(strings.TrimPrefix(cap, "provider:invoke:"))
+		if err != nil || tokens <= 0 || tokens > 2_000_000 {
+			cn.requirement = requireUnsupported
+			cn.note = "invalid provider capability; declare exact provider:invoke:<positive-token-ceiling-at-most-2000000>"
+			return cn
+		}
+		cn.requirement = requireToolHost
+		cn.note = "generic provider primitive with a signed cumulative token ceiling; needs a provider-enabled tool host or live session bridge"
+		return cn
+	case cap == "provider:invoke":
+		cn.requirement = requireUnsupported
+		cn.note = "invalid provider capability; a positive signed token ceiling is mandatory"
+		return cn
+	case strings.HasPrefix(cap, "session:"):
 		cn.requirement = requireSession
 		cn.note = "session-aware capability; needs `--session <id>` on `stado tool run` (or run inside agent loop)"
 		return cn
-	case cap == "ui:approval":
+	case strings.HasPrefix(cap, "artifact:"):
+		cn.requirement = requireSession
+		cn.note = "broker-authenticated artifact capability; lifecycle applications receive it from the interactive TUI session"
+		return cn
+	case strings.HasPrefix(cap, "agent:"):
+		cn.requirement = requireSession
+		cn.note = "broker-authenticated agent capability; requires an owned interactive session"
+		return cn
+	case strings.HasPrefix(cap, "timer:"):
+		cn.requirement = requireSession
+		cn.note = "durable application timer capability; requires a persistent lifecycle application session"
+		return cn
+	case strings.HasPrefix(cap, "lifecycle:"):
+		cn.requirement = requireFullAgentLoop
+		cn.note = "lifecycle subscription/decision capability; hosted only by the interactive TUI in this release"
+		return cn
+	case cap == "ui:approval" || cap == "ui:choice" || cap == "ui:print" || cap == "ui:render":
 		cn.requirement = requireUIApproval
-		cn.note = "needs an approval bridge — only the TUI / headless agent loop provides one"
+		cn.note = "needs an operator UI bridge — lifecycle applications receive it only from the interactive TUI"
 		return cn
 	case cap == "secrets:read" || strings.HasPrefix(cap, "secrets:read:"):
 		cn.requirement = requireNothing
@@ -430,15 +478,30 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 		}
 		b.WriteString("\n")
 	}
-
-	// Per-surface compatibility.
-	b.WriteString("Compatible surfaces:\n")
 	mark := func(ok bool) string {
 		if ok {
 			return "✓"
 		}
 		return "✗"
 	}
+	if mf.Lifecycle != nil {
+		tuiOK := runtime.LifecycleApplicationSurfaceContract(runtime.ApplicationSurfaceTUI).Complete() && !hasUnsupported
+		runOK := runtime.LifecycleApplicationSurfaceContract(runtime.ApplicationSurfaceRun).Complete() && !hasUnsupported
+		headlessOK := runtime.LifecycleApplicationSurfaceContract(runtime.ApplicationSurfaceHeadless).Complete() && !hasUnsupported
+		acpOK := runtime.LifecycleApplicationSurfaceContract(runtime.ApplicationSurfaceACP).Complete() && !hasUnsupported
+		b.WriteString("Compatible surfaces:\n")
+		fmt.Fprintf(&b, "  %s interactive TUI (`stado`)              %s\n", mark(tuiOK),
+			surfaceReason(tuiOK, false, false, false, false, hasUnsupported, "full"))
+		fmt.Fprintf(&b, "  %s stado run                              %s\n", mark(runOK), lifecycleSurfaceReason(runOK))
+		fmt.Fprintf(&b, "  %s stado headless                         %s\n", mark(headlessOK), lifecycleSurfaceReason(headlessOK))
+		fmt.Fprintf(&b, "  %s stado ACP                              %s\n", mark(acpOK), lifecycleSurfaceReason(acpOK))
+		b.WriteString("  ✗ stado tool run                          not an application host\n")
+		b.WriteString("\nSuggested invocation:\n  stado\n")
+		return b.String(), nil
+	}
+
+	// Per-surface compatibility.
+	b.WriteString("Compatible surfaces:\n")
 	fullLoopOK := !hasUnsupported
 	fmt.Fprintf(&b, "  %s stado run / TUI                       %s\n",
 		mark(fullLoopOK), surfaceReason(fullLoopOK, false, false, false, false, hasUnsupported, "full"))
@@ -463,6 +526,13 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 	b.WriteString(suggestInvocation(mf, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, hasUnsupported))
 	b.WriteString("\n")
 	return b.String(), nil
+}
+
+func lifecycleSurfaceReason(ok bool) string {
+	if ok {
+		return "complete persistent lifecycle application contract"
+	}
+	return "persistent lifecycle applications are not hosted"
 }
 
 func spaceForWorkdir(hasWorkdir bool) string {

@@ -23,13 +23,12 @@ type KindSchema struct {
 type Authority string
 
 const (
-	AuthorityCandidate    Authority = "candidate"
-	AuthorityActive       Authority = "active"
-	AuthorityLegacyActive Authority = "legacy_active"
-	AuthorityRejected     Authority = "rejected"
-	AuthoritySuperseded   Authority = "superseded"
-	AuthorityRetired      Authority = "retired"
-	AuthorityDeleted      Authority = "deleted"
+	AuthorityCandidate  Authority = "candidate"
+	AuthorityActive     Authority = "active"
+	AuthorityRejected   Authority = "rejected"
+	AuthoritySuperseded Authority = "superseded"
+	AuthorityRetired    Authority = "retired"
+	AuthorityDeleted    Authority = "deleted"
 )
 
 type Scope string
@@ -57,24 +56,6 @@ type Provenance struct {
 	Refs      []string `json:"refs,omitempty"`
 }
 
-// UnmarshalJSON accepts the pre-EP-0063 string-array shape only for one-way
-// migration. New marshals always emit the structured object, so old records
-// remain readable without preserving the obsolete write contract.
-func (p *Provenance) UnmarshalJSON(raw []byte) error {
-	type plain Provenance
-	var object plain
-	if err := json.Unmarshal(raw, &object); err == nil {
-		*p = Provenance(object)
-		return nil
-	}
-	var legacy []string
-	if err := json.Unmarshal(raw, &legacy); err != nil {
-		return err
-	}
-	*p = Provenance{Origins: legacy}
-	return nil
-}
-
 type Artifact struct {
 	APIVersion   string          `json:"api_version"`
 	ID           string          `json:"id"`
@@ -94,47 +75,6 @@ type Artifact struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 	ExpiresAt    time.Time       `json:"expires_at,omitempty"`
 	Supersedes   []string        `json:"supersedes,omitempty"`
-	LegacyID     string          `json:"legacy_id,omitempty"`
-}
-
-// UnmarshalJSON accepts the old EP-53 memory/lesson top-level fields only as a
-// migration reader. Marshal always emits the EP-63 envelope; new writes never
-// perpetuate the old shape.
-func (a *Artifact) UnmarshalJSON(raw []byte) error {
-	type plain Artifact
-	var wire struct {
-		plain
-		Summary         string `json:"summary"`
-		Content         string `json:"content"`
-		Trigger         string `json:"trigger"`
-		ExpectedOutcome string `json:"expected_outcome"`
-		Validation      string `json:"validation"`
-	}
-	if err := json.Unmarshal(raw, &wire); err != nil {
-		return err
-	}
-	*a = Artifact(wire.plain)
-	if a.APIVersion == "" {
-		a.APIVersion = APIVersionV1
-	}
-	if a.Kind == legacyKindMemory || a.Kind == legacyKindLesson {
-		legacy := a.Kind
-		if legacy == legacyKindMemory {
-			a.Kind = KindMemory
-		} else {
-			a.Kind = KindLesson
-		}
-		if len(a.Data) == 0 {
-			a.Data = mustLearningData(LearningData{
-				Summary: wire.Summary, Content: wire.Content, Trigger: wire.Trigger,
-				ExpectedOutcome: wire.ExpectedOutcome, Validation: wire.Validation,
-			})
-		}
-		if a.KindSchema.LocalName == "" {
-			a.KindSchema = learningDescriptorFor(a.Kind).Schema
-		}
-	}
-	return nil
 }
 
 type QueryContext struct {
@@ -159,7 +99,12 @@ type Query struct {
 	Tags       []string
 	Groups     []string
 	ActiveOnly bool
-	MaxItems   int
+	// ExcludeSecret is set by untrusted application/evidence projections.
+	// Native operator/audit callers deliberately leave it false so canonical
+	// secret records remain inspectable. The filter is applied before exact-ref
+	// selection, ordering, pagination, and digesting.
+	ExcludeSecret bool
+	MaxItems      int
 }
 
 type UsageEvent string

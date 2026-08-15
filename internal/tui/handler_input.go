@@ -243,11 +243,6 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 					m.renderBlocks()
 				}
 				m.layout()
-			case keys.TaskView:
-				if err := m.openTaskPicker(); err != nil {
-					m.appendBlock(block{kind: "system", body: err.Error()})
-					m.renderBlocks()
-				}
 			case keys.ThemeSwitch:
 				m.openThemePicker()
 				m.layout()
@@ -348,12 +343,8 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		streamCancelled := m.cancelRunningStream()
 		toolCancelled := m.cancelRunningTool()
 		pendingDropped := m.clearPendingToolQueue()
-		reviewCancelled := m.cancelActiveSuperviseReview()
-		if streamCancelled || toolCancelled || pendingDropped > 0 || reviewCancelled {
+		if streamCancelled || toolCancelled || pendingDropped > 0 {
 			body := "turn cancelled"
-			if reviewCancelled && !streamCancelled && !toolCancelled && pendingDropped == 0 {
-				body = "supervise: active watchdog/verifier review interrupted"
-			}
 			if toolCancelled {
 				body = "turn cancelled (running tool interrupted)"
 			}
@@ -683,18 +674,6 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 		if m.applicationOwnsOperatorInput() {
 			return m, m.captureApplicationOperatorInput(text), true
 		}
-		if m.supervision != nil && m.supervision.state.PlanVersion == 0 && !superviseTerminal(m.supervision.state.Status) {
-			m.input.History.Push(text)
-			m.input.Reset()
-			m.appendBlock(block{kind: "system", body: "supervise: requirements review is still in progress; wait for the baseline proposal or use `/supervise cancel`"})
-			m.renderBlocks()
-			return m, nil, true
-		}
-		if m.supervision != nil && superviseAcceptsFollowup(m.supervision.state.Status) {
-			m.input.History.Push(text)
-			m.input.Reset()
-			return m, m.enqueueSuperviseFollowup(text), true
-		}
 		// Verification has no model/tool boundary where a steer could be
 		// injected. Treat ordinary Enter as an explicit next-turn queue so the
 		// operator's message survives pass, cancellation, or exhaustion.
@@ -759,11 +738,6 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 	if m.applicationOwnsOperatorInput() {
 		return m, m.captureApplicationOperatorInput(text), true
 	}
-	if m.supervision != nil && superviseAcceptsFollowup(m.supervision.state.Status) {
-		m.input.History.Push(text)
-		m.input.Reset()
-		return m, m.enqueueSuperviseFollowup(text), true
-	}
 	// EP-0038 §F: /session attach RW — route input to agent inbox.
 	if m.attach.agentID != "" {
 		agentID := m.attach.agentID
@@ -809,10 +783,11 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 	// more context. The draft text stays in the input so the
 	// recovery flow doesn't lose it.
 	if m.aboveHardThreshold() {
-		if m.hasAutoCompactBackgroundPlugin() {
+		if pluginIdentity := m.autoCompactBackgroundPluginIdentity(); pluginIdentity != "" {
 			m.recoveryPrompt = text
-			m.recoveryPluginName = "auto-compact"
+			m.recoveryPluginName = pluginIdentity
 			m.recoveryPluginActive = true
+			m.recoveryApplicationWorker = m.applicationOwnsOperatorInput()
 			body := fmt.Sprintf(
 				"context at %.0f%% (hard threshold %.0f%%) — running bundled auto-compact before replaying your prompt in a child session.",
 				100*m.contextFraction(), 100*m.ctxHardThreshold)

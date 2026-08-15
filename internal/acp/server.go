@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/personas"
@@ -569,9 +568,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	}
 	sysPrompt = harness.Prepend(sysPrompt, workdir, harnessMode)
 
-	// EP-0045: load the effective skill catalog (cwd ∪ persona) so the
-	// model-facing listing + skills__load work on the ACP surface, matching
-	// `stado run`. Non-fatal on load error.
+	// EP-0045: bind the effective skill catalog (cwd ∪ persona) as exact
+	// host context facts for an installed WASM skill application. This keeps
+	// ACP aligned with run/TUI without native prompt injection.
 	effectiveSkills, skErr := runtime.EffectiveSkills(workdir, sess.persona)
 	if skErr != nil {
 		fmt.Fprintf(os.Stderr, "stado acp: skills load: %v\n", skErr)
@@ -591,7 +590,6 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
 		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
-		MemoryContext:        s.memoryPromptContext(pctx, workdir, p.SessionID, p.Prompt),
 		OnSubagentEvent: func(ev runtime.SubagentEvent) {
 			s.emitSubagentUpdate(p.SessionID, ev)
 		},
@@ -655,21 +653,13 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 				readLog:         exec.ReadLog,
 				runner:          exec.Runner,
 				executorSandbox: executorSandbox,
+				provider:        prov,
+				defaultModel:    s.Cfg.Defaults.Model,
 			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
 	}
-	opts.GuidanceContext = func() string {
-		return guidance.Build(guidance.Options{StateDir: s.Cfg.StateDir(), SessionID: p.SessionID, Prompt: p.Prompt, FastContext: guidance.HasRetrievedMemory(opts.MemoryContext), ToolAvailable: func(name string) bool {
-			if opts.Executor == nil || opts.Executor.Registry == nil {
-				return false
-			}
-			_, ok := opts.Executor.Registry.Get(name)
-			return ok
-		}})
-	}
-
 	priorLen := len(localMsgs)
 	text, msgs, loopErr := runtime.AgentLoop(pctx, opts)
 

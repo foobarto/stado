@@ -22,9 +22,8 @@
 //
 // Origin-agnostic. The runtime operates on wasm bytes and a manifest
 // regardless of where the bytes came from — bundled (compiled into the
-// binary), userbundled (appended at bundle time), or installed (signed
-// payload pulled from a registry). The bundled and userbundled packages
-// know which wasm exists; this package knows how to run it. The
+// binary) or installed (signed payload pulled from a registry). The bundled
+// and install packages know which wasm exists; this package knows how to run it. The
 // BackgroundPlugin type here is the lifecycle scaffolding (Load / Tick
 // / Close); host-side policy that decides which background plugins to
 // start by default lives in internal/runtime, not here.
@@ -37,6 +36,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -55,7 +56,7 @@ type Runtime struct {
 	rt      wazero.Runtime
 	closed  bool
 	mu      sync.Mutex
-	modules map[string]*Module // keyed by manifest.Name + "-" + manifest.Version
+	modules map[string]*Module // keyed by host-authenticated identity digest
 
 	// pty is the runtime-shared registry of PTY-backed processes
 	// driven by the persistent-shell plugin. One per Runtime, lifetime
@@ -212,6 +213,20 @@ func (e *ImportError) Error() string {
 // preview 1, which lets WASI-targeted plugins compile + run their
 // main function without hitting a "missing import" link error.
 func (r *Runtime) Instantiate(ctx context.Context, wasmBytes []byte, m plugins.Manifest) (*Module, error) {
+	return r.instantiate(ctx, wasmBytes, m, plugins.RuntimeIdentity{})
+}
+
+// InstantiateWithIdentity gives concurrently admitted packages a module key
+// derived from host-authenticated source identity. Manifest.Name is guest
+// presentation text and cannot be a process-local uniqueness key.
+func (r *Runtime) InstantiateWithIdentity(ctx context.Context, wasmBytes []byte, m plugins.Manifest, identity plugins.RuntimeIdentity) (*Module, error) {
+	if err := identity.ValidateManifest(m); err != nil {
+		return nil, fmt.Errorf("wazero: runtime identity: %w", err)
+	}
+	return r.instantiate(ctx, wasmBytes, m, identity)
+}
+
+func (r *Runtime) instantiate(ctx context.Context, wasmBytes []byte, m plugins.Manifest, identity plugins.RuntimeIdentity) (*Module, error) {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -226,9 +241,20 @@ func (r *Runtime) Instantiate(ctx context.Context, wasmBytes []byte, m plugins.M
 	// is silently skipped. Without `_initialize`, a Go reactor module's
 	// runtime stays un-booted and every export traps on the first
 	// allocator call.
+	key, err := runtimeModuleKey(identity, m)
+	if err != nil {
+		return nil, err
+	}
 	cfg := wazero.NewModuleConfig().
 		WithStartFunctions("_start", "_initialize").
-		WithName(m.Name + "-" + m.Version)
+		// Lifecycle applications express durable timer deadlines as absolute
+		// RFC3339 timestamps. Wazero's deterministic default clock is anchored
+		// in 2022, which makes every otherwise-valid near-future deadline fail
+		// the broker's bounded-horizon check. WASI wall/monotonic time are
+		// observations, not authority; the broker still validates every effect.
+		WithSysWalltime().
+		WithSysNanotime().
+		WithName(key)
 	wmod, err := r.rt.InstantiateWithConfig(ctx, wasmBytes, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("wazero: instantiate %s v%s: %w", m.Name, m.Version, err)
@@ -240,16 +266,33 @@ func (r *Runtime) Instantiate(ctx context.Context, wasmBytes []byte, m plugins.M
 		wasmMod:  wmod,
 		rt:       r,
 	}
-	key := m.Name + "-" + m.Version
 	r.mu.Lock()
 	if r.closed || r.modules == nil {
 		r.mu.Unlock()
 		_ = wmod.Close(ctx)
 		return nil, fmt.Errorf("wazero: runtime is closed")
 	}
+	if _, exists := r.modules[key]; exists {
+		r.mu.Unlock()
+		_ = wmod.Close(ctx)
+		return nil, fmt.Errorf("wazero: plugin identity %s is already instantiated in this runtime", key)
+	}
 	r.modules[key] = mod
 	r.mu.Unlock()
 	return mod, nil
+}
+
+func runtimeModuleKey(identity plugins.RuntimeIdentity, manifest plugins.Manifest) (string, error) {
+	seed := identity.Canonical + "\x00" + identity.ManifestDigest
+	if identity.Canonical == "" {
+		digest, err := manifest.ManifestDigest()
+		if err != nil {
+			return "", fmt.Errorf("wazero: canonical manifest: %w", err)
+		}
+		seed = "unbound\x00" + digest
+	}
+	sum := sha256.Sum256([]byte(seed))
+	return "plugin-" + hex.EncodeToString(sum[:]), nil
 }
 
 // Assert wazero's api.Module satisfies the shape we rely on. Kept as a

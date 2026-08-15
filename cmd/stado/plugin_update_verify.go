@@ -7,10 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +18,8 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/runtime"
+	"golang.org/x/mod/semver"
 )
 
 // ── plugin update ────────────────────────────────────────────────────────
@@ -25,7 +27,7 @@ import (
 var pluginUpdateCheck bool
 
 var pluginUpdateCmd = &cobra.Command{
-	Use:   "update [<name>|all]",
+	Use:   "update [[project:|global:]<canonical-source|store-key>|all]",
 	Short: "Update an installed plugin to its latest tagged version (EP-0039)",
 	Long: `update fetches the latest semver tag for a plugin and installs it
 side-by-side with the existing version. Use --check to see available
@@ -47,7 +49,42 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 		anyLock := false
 		anyUpdates := false
 		var updateFailures []string
+		processedNamespaces := make(map[string]struct{})
+		targetNamespace := ""
+		targetPluginsRoot := ""
+		if target != "" && target != "all" {
+			pkg, root, resolveErr := resolveManagedInstalledPackage(cfg, target)
+			if resolveErr != nil {
+				return fmt.Errorf("plugin update: resolve %q: %w", target, resolveErr)
+			}
+			targetNamespace = pkg.Identity.Namespace
+			targetPluginsRoot = filepath.Clean(root.Dir)
+		}
 		for _, lockTarget := range pluginLockTargets(cfg) {
+			pluginsRoot := filepath.Join(filepath.Dir(lockTarget.Path), "plugins")
+			if targetPluginsRoot != "" && filepath.Clean(pluginsRoot) != targetPluginsRoot {
+				continue
+			}
+			installed, listErr := plugins.ListInstalledPackages(pluginsRoot)
+			if listErr != nil {
+				return fmt.Errorf("plugin update: enumerate source-keyed installs for %s: %w", lockTarget.Path, listErr)
+			}
+			groups := make(map[string][]plugins.InstalledPackage)
+			for _, pkg := range installed {
+				if pkg.Record.Kind == plugins.InstallRemote {
+					groups[pkg.Identity.Namespace] = append(groups[pkg.Identity.Namespace], pkg)
+				}
+			}
+			activeStoreKeys := make(map[string]string)
+			for namespace, candidates := range groups {
+				selected, ok, selectErr := plugins.PickActivePackage(pluginsRoot, namespace, candidates)
+				if selectErr != nil {
+					return fmt.Errorf("plugin update: select active %s: %w", namespace, selectErr)
+				}
+				if ok {
+					activeStoreKeys[namespace] = selected.Record.StoreKey
+				}
+			}
 			lock, lockErr := plugins.ReadLock(lockTarget.Path)
 			if lockErr != nil {
 				if os.IsNotExist(lockErr) {
@@ -57,11 +94,23 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 			}
 			anyLock = true
 			for _, entry := range lock.Entries {
-				if target != "" && target != "all" && !strings.Contains(entry.Identity, target) {
-					continue
-				}
 				id, parseErr := plugins.ParseIdentity(entry.Identity)
 				if parseErr != nil {
+					continue
+				}
+				if targetNamespace != "" && id.Namespace() != targetNamespace {
+					continue
+				}
+				if activeStoreKeys[id.Namespace()] != entry.StoreKey {
+					continue
+				}
+				processKey := lockTarget.Path + "\x00" + id.Namespace()
+				if _, done := processedNamespaces[processKey]; done {
+					continue
+				}
+				processedNamespaces[processKey] = struct{}{}
+				if !allowsImplicitPluginUpdate(id) {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s: pinned to commit; install an explicit new identity to move\n", entry.Identity)
 					continue
 				}
 				latest, err := fetchLatestTag(id)
@@ -69,7 +118,16 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 					fmt.Fprintf(cmd.ErrOrStderr(), "  %s: latest-tag lookup failed: %v\n", entry.Identity, err)
 					continue
 				}
-				if latest == id.Version {
+				alreadyCurrent := latest == id.Version
+				if !alreadyCurrent && !id.IsCommit() {
+					latestIsOlder, compareErr := plugins.VersionLess(latest, id.Version)
+					if compareErr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "  %s: package-version comparison failed: %v\n", entry.Identity, compareErr)
+						continue
+					}
+					alreadyCurrent = latestIsOlder
+				}
+				if alreadyCurrent {
 					fmt.Fprintf(cmd.OutOrStdout(), "  %s: up to date (%s)\n", entry.Identity, id.Version)
 					continue
 				}
@@ -90,19 +148,9 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 					return pluginInstallCmd.RunE(pluginInstallCmd, []string{newID})
 				})
 				if installErr != nil {
-					// Heal lock files produced by older versions when the newer
-					// version is already installed and recorded.
-					if lockErr := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); lockErr == nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "    removed superseded lock entry %s\n", entry.Identity)
-						continue
-					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "    install failed: %v\n", installErr)
 					updateFailures = append(updateFailures, entry.Identity+": "+installErr.Error())
 					continue
-				}
-				if err := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "    lock cleanup failed: %v\n", err)
-					updateFailures = append(updateFailures, entry.Identity+": "+err.Error())
 				}
 			}
 		}
@@ -120,19 +168,7 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 	},
 }
 
-func removeSupersededPluginLockEntry(lockPath, oldIdentity, newIdentity string) error {
-	lock, err := plugins.ReadLock(lockPath)
-	if err != nil {
-		return err
-	}
-	if _, ok := lock.Get(newIdentity); !ok {
-		return fmt.Errorf("updated lock entry %s is missing", newIdentity)
-	}
-	if !lock.Remove(oldIdentity) {
-		return nil
-	}
-	return lock.Write(lockPath)
-}
+func allowsImplicitPluginUpdate(id plugins.Identity) bool { return !id.IsCommit() }
 
 func withPluginInstallScope(local bool, fn func() error) error {
 	oldLocal := pluginInstallLocal
@@ -155,22 +191,104 @@ func fetchLatestTag(id plugins.Identity) (string, error) {
 	switch id.Host {
 	case "github.com":
 		body, err := httpGetReleaseJSON(ctx, fmt.Sprintf(
-			"https://api.github.com/repos/%s/%s/releases/latest", id.Owner, id.Repo))
+			"https://api.github.com/repos/%s/%s/releases?per_page=100", id.Owner, id.Repo))
 		if err != nil {
 			return "", err
 		}
-		return parseReleaseTagName(body, "github")
+		var releases []packageRelease
+		if err := json.Unmarshal(body, &releases); err != nil {
+			return "", fmt.Errorf("parse github releases: %w", err)
+		}
+		return selectLatestPackageRelease(id, releases)
 	case "gitlab.com":
+		if id.Subdir != "" {
+			return "", fmt.Errorf("package-aware latest lookup is not available for gitlab monorepos; install an exact pinned identity instead")
+		}
 		proj := url.PathEscape(id.Owner + "/" + id.Repo)
 		body, err := httpGetReleaseJSON(ctx, fmt.Sprintf(
 			"https://gitlab.com/api/v4/projects/%s/releases/permalink/latest", proj))
 		if err != nil {
 			return "", err
 		}
-		return parseReleaseTagName(body, "gitlab")
+		tag, err := parseReleaseTagName(body, "gitlab")
+		if err != nil {
+			return "", err
+		}
+		if !semver.IsValid(tag) {
+			return "", fmt.Errorf("gitlab latest release tag %q is not canonical semver", tag)
+		}
+		return tag, nil
 	default:
 		return "", fmt.Errorf("latest-tag lookup unsupported for host %q (github.com / gitlab.com only)", id.Host)
 	}
+}
+
+type packageRelease struct {
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
+}
+
+// selectLatestPackageRelease returns a logical vX.Y.Z for exactly id's
+// package. A monorepo release qualifies either by the EP-39 package tag
+// `<subdir>/vX.Y.Z`, or by a repository-wide vX.Y.Z release carrying all three
+// package-prefixed assets. Sibling releases and ambiguous flat assets cannot
+// advance this package.
+func selectLatestPackageRelease(id plugins.Identity, releases []packageRelease) (string, error) {
+	best := ""
+	packagePrefix := id.Subdir + "/"
+	assetPrefix := strings.ReplaceAll(id.Subdir, "/", "-") + "-"
+	for _, release := range releases {
+		// Match GitHub's former /releases/latest semantics: unapproved drafts
+		// and prereleases never become an implicit stable update. Operators can
+		// still install either by exact pinned identity.
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		candidate := release.TagName
+		if id.Subdir != "" {
+			switch {
+			case strings.HasPrefix(candidate, packagePrefix):
+				candidate = strings.TrimPrefix(candidate, packagePrefix)
+			case semver.IsValid(candidate) && releaseHasPackageAssets(release, assetPrefix):
+				// Repository-wide release with an exact package asset set.
+			default:
+				continue
+			}
+		}
+		if !semver.IsValid(candidate) {
+			continue
+		}
+		if best == "" || semver.Compare(candidate, best) > 0 {
+			best = candidate
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("no package-specific semver release found for %s", id.Namespace())
+	}
+	return best, nil
+}
+
+func releaseHasPackageAssets(release packageRelease, prefix string) bool {
+	want := map[string]bool{
+		prefix + "plugin.wasm":          false,
+		prefix + "plugin.manifest.json": false,
+		prefix + "plugin.manifest.sig":  false,
+	}
+	for _, asset := range release.Assets {
+		if _, ok := want[asset.Name]; ok {
+			want[asset.Name] = true
+		}
+	}
+	for _, found := range want {
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // parseReleaseTagName extracts tag_name from a GitHub/GitLab release JSON
@@ -203,13 +321,13 @@ func httpGetReleaseJSON(ctx context.Context, u string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %d", u, resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return readBoundedRemoteBody(resp.Body, 1<<20, "plugin release metadata")
 }
 
 // ── plugin verify ────────────────────────────────────────────────────────
 
 var pluginVerifyInstalledCmd = &cobra.Command{
-	Use:   "verify-installed <plugin-id>",
+	Use:   "verify-installed [project:|global:]<canonical-source|store-key>",
 	Short: "Re-verify the signature of an installed plugin against the trust store",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -217,19 +335,15 @@ var pluginVerifyInstalledCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		dir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
+		pkg, _, err := resolveManagedInstalledPackage(cfg, args[0])
 		if err != nil {
-			return err
-		}
-		if _, err := os.Stat(dir); err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
 			return fmt.Errorf("plugin %q is not installed", args[0])
 		}
-		mf, sig, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			return fmt.Errorf("read manifest: %w", err)
-		}
-		ts := plugins.NewTrustStore(cfg.StateDir())
-		if err := ts.VerifyManifest(mf, sig); err != nil {
+		dir, mf, sig := pkg.Dir, &pkg.Manifest, pkg.Signature
+		if err := runtime.VerifyInstalledPlugin(cmd.Context(), cfg, dir, mf, sig); err != nil {
 			return fmt.Errorf("verify failed: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "✓ %s v%s — signature verified (fingerprint %s)\n",

@@ -41,14 +41,13 @@ func (m *Model) viewString() string {
 	if m.showStatus {
 		return m.renderStatusModal(m.width, m.height)
 	}
-	if m.supervisePick != nil && m.supervisePick.Visible {
-		return m.supervisePick.View(m.width, m.height)
-	}
-
 	// Landing screen shows until there's real conversation/activity. The
 	// startup banner block (startup:true) is ignored here so it doesn't
 	// suppress the welcome screen — renderLanding shows it above the footer.
-	landing := !m.hasRealBlocks() && m.approval == nil
+	// Interactive host requests must replace the landing frame even when an
+	// application command is the session's first action; otherwise the request
+	// exists and consumes input while its drawer is invisible.
+	landing := !m.hasRealBlocks() && m.approval == nil && m.choice == nil
 	sidebarW := 0
 	if m.sidebarOpen && !landing {
 		sidebarW = m.sidebarRenderWidth()
@@ -216,11 +215,6 @@ func (m *Model) viewString() string {
 		m.treePick.Width = m.width
 		m.treePick.Height = m.height
 		return m.treePick.View(m.width, m.height)
-	}
-	if m.taskPick.Visible {
-		m.taskPick.Width = m.width
-		m.taskPick.Height = m.height
-		return m.taskPick.View(m.width, m.height)
 	}
 	if m.providerPick != nil && m.providerPick.Visible {
 		m.providerPick.Width = m.width

@@ -5,113 +5,64 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
 
-// probeTool is registered but outside the default autoload core — used to
-// verify skills__load allowed-tools promotion on headless/run surfaces.
-type probeTool struct{}
+type skillNamedPluginStub struct{}
 
-func (probeTool) Name() string        { return "probe__extra" }
-func (probeTool) Description() string { return "test-only probe" }
-func (probeTool) Schema() map[string]any {
-	return map[string]any{"type": "object"}
-}
-func (probeTool) Run(context.Context, json.RawMessage, pkgtool.Host) (pkgtool.Result, error) {
-	return pkgtool.Result{Content: "ok"}, nil
+func (skillNamedPluginStub) Name() string           { return "skills__load" }
+func (skillNamedPluginStub) Description() string    { return "plugin-shaped test tool" }
+func (skillNamedPluginStub) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (skillNamedPluginStub) Run(context.Context, json.RawMessage, pkgtool.Host) (pkgtool.Result, error) {
+	return pkgtool.Result{Content: `{"name":"recon","loaded":true,"body":"ordinary tool body"}`}, nil
 }
 
-// skillSurfaceCaptureProvider replays a skills__load turn then records the
-// tool surface on the following turn.
-type skillSurfaceCaptureProvider struct {
-	turn    int
-	surface []agent.ToolDef
-}
+type skillOriginCaptureProvider struct{ turn int }
 
-func (p *skillSurfaceCaptureProvider) Name() string { return "skill-surface-capture" }
-func (p *skillSurfaceCaptureProvider) Capabilities() agent.Capabilities {
-	return agent.Capabilities{}
-}
-
-func (p *skillSurfaceCaptureProvider) StreamTurn(_ context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+func (p *skillOriginCaptureProvider) Name() string                     { return "skill-origin-capture" }
+func (p *skillOriginCaptureProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (p *skillOriginCaptureProvider) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan agent.Event, error) {
 	p.turn++
-	ch := make(chan agent.Event, 4)
+	ch := make(chan agent.Event, 3)
 	if p.turn == 1 {
-		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
-			ID: "load-1", Name: "skills__load", Input: json.RawMessage(`{"name":"recon"}`),
-		}}
-	} else {
-		p.surface = req.Tools
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "load-1", Name: "skills__load", Input: json.RawMessage(`{}`)}}
 	}
 	ch <- agent.Event{Kind: agent.EvDone}
 	close(ch)
 	return ch, nil
 }
 
-// TestAgentLoop_SkillLoadActivatesAllowedTools: persona-scoped allowed-tools
-// from skills__load join the per-turn surface on the next headless turn
-// (same promotion path as tools__describe, via activatedNames).
-func TestAgentLoop_SkillLoadActivatesAllowedTools(t *testing.T) {
-	reg := BuildDefaultRegistry(nil)
-	reg.Register(probeTool{})
-
-	catalog := []skills.Skill{{
-		Name:         "recon",
-		Body:         "look around",
-		Scope:        skills.ScopePersona,
-		AllowedTools: []string{"probe__extra"},
-	}}
-
-	prov := &skillSurfaceCaptureProvider{}
-	exec := &tools.Executor{Registry: reg}
-
-	_, msgs, err := AgentLoop(context.Background(), AgentLoopOptions{
-		Provider: prov,
-		Executor: exec,
-		Model:    "m",
-		Skills:   catalog,
-		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")},
-		MaxTurns: 3,
+func TestAgentLoopDoesNotPrivilegeSkillNamedToolResultIntoUserRole(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(skillNamedPluginStub{})
+	provider := &skillOriginCaptureProvider{}
+	_, messages, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: provider, Executor: &tools.Executor{Registry: reg}, Model: "m",
+		Config:   &config.Config{Tools: config.Tools{Autoload: []string{"skills__load"}}},
+		Skills:   []skills.Skill{{Name: "recon", Body: "native body must not be injected"}},
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 3,
 	})
 	if err != nil {
-		t.Fatalf("AgentLoop: %v", err)
+		t.Fatal(err)
 	}
-
-	got := map[string]bool{}
-	for _, td := range prov.surface {
-		got[td.Name] = true
-	}
-	if !got["probe__extra"] {
-		t.Errorf("skills__load allowed-tools should promote probe__extra onto turn-2 surface; got %v", toolNames(prov.surface))
-	}
-	if !got["skills__load"] {
-		t.Error("skills__load should remain on the surface when model-visible skills exist")
-	}
-
-	// Skill body injected as a user message after the tool-result block.
-	var injected bool
-	for _, msg := range msgs {
-		if msg.Role != agent.RoleUser {
-			continue
+	userMessages := 0
+	var toolContent string
+	for _, message := range messages {
+		if message.Role == agent.RoleUser {
+			userMessages++
 		}
-		for _, b := range msg.Content {
-			if b.Text != nil && b.Text.Text == "look around" {
-				injected = true
-			}
+		if message.Role == agent.RoleTool && len(message.Content) > 0 && message.Content[0].ToolResult != nil {
+			toolContent = message.Content[0].ToolResult.Content
 		}
 	}
-	if !injected {
-		t.Error("skills__load body should be injected as a user message")
+	if userMessages != 1 {
+		t.Fatalf("model tool result synthesized a user role; user messages=%d", userMessages)
 	}
-}
-
-func toolNames(defs []agent.ToolDef) []string {
-	out := make([]string, 0, len(defs))
-	for _, d := range defs {
-		out = append(out, d.Name)
+	if toolContent != `{"name":"recon","loaded":true,"body":"ordinary tool body"}` {
+		t.Fatalf("tool result was rewritten: %q", toolContent)
 	}
-	return out
 }

@@ -24,6 +24,10 @@ A manifest-declared lifecycle application instead receives one persistent,
 serialized module for an exact canonical plugin/session/generation tuple; see
 [§10.2](#102-lifecycle-application-contract).
 
+WASI wall and monotonic clocks observe the host clocks. They are factual input,
+not authority: broker operations still authenticate the binding and validate
+all guest-supplied deadlines against their own bounded horizons.
+
 ### 1.1 Required exports
 
 Every loaded module **must** export:
@@ -292,6 +296,11 @@ Several host imports return JSON payloads instead of plain bytes:
 - `stado_http_request` → JSON `{status, headers, body_b64, body_truncated}`
 - `stado_http_request_stream` → JSON `{status, headers, body_handle}`
 - `stado_secrets_list` → JSON array of names
+- `stado_registry_catalog` → digest-fenced pages of loader-bound registry facts
+- `stado_session_tool_surface_apply` → one atomic exact-name edit result
+- `stado_session_context_read` → bounded broker facts for the admitted application's opaque logical-session binding
+- `stado_context_resource_catalog` → digest-fenced pages of one capability-scoped context kind
+- `stado_context_resource_open` → one exact opaque resource under the same catalog digest
 
 These follow the same return-value convention as binary imports
 (positive = bytes, -1 = error).
@@ -300,11 +309,10 @@ These follow the same return-value convention as binary imports
 
 ## 7. Buffer sizing and truncation
 
-The plugin chooses how much memory to allocate for receiving data;
-the host writes up to that bound. There is **no protocol for the
-host to say "needs more"** — if your buffer was too small, you
-either get a partial result (binary streaming reads) or `-1`
-(structured outputs that don't tolerate truncation).
+The plugin chooses how much memory to allocate for receiving data. Imports with
+retry semantics return the required positive size when a structured result does
+not fit; streaming reads may instead return a partial chunk, and older imports
+may return `-1`. Follow the per-import contract.
 
 ### 7.1 Defaults and limits
 
@@ -318,6 +326,10 @@ either get a partial result (binary streaming reads) or `-1`
 | stado_json_get / _format input | per-call | 256 KiB |
 | Session field (e.g. `history`) | per-call | bounded by session size |
 | Artifact request | per-call | 1 MiB |
+| Registry catalog/edit request | per-call | 1 MiB; catalog pages remain at most 64 entries and one surface edit carries at most 4,096 names combined |
+| Registry catalog/edit response | page/edit | 1 MiB |
+| Context-resource catalog/open request | per-call | 64 KiB |
+| Context-resource catalog page/open response | page/open | 1 MiB; open content is at most 128 KiB |
 
 ### 7.2 Truncation strategies
 
@@ -337,10 +349,25 @@ Different imports handle "buffer too small" differently:
 
 ## 8. Capability vocabulary
 
-Capabilities are declared in the manifest's `capabilities` array.
-Each cap is a colon-separated string. The host parses these at
-plugin-load time and gates every import call against the resulting
-allowlist. **Lacking the cap fails closed and never crashes:** most imports
+Package capabilities are declared in the manifest's top-level `capabilities`
+array. Every ordinary tool must carry a `tools[].capabilities` array attenuating
+it to an exact subset; entries must be unique exact members of the package
+array. `[]` is explicit zero authority. Admission rejects a missing field,
+`null`, duplicates, whitespace-adjusted values, or absent package authority.
+This presence rule is security-significant: canonical signed JSON preserves
+`[]`, so removing it cannot turn zero authority into package inheritance under
+the same signature.
+
+Persistent lifecycle applications are deliberately different. Their callbacks
+and application tools share one module, Host, and serialized call gate, so
+`tools[].capabilities` must be omitted and application authority is
+package-wide. Signature, runtime identity, and WASM instantiation remain bound
+to the complete manifest; for ordinary tools only the selected signed subset
+becomes the Host view and effective risk-class input. Nested tool invocation
+intersects that set again with the caller's effective capabilities.
+
+Each cap is a colon-separated string. The host gates every import call against
+the resulting effective allowlist. **Lacking the cap fails closed and never crashes:** most imports
 return `-1`; the generic artifact imports use their documented `-n` buffered
 error form.
 
@@ -374,11 +401,24 @@ error form.
 | `session:read` | `stado_session_read` (history, counts, IDs) |
 | `session:observe` | `stado_session_next_event` |
 | `session:fork` | `stado_session_fork` |
-| `llm:invoke[:<token-budget>]` | `stado_llm_invoke` (optional per-session token cap) |
-| `artifact:propose:<local-kind>` | `stado_artifact_propose`; exact local kind declared in this plugin's signed manifest |
-| `artifact:read:<qualified-kind-pattern>` | `stado_artifact_query`; exact qualified kind, `*`, or one trailing-`*` prefix |
-| `artifact:edit:<local-kind>` | `stado_artifact_edit`; exact local kind declared in this plugin's signed manifest |
-| `artifact:observe:<qualified-kind-pattern>` | `stado_artifact_observe`; exact qualified kind, `*`, or one trailing-`*` prefix |
+| `registry:catalog` | Read a bounded, authenticated, digest-fenced projection of the exact current registry and config/session ceiling. Grants no search or activation policy. |
+| `session:tool-surface` | Atomically activate/deactivate at most 4,096 exact catalog wire names combined inside a live session after digest and ceiling validation. |
+| `session:context:read` | Read bounded signal/child/message facts for the logical session selected by an opaque lifecycle-application binding. Guest JSON has no scope selector and another application's journal is not projected. |
+| `lifecycle:observe:<point>` | Subscribe an admitted lifecycle application to the exact point. |
+| `lifecycle:decide:<point>` | Permit validated deny/mutation decisions at the exact point. |
+| `lifecycle:contribute:pre_llm` | Append one bounded system section at TUI pre-LLM; grants no deny, model, replacement-system, or history authority. |
+| `context:resource:catalog:<kind>` | Read bounded host-observed, model-admitted facts for one exact context kind; grants neither open nor filesystem authority. |
+| `context:resource:open:<kind>` | Open one opaque immutable ID for the exact kind and catalog digest; grants neither catalog access nor another kind. |
+| `provider:invoke:<positive-token-budget>` | `stado_provider_invoke` (mandatory exact cumulative input+output ceiling; strict input-bound admission occurs before dispatch, and over-ceiling facts retain usage but expose no text; provider construction/credentials/accounting remain native, request/output policy remains in WASM) |
+| `evidence:catalog:<artifact\|session>` | `stado_evidence_catalog` for one exact authenticated corpus |
+| `evidence:search:<artifact\|session>` | `stado_evidence_search` for one exact authenticated corpus |
+| `evidence:open:<artifact\|session>` | `stado_evidence_open` for one exact authenticated corpus; returns an opaque binding-scoped `receipt_id` for typed artifact evidence |
+| `evidence:validate` | `stado_evidence_validate` mechanical direct-child/ref/excerpt integrity; never semantic entailment |
+| `artifact:propose:<local-kind>` | `stado_artifact_propose`; exact local kind declared in this plugin's signed manifest; optional `evidence_receipt_ids` are broker-resolved for the same binding |
+| `artifact:read:<qualified-kind-pattern>` | `stado_artifact_query`; exact qualified kind, `*`, or one trailing-`*` prefix. An exact manifest-declared own kind may instead use `self#<local-kind>`; the host and broker bind it to the admitted runtime identity |
+| `artifact:edit:<local-kind>` | `stado_artifact_edit`; exact local kind declared in this plugin's signed manifest; optional `evidence_receipt_ids` are broker-resolved for the same binding |
+| `artifact:observe:<qualified-kind-pattern>` | `stado_artifact_observe`; exact qualified kind, `*`, or one trailing-`*` prefix. `self#<local-kind>` has the same exact identity-bound own-kind meaning as artifact read |
+| `artifact:migrate:legacy-memory-v1` | Lifecycle-only `stado_artifact_migrate_legacy_memory_v1`; the empty guest trigger gives the broker no path, bytes, identity, scope, or destination-ID authority |
 | `session:journal:append`, `session:projection:read` | Broker-owned lifecycle journal append and caller-scoped projection read |
 | `session:schedule` | Leased hold acquire/release and typed pause/stop proposals |
 | `session:complete` | Typed durable successful-completion transition for one application run |
@@ -386,6 +426,7 @@ error form.
 | `session:worker:request` | Request a bounded durable application-owned worker run; activation remains native-only |
 | `session:worker:resume` | CAS-request resume of the same interrupted worker run; native activation rechecks pause/stop/completion, unexpired holds, and recurrence ownership |
 | `session:worker:cancel` | CAS-cancel the application's own requested, resume-requested, or active worker run |
+| `session:verification:request` | `stado_session_verification_request`: request the operator-configured native verification suite at an exact pending `session.turn_committed` event; request JSON contains no command or authority field |
 | `timer:schedule` | Durable timer schedule/cancel |
 | `agent:spawn`, `agent:list`, `agent:read`, `agent:send`, `agent:cancel` | The matching `stado_agent_*` operation. The removed aggregate `agent:fleet` capability grants no operation. |
 | `agent:spawn:configure` | Additional attenuation required with `agent:spawn` to override provider, model, thinking mode/token budget, or reasoning effort. Grants no operation or credential access by itself. |
@@ -438,7 +479,8 @@ A plugin manifest is JSON. Required fields:
     {
       "name": "search",
       "description": "Search the repository for…",
-      "schema": "<JSON schema of the args>"
+      "schema": "<JSON schema of the args>",
+      "application_worker": {"plan_visible": false}
     }
   ],
   "min_stado_version": "0.36.0",
@@ -451,8 +493,10 @@ Optional fields:
 
 | Field | Purpose | Since |
 |---|---|---|
-| `requires` | Array of `"<plugin-name>"` or `"<name> >= <semver>"` entries; install fails if a dep isn't present | v0.36.0 |
+| `tools[].capabilities` | Required on every ordinary tool, including explicit `[]` for zero authority. Must be an exact unique subset of the package capability ceiling. Omitted only for persistent lifecycle-application tools, which share one package Host. | pre-1.0 |
+| `tools[].agent_child_only` | Ordinary signed helper projection. The helper may register only in a broker-created child whose exact `narrow_tools` names it and whose loader-verified signed spawning package namespace owns it. Guest JSON cannot set the owner; direct native, bundled-agent, and unrelated-package spawns cannot guess helpers into scope. Unknown names fail closed. Lifecycle manifests must not declare this field. Host/broker capabilities remain the authority boundary. | pre-1.0 |
 | `tools[].categories` | Array of category tags (`file`, `code-search`, `network`, …); used by `[tools].autoload_categories` to surface tools without explicit names | v0.36.0 |
+| `tools[].application_worker` | Lifecycle applications only. Opts this exact tool into turns owned by the application's exact active broker WorkerRun. The object requires a strict boolean `plan_visible`; `false` means Do only, `true` means Do + Plan. BTW and ordinary turns never receive it. | pre-1.0 |
 | `artifact_kinds` | Signed EP-0063 local kind declarations: bounded object-root JSON Schema plus deterministic index projections | pre-1.0 |
 | `lifecycle` | Signed EP-0064 lifecycle point/event subscriptions, failure policy, and timeout | pre-1.0 |
 | `commands` | Signed operator command names/descriptions/usages and optional per-command `timeout_ms` (maximum 15 minutes) routed to the fixed `stado_plugin_command` export; a command grants no authority by itself | pre-1.0 |
@@ -469,7 +513,6 @@ Manifests are Ed25519-signed. The signature lives in
 3. Checks `min_stado_version` against the running build.
 4. Checks rollback protection (this signer hasn't shipped a higher
    version of this plugin already).
-5. Checks `requires` deps resolve.
 
 ---
 
@@ -527,6 +570,18 @@ named
 `stado_ui_render` (`ui:render`). Operator interaction does not itself create
 artifact authority or scheduling authority.
 
+A lifecycle application's declared `stado_tool_*` exports are not ordinary
+model tools. They remain callable only through an otherwise authorized host
+primitive until their signed `tools[]` entry contains
+`"application_worker":{"plan_visible":false|true}`. The TUI then projects the
+exact persistent adapter only while that same admitted application owns the
+exact active broker WorkerRun. Global `[tools].enabled`/`disabled` policy and
+session disables remain ceilings. `plan_visible:true` is the sole Plan-mode
+exception; application tools are never projected into BTW. Before dispatch,
+the host rechecks the exact adapter pointer plus run/session/generation,
+version, WAL anchor, owner, and active status so a stale provider response
+cannot cross a rebind or terminal transition.
+
 For v0.80/v1, the interactive TUI is the only supported application host. It
 routes commands, tools, hooks, events, ticks, and generic bridges through the
 same persistent instance. `stado run`, headless JSON-RPC, and ACP reject
@@ -543,20 +598,30 @@ stado_plugin_command(input_ptr, input_len, result_ptr, result_cap) -> i32
 ```
 
 `stado_plugin_command` returns
-`{"status":"ok|error","message"?:string,"worker_run_id"?:string,"resume_worker_run_id"?:string}`.
-The two worker handoff fields are mutually exclusive and valid only with
+`{"status":"ok|error","message"?:string,"worker_run_id"?:string,"resume_worker_run_id"?:string,"cancel_worker_run_id"?:string}`.
+The three worker handoff fields are mutually exclusive and valid only with
 `status:"ok"`. `worker_run_id` names a new requested run;
-`resume_worker_run_id` names an exact durable `resume_requested` transition.
+`resume_worker_run_id` names an exact durable `resume_requested` transition;
+`cancel_worker_run_id` names a cancellation the application already committed.
 Neither field carries authority
 or activate recurrence: the native command host fetches that exact run from
 the callback application's broker namespace through a dedicated
 session-controller-authenticated RPC, applies the generic recurrence conflict
 rule, and performs a versioned native-only activation. The ordinary
 application bearer cannot select native lookup, activation, or operator
-cancellation. A command may update the application's own capability-bounded
+cancellation. For a cancellation handoff, the native host verifies that exact
+broker projection is terminal before clearing recurrence and cancelling its
+in-flight provider/tool context. A command may update the application's own capability-bounded
 quality workflow, but it cannot request an artifact authority transition.
 Operator-origin artifact activation remains a separate broker operation under
 EP-59.
+
+`stado_session_verification_request` is the generic asynchronous quality-fact
+primitive. Its exact request, ACK-before-claim ordering, terminal schemas,
+outcome enums, evidence rules, and at-least-once crash window are specified in
+[the host-import reference](host-imports.md#durable-native-verification).
+`no_suite` is an observed absence of operator configuration, never an implicit
+pass or failure. Only the TUI hosts this primitive in v0.80/v1.
 
 Commands inherit `lifecycle.timeout_ms` unless their signed manifest entry sets
 its own `timeout_ms`. The independent command ceiling is 15 minutes so a TUI
@@ -582,6 +647,11 @@ falls back gracefully (per-call manager, nil callback drop, deny
 approval). Single-shot CLI invocations (`stado tool run`) are
 short-lived processes anyway, so the fallback is appropriate for them.
 
+The registry surface controller is deliberately not a `tool.Host` extension.
+It is bound to the exact dispatch context so guest input cannot reconstruct
+session authority from an ordinary host adapter. Catalog reads remain available
+without one; `stado_session_tool_surface_apply` fails outside a live session.
+
 ---
 
 ## 11. Lazy-load and meta-tools
@@ -590,10 +660,14 @@ Per [EP-0037 §E](../eps/0037-tool-dispatch-and-operator-surface.md), the
 **per-turn tool surface** sent to the model is a subset of the full
 registry. Tools are autoloaded if they're in `defaultAutoloadNames`,
 match a `[tools].autoload` glob, or have a category in
-`[tools].autoload_categories`. Other tools are loaded **on demand**
-via the model calling `tools.describe`.
+`[tools].autoload_categories`. Other tools may be loaded **on demand** when the
+operator installs and autoloads a discovery application.
 
 ### 11.1 Meta-tools
+
+The official `tool-registry` WASM package provides these tools. It is explicit
+operator opt-in: stado neither silently bundles/autoloads it nor treats its
+tools as non-disableable.
 
 | Tool | Purpose |
 |---|---|
@@ -603,8 +677,18 @@ via the model calling `tools.describe`.
 | `tools.in_category` | List tool names tagged with a category |
 | `tools.activate` | Manually surface a tool without describing it |
 | `tools.deactivate` | Remove a tool from this session's per-turn surface |
-| `plugin.load` | Activate every tool a named plugin provides |
+| `plugin.load` | Activate every tool from one exact unversioned source namespace |
 | `plugin.unload` | Deactivate the same |
+
+The application pages `stado_registry_catalog` using one complete-projection
+digest. Native facts include exact wire/dotted names, signed display name,
+description/schema/class/categories, and stable unversioned source namespace.
+The application owns search, summaries, formatting, category grouping, and
+describe-and-activate. `stado_session_tool_surface_apply` accepts only exact
+wire names, accepts at most 4,096 names combined in one edit, and validates the
+whole batch before mutation; package grouping uses `source_namespace`, never
+display `plugin` or a versioned identity. Catalog pages remain capped at 64
+entries independently of the larger atomic-edit ceiling.
 
 ### 11.2 Plugin authoring impact
 
@@ -615,8 +699,26 @@ your tool discoverable:
 - Tag the tool with a useful category (`tools[].categories`)
 - Add a clear, terse description — `tools.search` matches it
 
-Plugin authors don't need to do anything else for lazy-load; the
-TUI / agent loop handles activation transparently.
+Plugin authors don't need a native integration. Operators who want model-driven
+discovery install/autoload the official package; another signed application can
+implement different discovery policy on the same bounded primitives.
+
+### 11.3 Append-only lifecycle context
+
+A TUI-hosted lifecycle application with exact
+`lifecycle:contribute:pre_llm` authority may return `decision: "contribute"`
+with one `contribution.system_append` string. The host trims and appends at most
+16 KiB to the current system text. This capability is intentionally separate
+from `lifecycle:decide:pre_llm`: it cannot deny, select a model, replace the
+system prompt, or mutate history. Failure-open faults contribute nothing even
+when unrelated Lua hooks use global fail-closed behavior.
+
+An EP-60 guidance application can combine this with
+`session:context:read` and `registry:catalog`. The former accepts only `{}` and
+uses the broker-held opaque application binding; the latter is evaluated with
+the live TUI tool-surface controller. Neither request can choose or widen its
+scope. Current-input and fast-context-presence fields in the TUI `pre_llm`
+payload are untrusted quality facts, not operator authority.
 
 ---
 
@@ -684,8 +786,8 @@ notes, examples) see [`host-imports.md`](host-imports.md). It's
 organized by tier:
 
 - **Tier 1 — capability primitives**: log, fs_read/write, proc,
-  pty/terminal, bundled_bin, session_*, llm_invoke, ui_approve,
-  cfg_state_dir.
+  pty/terminal, bundled_bin, session_*, provider_invoke, ui_approve,
+  cfg_state_dir, registry_catalog, session_tool_surface_apply.
 - **Tier 2 — stateful conveniences**: http_client_*, http_request,
   http_request_stream, dns_resolve, net_*, tool_invoke, instance_*,
   secrets_*.

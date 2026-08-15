@@ -87,29 +87,18 @@ func ConfiguredLifecycleApplications(cfg *config.Config, additionalIDs []string)
 		if _, legacyBundled := LookupBackgroundPlugin(id); legacyBundled {
 			continue
 		}
-		dir, err := plugins.InstalledDirInAny(lifecyclePluginRoots(cfg), id)
+		pkg, err := plugins.ResolveInstalledPackage(lifecyclePluginRoots(cfg), id)
 		if err != nil {
-			return nil, fmt.Errorf("classify configured plugin %s: %w", id, err)
-		}
-		if info, statErr := os.Lstat(dir); statErr != nil {
-			if os.IsNotExist(statErr) {
+			if os.IsNotExist(err) {
 				continue
 			}
-			return nil, fmt.Errorf("classify configured plugin %s: %w", id, statErr)
-		} else if !info.IsDir() {
-			return nil, fmt.Errorf("classify configured plugin %s: install path is not a directory", id)
-		}
-		manifest, _, err := plugins.LoadFromDir(dir)
-		if err != nil {
 			return nil, fmt.Errorf("classify configured plugin %s: %w", id, err)
 		}
+		dir, manifest := pkg.Dir, &pkg.Manifest
 		if manifest.Lifecycle == nil {
 			continue
 		}
-		identity, err := RuntimeIdentityForPluginDir(dir, *manifest)
-		if err != nil {
-			return nil, fmt.Errorf("classify lifecycle application %s: %w", id, err)
-		}
+		identity := pkg.Identity
 		if previous, duplicate := seenCanonical[identity.Canonical]; duplicate {
 			return nil, fmt.Errorf("lifecycle application canonical identity %s is configured more than once (%s, %s)", identity.Canonical, previous, id)
 		}

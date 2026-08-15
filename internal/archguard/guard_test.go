@@ -24,23 +24,11 @@ const authorityImportPath = "github.com/foobarto/stado/internal/broker/authority
 // decision. The target is an empty map: canonical state is submitted through
 // typed broker services and only broker-owned code opens its WAL.
 var walDebt = map[string]int{
-	"cmd/stado/learning.go::newLearnMigrateCmd::OpenShared":                    1,
-	"cmd/stado/learning.go::newLearnRetrievalReportCmd::OpenShared":            1,
-	"cmd/stado/learning.go::openArtifactService::OpenShared":                   1,
-	"cmd/stado/learning.go::runLearnReview::OpenShared":                        1,
-	"cmd/stado/run_research.go::buildRunResearch::OpenShared":                  1,
 	"cmd/stado/session_context.go::withSessionContext::OpenShared":             1,
-	"internal/artifactprompt/context.go::Build::OpenShared":                    1,
-	"internal/guidance/guidance.go::Build::OpenShared":                         1,
 	"internal/runtime/retained_bridge.go::ConfigureRetainedBridge::OpenShared": 1,
 	"internal/stateprompt/context.go::Build::OpenShared":                       1,
 	"internal/trajectory/recorder.go::EnsureObjective::OpenShared":             1,
 	"internal/trajectory/recorder.go::ToolOutcome::OpenShared":                 1,
-	"internal/tui/learn_review.go::manageLearn::OpenShared":                    1,
-	"internal/tui/learn_review.go::startLearnReview::OpenShared":               1,
-	"internal/tui/model_stream.go::buildResearchRunner::OpenShared":            1,
-	"internal/tui/supervise.go::beginSupervise::OpenShared":                    1,
-	"internal/tui/supervise.go::loadSupervision::OpenShared":                   1,
 }
 
 // brokerOwnedWALCalls are composition-root opens made on behalf of the broker
@@ -62,32 +50,175 @@ var brokerAuthorityConstructorCalls = map[string]int{
 // predate the WASM-only boundary. It may only shrink. Registrations produced
 // by the verified plugin constructors are recognized separately; all other
 // new registrations must move behind a WASM manifest instead of growing this
-// list. The supervise registrations introduced by PR #257 are deliberately
-// absent so this guard stays red until that application moves to WASM.
-var nativeRegistrationDebt = map[string]int{
-	"cmd/stado/mcp_server.go::<package>::Register":                     1,
-	"internal/runtime/executor.go::BuildDefaultRegistry::Register":     2,
-	"internal/runtime/executor.go::BuildRegistryWithPlugins::Register": 1,
-	"internal/runtime/mcp_glue.go::attachMCP::Register":                1,
-	"internal/runtime/meta_tools.go::registerMetaTools::Register":      9,
-}
+// list. The native supervise registrations introduced by PR #257 were removed
+// during the lifecycle-application cutover and remain deliberately absent.
+var nativeRegistrationDebt = map[string]int{}
 
 // nativeDefinitionDebt covers direct, provider-visible agent.ToolDef literals
-// which bypass tools.Registry. The research tools are existing migration debt.
-// Supervise reviewer tools are intentionally not allowlisted.
-var nativeDefinitionDebt = map[string]int{
-	"internal/research/research.go::toolDefs::corpus_catalog": 1,
-	"internal/research/research.go::toolDefs::corpus_open":    1,
-	"internal/research/research.go::toolDefs::corpus_search":  1,
-}
+// which bypass tools.Registry. Research and supervise reviewer definitions are
+// intentionally not allowlisted.
+var nativeDefinitionDebt = map[string]int{}
 
 // Handler-side behavior selected by a wire tool name is another native
-// application surface even when registration happens elsewhere. These two
-// pre-existing hooks may shrink; supervise interception is intentionally not
-// permitted and must move into its lifecycle application.
-var nativeHandlerDebt = map[string]int{
-	"internal/tui/handler_tools.go::agent__spawn": 1,
-	"internal/tui/handler_tools.go::skills__load": 1,
+// application surface even when registration happens elsewhere. These exact
+// AgentLoop/TUI hooks may shrink; application-specific interception is not
+// permitted and belongs in the lifecycle application.
+var nativeHandlerDebt = map[string]int{}
+
+// External MCP tools are the sole permanent registration exception: stado is
+// adapting a contract supplied by another process, not implementing a model
+// tool in native Go. Keep even that exception at one exact composition seam so
+// it cannot become a general-purpose bypass.
+var externalMCPRegistrationAllowance = map[string]int{
+	"internal/runtime/mcp_glue.go::attachMCP::mcpbridge.MCPTool": 1,
+}
+
+func TestSuperviseNativeFallbackRemoved(t *testing.T) {
+	root := repoRoot(t)
+	for _, relative := range []string{
+		"internal/supervise",
+		"internal/tui/supervisepicker",
+		"evals/supervise",
+	} {
+		err := filepath.WalkDir(filepath.Join(root, relative), func(path string, entry os.DirEntry, walkErr error) error {
+			if os.IsNotExist(walkErr) {
+				return filepath.SkipDir
+			}
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				t.Fatalf("native supervise fallback/evaluator remains at %s", path)
+			}
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	for _, pattern := range []string{"internal/tui/supervise*.go", "cmd/stado/supervise_eval.go"} {
+		matches, err := filepath.Glob(filepath.Join(root, pattern))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) > 0 {
+			t.Fatalf("native supervise fallback remains at %v", matches)
+		}
+	}
+	for path, forbidden := range map[string]string{
+		"internal/tui/aliases.go":        `"/supervise"`,
+		"internal/tui/palette/slash.go":  `{"/supervise",`,
+		"internal/tui/model_commands.go": `case "/supervise":`,
+	} {
+		data, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("%s retains native supervise command surface %q", path, forbidden)
+		}
+	}
+}
+
+func TestTasksNativeFallbackRemoved(t *testing.T) {
+	root := repoRoot(t)
+	for _, relative := range []string{
+		"internal/tasks",
+		"internal/tools/tasktool",
+		"internal/tui/taskpicker",
+	} {
+		err := filepath.WalkDir(filepath.Join(root, relative), func(path string, entry os.DirEntry, walkErr error) error {
+			if os.IsNotExist(walkErr) {
+				return filepath.SkipDir
+			}
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				t.Fatalf("native tasks fallback remains at %s", path)
+			}
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	checks := map[string][]string{
+		"internal/runtime/executor.go":   {"tasktool", `"tasks"`},
+		"internal/tui/model.go":          {"taskpicker", "taskPick"},
+		"internal/tui/model_commands.go": {`case "/tasks"`, `case "/task"`, "createTaskFromSlash"},
+	}
+	for relative, forbidden := range checks {
+		raw, err := os.ReadFile(filepath.Join(root, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(raw), token) {
+				t.Fatalf("native tasks fallback token %q remains in %s", token, relative)
+			}
+		}
+	}
+}
+
+func TestResearchNativeFallbackRemoved(t *testing.T) {
+	root := repoRoot(t)
+	for _, relative := range []string{"internal/research", "internal/tools/researchtool"} {
+		err := filepath.WalkDir(filepath.Join(root, relative), func(path string, entry os.DirEntry, walkErr error) error {
+			if os.IsNotExist(walkErr) {
+				return filepath.SkipDir
+			}
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				t.Fatalf("native research workflow remains at %s", path)
+			}
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	for _, relative := range []string{"cmd/stado/run_research.go"} {
+		if _, err := os.Stat(filepath.Join(root, relative)); err == nil {
+			t.Fatalf("native research bridge remains at %s", relative)
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNativeProviderApplicationFallbackRemoved(t *testing.T) {
+	root := repoRoot(t)
+	if entries, err := os.ReadDir(filepath.Join(root, "internal", "tools", "llmtool")); err == nil && len(entries) > 0 {
+		t.Fatalf("native provider-facing tool fallback remains in internal/tools/llmtool: %v", entries)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{"cmd", "internal", "pkg"} {
+		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, retired := range []string{"stado_llm_invoke", "LLMInvokeBudget", "llmtool", "llm:invoke", "llm.invoke"} {
+				if strings.Contains(string(raw), retired) {
+					t.Errorf("retired native provider application surface %q remains in %s", retired, path)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // Compatibility identity constructors are not valid production loaders: they
@@ -95,8 +226,7 @@ var nativeHandlerDebt = map[string]int{
 // execution paths must use NewHostWithIdentity plus a lock-, bundle-, or
 // source-bound RuntimeIdentity.
 var runtimeIdentityCompatibilityDebt = map[string]int{
-	"internal/artifacts/learning.go::DefaultKindRegistry::RuntimeIdentityForBundled": 1,
-	"internal/plugins/runtime/host.go::NewHost::RuntimeIdentityForLocal":             1,
+	"internal/plugins/runtime/host.go::NewHost::RuntimeIdentityForLocal": 1,
 }
 
 func TestDirectBrokerWALOpensCannotGrow(t *testing.T) {
@@ -122,6 +252,9 @@ func TestNativeModelToolRegistryRemainsEmpty(t *testing.T) {
 	path := filepath.Join(repoRoot(t), "internal", "runtime", "bundled_plugin_tools.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
+	if os.IsNotExist(err) {
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,20 +268,131 @@ func TestNativeModelToolRegistryRemainsEmpty(t *testing.T) {
 		}
 		t.Fatal("buildNativeRegistry must stay empty; model-facing behavior belongs in WASM and native Go exposes only generic host primitives")
 	}
-	t.Fatal("buildNativeRegistry not found; update this guard as part of the same architecture change")
+	// Deleting the empty compatibility registry is the desired migration.
+	// Its absence is therefore not debt and must not require weakening this
+	// guard during the final cutover.
 }
 
 func TestNativeModelToolSurfacesCannotGrow(t *testing.T) {
 	root := repoRoot(t)
-	registrations, definitions, handlers := nativeModelToolSurfaces(t, root)
+	registrations, definitions, handlers, externalMCP := nativeModelToolSurfaces(t, root)
 	assertShrinkingDebt(t, "native model-tool registration", registrations, nativeRegistrationDebt)
 	assertShrinkingDebt(t, "native agent.ToolDef", definitions, nativeDefinitionDebt)
 	assertShrinkingDebt(t, "native tool-result interception", handlers, nativeHandlerDebt)
+	for key, count := range externalMCP {
+		if count > externalMCPRegistrationAllowance[key] {
+			t.Errorf("external MCP adapter registration %s occurs %d time(s), allowed is %d; keep the sole native-registration exception exact", key, count, externalMCPRegistrationAllowance[key])
+		}
+	}
+}
+
+func TestRegistryApplicationNativeFallbackRemoved(t *testing.T) {
+	root := repoRoot(t)
+	forbidden := map[string]bool{
+		"IsMetaTool": true, "ToolActivator": true, "ToolDeactivator": true,
+		"AbsorbActivatedFromDescribe": true, "extractActivated": true,
+		"absorbToolActivations": true, "SkillLoadAllowedTools": true,
+		"metaSearch": true, "metaDescribe": true, "metaCategories": true,
+		"metaInCategory": true, "metaActivate": true, "metaDeactivate": true,
+		"metaPluginLoad": true, "metaPluginUnload": true,
+	}
+	for _, directory := range []string{"cmd/stado", "internal/runtime", "internal/tui", "pkg/tool"} {
+		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(file, func(node ast.Node) bool {
+				if ident, ok := node.(*ast.Ident); ok && forbidden[ident.Name] {
+					t.Errorf("legacy native registry application symbol %s remains in %s", ident.Name, path)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestCompatibilityPluginIdentityConstructionCannotGrow(t *testing.T) {
 	actual := compatibilityPluginIdentityCalls(t, repoRoot(t))
 	assertShrinkingDebt(t, "compatibility plugin identity construction", actual, runtimeIdentityCompatibilityDebt)
+}
+
+func TestLegacyArtifactAliasStaysInsideTheHistoricalReader(t *testing.T) {
+	root := filepath.Join(repoRoot(t), "internal", "artifacts")
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || entry.Name() == "migrate.go" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), "LegacyID") || strings.Contains(string(data), `json:"legacy_id`) {
+			t.Errorf("retired legacy_id alias escaped migration-only history into %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeMemoryAndLearningFallbacksStayRemoved(t *testing.T) {
+	root := repoRoot(t)
+	for _, relative := range []string{
+		"internal/adaptive",
+		"internal/artifactprompt",
+		"internal/learn",
+		"internal/memory",
+	} {
+		if entries, err := os.ReadDir(filepath.Join(root, relative)); err == nil && len(entries) > 0 {
+			t.Fatalf("native memory/learning application fallback remains in %s: %v", relative, entries)
+		} else if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	for _, relative := range []string{
+		"cmd/stado/learning.go",
+		"cmd/stado/memory.go",
+		"cmd/stado/memory_context.go",
+		"internal/acp/memory_context.go",
+		"internal/headless/memory_context.go",
+		"internal/tui/learn_review.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, relative)); err == nil {
+			t.Fatalf("native memory/learning application fallback remains at %s", relative)
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	for path, forbidden := range map[string][]string{
+		"internal/tui/model_commands.go": {`case "/memory":`, `case "/learn":`},
+		"internal/runtime/agentloop.go":  {"MemoryContext"},
+		"internal/config/config.go":      {`toml:"memory"`},
+	} {
+		data, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(data), token) {
+				t.Fatalf("%s retains native memory/learning application token %q", path, token)
+			}
+		}
+	}
 }
 
 func TestControllerOnlyApplicationOperationsStayOutOfGuestMap(t *testing.T) {
@@ -416,6 +660,79 @@ func TestCurrentDocsDoNotClaimUnsupportedPlatforms(t *testing.T) {
 	}
 }
 
+// These exact phrases were all confirmed as current-document drift after the
+// native application cutovers reached zero. Historical EP bodies and changelog
+// entries may still explain the removed implementations; product/reference
+// documents may not advertise them as present or pending work.
+var completedCutoverDocClaims = map[string][]string{
+	"README.md": {
+		"adaptive retrieval, trajectory learning",
+		"plugin-defined artifacts are landing now",
+		"Any remaining native model-facing workflow surface",
+		"Measured adaptive-retrieval shadowing",
+		"foundation is landing",
+		"remaining Darwin or Windows source files",
+	},
+	"PLAN.md": {
+		"commit `088b976`",
+		"Finish mailboxes, journal projections",
+		"remaining stado-owned native model workflow—tasks",
+		"eliminate every model-visible native tool",
+		"move model-facing tasks into an official signed plugin",
+		"remove unsupported OS runners",
+		"graduate adaptive retrieval beyond shadow mode",
+	},
+	"DESIGN.md": {
+		"review-boundary",
+		"thresholds, suppression",
+		"Existing Darwin or Windows remnants",
+	},
+	"docs/security/threatmodel.md": {
+		"Remaining native model surfaces are shrinking",
+		"Darwin or Windows source remnants",
+	},
+	"docs/articles/adaptive-context.md": {
+		"completed review boundaries",
+		"Stado can compute and report how an alternative ranking",
+		"first source-complete slice is a future TUI lifecycle contribution",
+	},
+	"docs/features/no-internal-tools.md": {
+		"suppression, ordering, and wording",
+	},
+	"docs/features/sandboxing.md": {
+		"Darwin or Windows source remnants",
+	},
+	"docs/features/slash-commands.md": {
+		"Show current cost + caps",
+	},
+	"docs/commands/doctor.md": {
+		"no cost/token guardrail",
+	},
+	"docs/index.html": {
+		"Remaining native model surfaces are shrinking",
+		"Native guidance wording is migration debt",
+	},
+	"docs/eps/0046-verify-work-phase.md": {
+		"CostCapUSD",
+	},
+}
+
+func TestCurrentDocsDoNotRegressCompletedCutovers(t *testing.T) {
+	root := repoRoot(t)
+	for path, claims := range completedCutoverDocClaims {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Errorf("%s: %v", path, err)
+			continue
+		}
+		for _, claim := range claims {
+			if strings.Contains(string(data), claim) {
+				t.Errorf("%s contains obsolete current-product claim %q; describe removed behavior only in decision history", path, claim)
+			}
+		}
+	}
+}
+
 func TestNonLinuxReleaseTargetsCannotGrow(t *testing.T) {
 	root := repoRoot(t)
 	for path, platforms := range nonLinuxReleaseDebt {
@@ -601,11 +918,12 @@ func assertShrinkingDebt(t *testing.T, label string, actual, allowed map[string]
 	}
 }
 
-func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[string]int, map[string]int) {
+func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[string]int, map[string]int, map[string]int) {
 	t.Helper()
 	registrations := make(map[string]int)
 	definitions := make(map[string]int)
 	handlers := make(map[string]int)
+	externalMCP := make(map[string]int)
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -630,18 +948,21 @@ func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[str
 			return err
 		}
 
-		internalTools := importsPath(file, "github.com/foobarto/stado/internal/tools")
-		if internalTools || rel == "internal/tui/supervise_tools.go" {
+		if modelRegistrationCompositionPath(rel) {
 			ast.Inspect(file, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
 					return true
 				}
 				selector, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || selector.Sel.Name != "Register" || len(call.Args) != 1 || pluginBackedRegistration(rel, call.Args[0]) {
+				if !ok || selector.Sel.Name != "Register" || len(call.Args) != 1 || manifestBackedRegistration(rel, call.Args[0]) {
 					return true
 				}
-				key := rel + "::" + enclosingFunction(file, call.Pos()) + "::Register"
+				key := nativeRegistrationKey(rel, file, call)
+				if externalMCPAdapterRegistration(rel, file, call) {
+					externalMCP[key]++
+					return true
+				}
 				registrations[key]++
 				return true
 			})
@@ -680,7 +1001,7 @@ func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[str
 			})
 		}
 
-		if strings.HasPrefix(rel, "internal/tui/handler") {
+		if nativeInterceptionPath(rel) {
 			ast.Inspect(file, func(node ast.Node) bool {
 				switch value := node.(type) {
 				case *ast.BasicLit:
@@ -688,12 +1009,14 @@ func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[str
 						return true
 					}
 					text, err := strconv.Unquote(value.Value)
-					if err == nil && strings.Contains(text, "__") {
-						handlers[rel+"::"+text]++
+					if err == nil && nativeInterceptedToolName(text) {
+						key := rel + "::" + enclosingFunction(file, value.Pos()) + "::" + text
+						handlers[key]++
 					}
 				case *ast.Ident:
 					if strings.HasPrefix(value.Name, "supervise") && strings.HasSuffix(value.Name, "Tool") {
-						handlers[rel+"::<identifier:"+value.Name+">"]++
+						key := rel + "::" + enclosingFunction(file, value.Pos()) + "::<identifier:" + value.Name + ">"
+						handlers[key]++
 					}
 				}
 				return true
@@ -704,16 +1027,28 @@ func nativeModelToolSurfaces(t *testing.T, root string) (map[string]int, map[str
 	if err != nil {
 		t.Fatal(err)
 	}
-	return registrations, definitions, handlers
+	return registrations, definitions, handlers, externalMCP
 }
 
-func pluginBackedRegistration(path string, arg ast.Expr) bool {
+func manifestBackedRegistration(path string, arg ast.Expr) bool {
+	if path == "internal/runtime/bundled_plugin_tools.go" {
+		unary, ok := arg.(*ast.UnaryExpr)
+		if ok {
+			literal, ok := unary.X.(*ast.CompositeLit)
+			if ok {
+				ident, ok := literal.Type.(*ast.Ident)
+				if ok && ident.Name == "bundledPluginTool" {
+					return true
+				}
+			}
+		}
+	}
 	call, ok := arg.(*ast.CallExpr)
 	if ok {
 		if fn, ok := call.Fun.(*ast.Ident); ok {
 			switch fn.Name {
-			case "newBundledPluginTool", "newBundledWasmTool", "newInstalledPluginTool", "newWasmMigrationTool":
-				return true
+			case "newInstalledPluginTool":
+				return path == "internal/runtime/installed_tools.go"
 			}
 		}
 	}
@@ -731,6 +1066,86 @@ func pluginBackedRegistration(path string, arg ast.Expr) bool {
 	// registration in either composition root is still reported.
 	return ident.Name == "applicationTool" &&
 		(path == "internal/runtime/lifecycle_apps.go" || path == "internal/tui/model_plugins.go")
+}
+
+// externalMCPAdapterRegistration is the sole model-tool registration
+// exception intended to survive after all stado-owned implementations move to
+// signed WASM manifests. It adapts a tool supplied by an external MCP server;
+// stado neither defines its schema nor implements its policy. Keep the match
+// exact so another registration in mcp_glue.go is still reported as debt.
+func externalMCPAdapterRegistration(path string, file *ast.File, call *ast.CallExpr) bool {
+	if path != "internal/runtime/mcp_glue.go" || enclosingFunction(file, call.Pos()) != "attachMCP" || len(call.Args) != 1 {
+		return false
+	}
+	literal, ok := call.Args[0].(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	selector, ok := literal.Type.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "MCPTool" {
+		return false
+	}
+	pkg, ok := selector.X.(*ast.Ident)
+	return ok && pkg.Name == "mcpbridge"
+}
+
+func nativeRegistrationKey(path string, file *ast.File, call *ast.CallExpr) string {
+	kind := "Register"
+	if len(call.Args) == 1 {
+		if name := registrationExpressionName(call.Args[0]); name != "" {
+			kind = name
+		}
+	}
+	return path + "::" + enclosingFunction(file, call.Pos()) + "::" + kind
+}
+
+func registrationExpressionName(expr ast.Expr) string {
+	switch value := expr.(type) {
+	case *ast.UnaryExpr:
+		return registrationExpressionName(value.X)
+	case *ast.CallExpr:
+		switch fn := value.Fun.(type) {
+		case *ast.Ident:
+			return fn.Name
+		case *ast.SelectorExpr:
+			if pkg, ok := fn.X.(*ast.Ident); ok {
+				return pkg.Name + "." + fn.Sel.Name
+			}
+		}
+	case *ast.CompositeLit:
+		switch typ := value.Type.(type) {
+		case *ast.Ident:
+			return typ.Name
+		case *ast.SelectorExpr:
+			if pkg, ok := typ.X.(*ast.Ident); ok {
+				return pkg.Name + "." + typ.Sel.Name
+			}
+		}
+	}
+	return ""
+}
+
+func nativeInterceptionPath(path string) bool {
+	return path == "internal/runtime/agentloop.go" ||
+		path == "cmd/stado/tool_run.go" ||
+		strings.HasPrefix(path, "internal/tui/handler") ||
+		strings.HasPrefix(path, "internal/tui/model")
+}
+
+func modelRegistrationCompositionPath(path string) bool {
+	return strings.HasPrefix(path, "internal/runtime/") ||
+		strings.HasPrefix(path, "internal/tui/") ||
+		strings.HasPrefix(path, "cmd/stado/")
+}
+
+func nativeInterceptedToolName(name string) bool {
+	switch name {
+	case "tools__search", "tools__describe", "tools__categories", "tools__in_category",
+		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload",
+		"skills__load", "agent__spawn":
+		return true
+	}
+	return strings.Contains(name, "supervise__")
 }
 
 func importsPath(file *ast.File, want string) bool {

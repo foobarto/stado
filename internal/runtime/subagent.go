@@ -18,7 +18,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/guidance"
 	"github.com/foobarto/stado/internal/personas"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
@@ -332,6 +331,7 @@ func validatePinnedCommit(source *stadogit.Session, label, value string) (plumbi
 // orchestration surfaces can notify users without parsing tool JSON.
 type SubagentEvent struct {
 	Phase           string
+	AgentID         string
 	ParentSession   string
 	ChildSession    string
 	Worktree        string
@@ -568,7 +568,10 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	} else if req.Source != nil {
 		seed, err = historicalSeed(source, req.Source.At)
 		if err != nil {
-			return subagent.Result{}, fmt.Errorf("spawn_agent: restore historical context: %w", err)
+			err = fmt.Errorf("spawn_agent: restore historical context: %w", err)
+			result := subagentErrorResult(req, child, "", nil, terminal, err)
+			r.emitSubagentResultEvent(req, child, result)
+			return result, err
 		}
 	}
 	seed = append(seed, agent.Text(agent.RoleUser, renderSubagentPrompt(req)))
@@ -576,19 +579,24 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	// is a new identity, so seed its own bounded restored transcript instead of
 	// appending into inherited bytes.
 	if err := os.Remove(filepath.Join(child.WorktreePath, ConversationFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return subagent.Result{}, fmt.Errorf("spawn_agent: reset child conversation: %w", err)
+		err = fmt.Errorf("spawn_agent: reset child conversation: %w", err)
+		result := subagentErrorResult(req, child, "", nil, terminal, err)
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 	if err := WriteConversation(child.WorktreePath, seed); err != nil {
 		err = fmt.Errorf("spawn_agent: seed child conversation: %w", err)
-		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
-		return subagent.Result{}, err
+		result := subagentErrorResult(req, child, "", nil, terminal, err)
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 
-	exec, err := r.buildExecutor(child, agentName)
+	exec, err := r.buildExecutorWithNarrow(child, agentName, req.NarrowTools, req.ChildToolOwner)
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
-		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
-		return subagent.Result{}, err
+		result := subagentErrorResult(req, child, "", nil, terminal, err)
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 	if childBroker != nil {
 		childBroker.Sandbox().Apply(exec)
@@ -601,8 +609,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		childSandbox.DefaultSandboxPolicy(child.WorktreePath))
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
-		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
-		return subagent.Result{}, err
+		result := subagentErrorResult(req, child, "", nil, terminal, err)
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 
 	childCtx, cancel := context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second)
@@ -624,10 +633,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			r.emitSubagentEvent(req, child, "warning", "running", "persona "+personaName+": "+perr.Error())
 		}
 	}
-	// EP-0045: the child loop gets the effective skill catalog rooted at
-	// its worktree (∪ child persona), so model invocation works in a
-	// subagent the same as the parent loop. Non-fatal on load error —
-	// the subagent just runs without a skill listing.
+	// EP-0045: the child loop gets loader/session-bounded skill context rooted at
+	// its worktree (∪ child persona), so an installed WASM skill application
+	// sees the same facts as the parent. Non-fatal on load error.
 	childSkills, skErr := EffectiveSkills(child.WorktreePath, childPersona)
 	if skErr != nil {
 		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
@@ -668,14 +676,6 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			turnUsageReported = false
 		},
 	}
-	if r.Config != nil {
-		childOpts.GuidanceContext = func() string {
-			return guidance.Build(guidance.Options{StateDir: r.Config.StateDir(), SessionID: child.ID, Prompt: req.Prompt, ToolAvailable: func(name string) bool {
-				_, ok := exec.Registry.Get(name)
-				return ok
-			}})
-		}
-	}
 	text, msgs, err := AgentLoop(childCtx, childOpts)
 	cleanupProvider()
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
@@ -704,16 +704,19 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			return result, nil
 		}
 		err = fmt.Errorf("spawn_agent: child %s: %w", child.ID, err)
-		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
-		return subagent.Result{}, err
+		result := subagentErrorResult(req, child, text, msgs, terminal, err)
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 
 	result := subagentResult(req, child, text, msgs)
 	result.Terminal = terminal
 	if err := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); err != nil {
 		err = fmt.Errorf("spawn_agent: worker result: %w", err)
-		r.emitSubagentEventWithTerminal(req, child, "finished", "error", err.Error(), terminal)
-		return subagent.Result{}, err
+		result.Status = "error"
+		result.Error = err.Error()
+		r.emitSubagentResultEvent(req, child, result)
+		return result, err
 	}
 	r.attachWorkerAdoptionCommand(&result)
 	r.emitSubagentResultEvent(req, child, result)
@@ -780,10 +783,25 @@ func historicalSeed(source *stadogit.Session, at string) ([]agent.Message, error
 }
 
 func (r SubagentRunner) buildExecutor(child *stadogit.Session, agentName string) (*tools.Executor, error) {
-	if r.QuietRegistryDiagnostics {
-		return BuildExecutorQuiet(child, r.Config, agentName, r.Metrics)
+	return r.buildExecutorWithNarrow(child, agentName, nil, "")
+}
+
+func (r SubagentRunner) buildExecutorWithNarrow(child *stadogit.Session, agentName string, narrowTools []string, childToolOwner string) (*tools.Executor, error) {
+	exact := make(map[string]bool, len(narrowTools))
+	for _, name := range narrowTools {
+		if name = strings.TrimSpace(name); name != "" {
+			exact[name] = true
+		}
 	}
-	return BuildExecutor(child, r.Config, agentName, r.Metrics)
+	if r.QuietRegistryDiagnostics {
+		var exec *tools.Executor
+		var err error
+		withRegistryDiagnosticsSuppressed(func() {
+			exec, err = buildExecutorForSurface(child, r.Config, agentName, r.Metrics, exact, childToolOwner)
+		})
+		return exec, err
+	}
+	return buildExecutorForSurface(child, r.Config, agentName, r.Metrics, exact, childToolOwner)
 }
 
 func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
@@ -843,6 +861,7 @@ func (r SubagentRunner) emitSubagentEventWithTerminal(req subagent.Request, chil
 	}
 	r.OnEvent(SubagentEvent{
 		Phase:          phase,
+		AgentID:        req.AgentID,
 		ParentSession:  parentID,
 		ChildSession:   child.ID,
 		Worktree:       child.WorktreePath,
@@ -872,6 +891,7 @@ func (r SubagentRunner) emitSubagentResultEvent(req subagent.Request, child *sta
 	}
 	r.OnEvent(SubagentEvent{
 		Phase:           "finished",
+		AgentID:         req.AgentID,
 		ParentSession:   parentID,
 		ChildSession:    child.ID,
 		Worktree:        child.WorktreePath,
@@ -966,7 +986,31 @@ func subagentResult(req subagent.Request, child *stadogit.Session, text string, 
 	}
 }
 
+// subagentErrorResult preserves the same host-collected terminal metadata in
+// both terminal observation paths: the synchronous Spawner result retained by
+// Fleet and the SubagentEvent published as agent.down. Returning a zero result
+// with an error would make agent:read report zero-value/incomplete terminal
+// facts even though the durable event already carried the measured facts.
+func subagentErrorResult(req subagent.Request, child *stadogit.Session, text string, msgs []agent.Message, terminal subagent.TerminalMetadata, err error) subagent.Result {
+	result := subagentResult(req, child, text, msgs)
+	result.Status = "error"
+	result.Terminal = terminal
+	if err != nil {
+		result.Error = err.Error()
+	}
+	return result
+}
+
 func configureSubagentTools(req subagent.Request, exec *tools.Executor, defaultSandboxPolicy any) (tool.Host, *subagent.ScopedWriteHost, error) {
+	for _, name := range req.NarrowTools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := exec.Registry.Get(name); !ok {
+			return nil, nil, fmt.Errorf("narrow tool %q is unavailable in the authenticated child registry", name)
+		}
+	}
 	if req.Mode == subagent.WorkspaceWriteMode {
 		keepWorkspaceWriteTools(exec.Registry)
 		applyToolNarrowing(exec.Registry, req)

@@ -116,42 +116,43 @@ Grouped by surface. Scenario naming convention:
 
 ## O. Supervised work
 
-> **Legacy migration coverage:** these cases describe the native PR-257
-> implementation that established the behavior. They are regression inputs for
-> the EP-0064 WASM application migration, not evidence that native supervise
-> placement is accepted or release-ready. Replace implementation-coupled tests
-> with application/primitive contract tests as the migration lands.
+> **Release status:** the native PR-257 workflow/evaluator has been removed.
+> These scenarios now divide between generic stado host/broker coverage and the
+> official `foobarto/stado-plugins/supervise` application suite. The plugin
+> source is durably checkpointed, but its `supervise/v0.1.0` artifact is not yet
+> real-key-signed or published. Plugin-unit coverage is therefore not a claim
+> that an ordinary install currently exposes `/supervise`.
 
 | # | Scenario | Status |
 |---|----------|--------|
-| O1 | `/supervise` opens a basic wizard defaulting to event mode + user-approved pivots | [BLOCKED C36] application-owned wizard and PTY replacement |
-| O2 | Advanced wizard exposes independent watchdog/verifier provider, thinking, effort, and token budgets | [BLOCKED C36] application-owned wizard and PTY replacement |
-| O3 | Worker cannot select the baseline, pivot outside policy, or claim completion without the application gates | [PLUGIN UNIT] model-tool gates; [BLOCKED C36] baseline workflow |
-| O4 | Stale watchdog/verifier anchors cannot authorize later state | [PLUGIN UNIT] all three stale-result classes; end-to-end migration pending |
-| O5 | Event bounded retries/streak and live capped-backoff policy, correction follow-up, and detector cooldown survive state transitions | [PLUGIN UNIT] repeated/race coverage; end-to-end migration pending |
-| O6 | Host-published tool identity/class/outcome can trigger conservative quality review without parsing command text into security authority | [PLUGIN UNIT] policy coverage; native risk-parser test is deletion debt |
-| O7 | Supervised context enforces one active step, durable input deferral, quality confirmation, and verifier-owned completion | [BROKER/TUI TEST] generic input deferral and exact continuation; [PLUGIN UNIT] step/verifier flow; [IN FLIGHT C36] supervise setup UI integration |
-| O8 | Exact-session rebind restores run state/detector history and `/supervise status|resume|cancel` routes lifecycle; full-process adoption is explicit | [PLUGIN UNIT] journal replay; [BLOCKED C36/C37] command UX and process adoption |
-| O9 | Reviewer repository access uses the immutable broker-stamped turn source and rejects mutable-tip fallback | [PLUGIN UNIT] exact `turn_ref` source and delayed-worker regression; end-to-end migration pending |
+| O1 | An explicitly enabled installed application owns `/supervise`; absent, disabled, ambiguous, unsigned, or invalid applications expose no native fallback | [HOST TEST] signed command ownership/collision/fail-closed composition; [PLUGIN UNIT] command grammar |
+| O2 | The setup wizard defaults to event mode + user-approved pivots and advanced setup exposes independent provider/model, thinking, effort, token budgets, and failure posture | [PLUGIN UNIT] complete durable C36 setup flow; [CROSS-REPO PTY] ephemeral-key install covers first-action cancel, the complete default setup, a fresh baseline child, and operator rejection; [RELEASE GATE] repeat against the real signed package |
+| O3 | Worker cannot select the baseline, pivot outside policy, or claim completion without application gates | [PLUGIN UNIT] exact artifact/version, CAS pivot, and application-owned model tools; [HOST TEST] exact WorkerRun projection; [CROSS-REPO PTY] confirmed baseline activates the exact WorkerRun |
+| O4 | Stale watchdog results follow the three-way rule: discard approval, label steering advisory, hold and recheck pause/stop | [PLUGIN UNIT] all three stale classes, including current-anchor confirmation |
+| O5 | Event attempts/streak, periodic-N reviews, live capped backoff/strict barrier, correction follow-up, and detector state survive callback/rebind replay | [PLUGIN UNIT] policy/race/replay coverage; [HOST TEST] barrier and timer primitives |
+| O6 | Host-published tool identity/class/outcome can trigger conservative quality review without parsing command text into security authority | [PLUGIN UNIT] generic fact interpretation; [ARCH GUARD] no native risk parser or supervise policy |
+| O7 | One active step, immutable input routing, quality confirmation, Verify Work facts, and independent completion are enforced | [PLUGIN UNIT] full policy flow; [BROKER/TUI TEST] input and generic verification controllers |
+| O8 | Exact-session rebind restores run state and `status|resume|cancel`; dormant and terminal cleanup do not fence unrelated turns | [PLUGIN UNIT] journal/reply-loss/cancellation/dormancy coverage; [HOST TEST] lifecycle rebind; [CROSS-REPO PTY] cancellation during a live provider turn and versioned terminal status recovery |
+| O9 | Reviewer repository access pins the immutable broker-stamped turn source and rejects mutable-tip fallback | [PLUGIN UNIT + HOST TEST] exact `turn_ref`, source authorization, and delayed-worker regression |
 | O10 | Busy follow-ups are immutable broker records, acknowledged only after exact deliver/defer disposition, and continued in explicit order | [BROKER/RPC/TUI TEST] C28 state machine, targeted mandatory event, receiver crash replay, and exact ordered continuation |
-| O11 | Premature prose cannot claim completion, every plan step is required, and only cited current evidence can advance or complete | [PLUGIN UNIT] explicit completion tool plus independent verifier; end-to-end migration pending |
-| O12 | Automatic context recovery atomically transfers the exact application run to its compacted child; manual forks inherit nothing | [BLOCKED C35] fail closed until controller/ancestry transfer lands |
+| O11 | Prose cannot claim completion; every criterion/plan step is required; native suite facts and a fresh current verifier gate completion | [PLUGIN UNIT] explicit completion/short-circuit policy; [HOST TEST] `session.verification_finished` schema, evidence refs, hold bypass, generation fences |
+| O12 | Automatic context recovery atomically transfers the existing application scope to its compacted child; manual forks inherit nothing | [HOST TEST + PLUGIN UNIT] implementation coverage; [CROSS-REPO PTY] ephemeral-sign/install overflow, direct-child scope handoff, exact WorkerRun recovery, child-anchored review, and cleanup; [REAL RELEASE] repeat against the official offline-key-signed package |
 
 ---
 
-**Legacy native regression run:** `go test ./internal/tui/ -run TestUAT -v`
+From the official plugin source, `supervise/check.sh` runs unit/race/vet,
+reproducible WASI builds, strict host-fixture comparisons, and the plugin-owned
+six-scenario evaluator. Stado's ordinary test matrix separately verifies the
+generic application, broker, runtime, tool, hook, and TUI primitives. The
+release gate must additionally install the real-key-signed
+`supervise/v0.1.0` package into isolated roots and run the cross-repository PTY,
+restart, compaction-transfer, and removal cases.
 
-That command is not the replacement release gate. Native results stay useful as
-behavioral evidence while each row moves to official-plugin plus generic-host
-contract coverage; rows labelled blocked or in flight must not be reported as
-shipped.
-
-**Coverage summary:** 50 legacy UAT scenario tests across three files plus the
-supervised-work unit/integration matrix above:
+**Legacy coverage summary:** 50 unrelated TUI UAT scenario tests remain across
+three files:
 - `internal/tui/uat_direct_test.go` (3) — dogfood-bug regression guards
 - `internal/tui/uat_scenarios_test.go` (23) — sections A/B/H/I/J/M/N
 - `internal/tui/uat_scenarios_extended_test.go` (24) — sections C/D/E/F/G
 
-Sibling unit tests ([UNIT]) still guard the remaining surface — every
-user-facing flow has at least one automated regression guard. No
-untested gaps.
+They do not establish `/supervise` availability. Supervise release readiness is
+the explicit application/host matrix above.

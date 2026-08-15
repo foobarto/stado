@@ -20,6 +20,7 @@ var bundledRuntimeSourceRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 type RuntimeIdentity struct {
 	Canonical      string `json:"canonical"`
 	Namespace      string `json:"namespace"`
+	SourceRevision string `json:"source_revision,omitempty"`
 	ResolvedCommit string `json:"resolved_commit,omitempty"`
 	ManifestDigest string `json:"manifest_digest"`
 }
@@ -40,8 +41,20 @@ func (id RuntimeIdentity) Validate() error {
 	if !strings.HasPrefix(id.Canonical, id.Namespace+"@") {
 		return errors.New("canonical plugin identity must use its stable namespace")
 	}
+	if id.SourceRevision != "" && (strings.TrimSpace(id.SourceRevision) != id.SourceRevision || strings.ContainsAny(id.SourceRevision, "#@\x00")) {
+		return errors.New("valid plugin source revision required")
+	}
+	if (id.SourceRevision == "") != (id.ResolvedCommit == "") {
+		return errors.New("plugin source revision and resolved commit must be recorded together")
+	}
+	if id.SourceRevision != "" && (!shaRE.MatchString(id.ResolvedCommit) || len(id.ResolvedCommit) != 40) {
+		return errors.New("remote plugin identity requires a dereferenced full commit")
+	}
 	if id.ResolvedCommit != "" && (!shaRE.MatchString(id.ResolvedCommit) || len(id.ResolvedCommit) != 40) {
 		return errors.New("resolved plugin commit must be a full 40-character SHA")
+	}
+	if shaRE.MatchString(id.SourceRevision) && id.ResolvedCommit != id.SourceRevision {
+		return errors.New("commit source revision and resolved commit must match")
 	}
 	return nil
 }
@@ -73,11 +86,30 @@ func (id RuntimeIdentity) QualifiedKind(localName string) (string, error) {
 }
 
 func RuntimeIdentityForInstalled(id Identity, manifest Manifest, resolvedCommit string) (RuntimeIdentity, error) {
+	return RuntimeIdentityForResolvedInstall(id, manifest, id.Version, resolvedCommit)
+}
+
+// RuntimeIdentityForResolvedInstall binds a signed package to the logical
+// source identity and the exact ref actually fetched. Package semver remains
+// in the signed manifest and lock; a commit selector is never compared to it.
+func RuntimeIdentityForResolvedInstall(id Identity, manifest Manifest, sourceRevision, resolvedCommit string) (RuntimeIdentity, error) {
+	if _, err := id.PackageVersion(manifest); err != nil {
+		return RuntimeIdentity{}, err
+	}
+	if err := id.ValidateSourceRevision(sourceRevision); err != nil {
+		return RuntimeIdentity{}, err
+	}
 	digest, err := manifest.ManifestDigest()
 	if err != nil {
 		return RuntimeIdentity{}, err
 	}
-	out := RuntimeIdentity{Canonical: id.Canonical(), Namespace: id.Namespace(), ResolvedCommit: resolvedCommit, ManifestDigest: digest}
+	if !shaRE.MatchString(resolvedCommit) {
+		return RuntimeIdentity{}, errors.New("resolved plugin source commit must be a full 40-character SHA")
+	}
+	if id.IsCommit() && resolvedCommit != sourceRevision {
+		return RuntimeIdentity{}, errors.New("commit source revision and resolved commit must match")
+	}
+	out := RuntimeIdentity{Canonical: id.Canonical(), Namespace: id.Namespace(), SourceRevision: sourceRevision, ResolvedCommit: resolvedCommit, ManifestDigest: digest}
 	return out, out.Validate()
 }
 
@@ -90,6 +122,8 @@ func RuntimeIdentityFromLock(lock *Lock, manifest Manifest) (RuntimeIdentity, er
 		return RuntimeIdentity{}, errors.New("plugin lock required")
 	}
 	var matched *Identity
+	var matchedSourceRevision string
+	var matchedResolvedCommit string
 	for _, entry := range lock.Entries {
 		if entry.WASMSHA256 == "" || entry.WASMSHA256 != manifest.WASMSHA256 {
 			continue
@@ -98,23 +132,64 @@ func RuntimeIdentityFromLock(lock *Lock, manifest Manifest) (RuntimeIdentity, er
 		if err != nil {
 			return RuntimeIdentity{}, fmt.Errorf("plugin lock identity %q: %w", entry.Identity, err)
 		}
-		if strings.TrimPrefix(id.Version, "v") != strings.TrimPrefix(manifest.Version, "v") {
-			continue
+		packageVersion := entry.PackageVersion
+		if packageVersion == "" {
+			if id.IsCommit() {
+				return RuntimeIdentity{}, fmt.Errorf("legacy commit lock %q has no signed package_version", entry.Identity)
+			}
+			packageVersion = strings.TrimPrefix(id.Version, "v")
 		}
-		if matched != nil && matched.Canonical() != id.Canonical() {
-			return RuntimeIdentity{}, errors.New("installed plugin source identity is ambiguous")
+		if strings.TrimPrefix(packageVersion, "v") != strings.TrimPrefix(manifest.Version, "v") {
+			return RuntimeIdentity{}, fmt.Errorf("lock package version %q does not match signed manifest %q", packageVersion, manifest.Version)
+		}
+		if entry.AnchorFpr != "" && entry.AnchorFpr != manifest.AuthorPubkeyFpr {
+			return RuntimeIdentity{}, errors.New("lock anchor fingerprint does not match signed manifest")
+		}
+		manifestDigest, err := manifest.ManifestDigest()
+		if err != nil {
+			return RuntimeIdentity{}, err
+		}
+		if entry.ManifestDigest == "" || entry.ManifestDigest != manifestDigest {
+			return RuntimeIdentity{}, errors.New("lock canonical manifest digest does not match installed manifest")
+		}
+		sourceRevision := entry.SourceRevision
+		if sourceRevision == "" {
+			sourceRevision = id.Version
+		}
+		if err := id.ValidateSourceRevision(sourceRevision); err != nil {
+			return RuntimeIdentity{}, fmt.Errorf("lock %q: %w", entry.Identity, err)
+		}
+		if !shaRE.MatchString(entry.ResolvedCommit) {
+			return RuntimeIdentity{}, fmt.Errorf("lock %q has no valid dereferenced full commit", entry.Identity)
+		}
+		if id.IsCommit() && entry.ResolvedCommit != sourceRevision {
+			return RuntimeIdentity{}, fmt.Errorf("lock %q commit source and resolved commit differ", entry.Identity)
+		}
+		if matched != nil {
+			return RuntimeIdentity{}, errors.New("installed plugin source identity is duplicated or ambiguous")
 		}
 		copyID := id
 		matched = &copyID
+		matchedSourceRevision = sourceRevision
+		matchedResolvedCommit = entry.ResolvedCommit
 	}
 	if matched == nil {
 		return RuntimeIdentity{}, ErrRuntimeIdentityNotFound
 	}
-	resolvedCommit := ""
-	if shaRE.MatchString(matched.Version) {
-		resolvedCommit = matched.Version
+	return RuntimeIdentityForResolvedInstall(*matched, manifest, matchedSourceRevision, matchedResolvedCommit)
+}
+
+// RuntimeIdentityForInstalledDir resolves an installed package's exact remote
+// lock identity. A package with no matching lock evidence is treated as an
+// explicitly local installation and bound to its concrete install directory.
+// Malformed, mismatched, duplicate, or incomplete matching lock evidence fails
+// closed and is never reclassified as local.
+func RuntimeIdentityForInstalledDir(pluginDir string, manifest Manifest) (RuntimeIdentity, error) {
+	record, err := ReadInstallRecord(pluginDir, manifest)
+	if err != nil {
+		return RuntimeIdentity{}, err
 	}
-	return RuntimeIdentityForInstalled(*matched, manifest, resolvedCommit)
+	return RuntimeIdentityForInstallRecord(filepath.Dir(pluginDir), record, manifest)
 }
 
 // RuntimeIdentityForBundledSource binds a bundled manifest to the trusted

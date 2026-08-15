@@ -360,7 +360,6 @@ func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) er
 		return err
 	}
 	m.saveActiveSessionUIState()
-	m.detachSupervision()
 	warnings := append([]string(nil), prepared.warnings...)
 	if retireErr := m.commitSessionTransition(context.Background(), prepared); retireErr != nil {
 		// The new session is already fully admitted at this point. A failure to
@@ -371,9 +370,6 @@ func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) er
 	m.resetForSession(sess)
 	for _, warning := range warnings {
 		m.appendBlock(block{kind: "system", body: warning})
-	}
-	if err := m.loadSupervision(); err != nil {
-		m.appendBlock(block{kind: "system", body: err.Error()})
 	}
 	m.renderBlocks()
 	return nil
@@ -475,6 +471,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.recoveryPrompt = ""
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false
+	m.recoveryApplicationWorker = false
 	m.pendingCompactionSummary = ""
 	m.savedDraftBeforeEdit = ""
 	m.compactionBlockIdx = 0

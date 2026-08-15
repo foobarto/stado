@@ -323,6 +323,7 @@ func TestAgentDownPayloadIsBoundedAndCarriesNoAuthorityOrErrorText(t *testing.T)
 		paths[i] = fmt.Sprintf("path/%03d/%s", i, strings.Repeat("x", maxAgentFactPathBytes))
 	}
 	event := terminalAgentEvent("session-a", "child-a")
+	event.AgentID = "fleet-agent-a"
 	event.Worktree = "/tmp/" + secret
 	event.Error = "provider cleanup exposed " + secret
 	event.Terminal = subagent.TerminalMetadata{
@@ -353,6 +354,9 @@ func TestAgentDownPayloadIsBoundedAndCarriesNoAuthorityOrErrorText(t *testing.T)
 	}
 	if facts.Failure == nil || facts.Failure.Fingerprint == "" {
 		t.Fatal("error fingerprint missing")
+	}
+	if facts.Child.AgentID != "fleet-agent-a" || facts.Child.SessionID != "child-a" {
+		t.Fatalf("control/session identity was not preserved distinctly: %+v", facts.Child)
 	}
 	if facts.Terminal.Usage.InputTokens != 101 || facts.Terminal.Usage.OutputTokens != 23 || !facts.Terminal.UsageComplete {
 		t.Fatalf("terminal token facts missing: %+v", facts.Terminal)

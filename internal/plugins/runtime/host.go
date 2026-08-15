@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
@@ -17,9 +18,9 @@ import (
 // module. It owns the sandbox policy (derived from the manifest) and
 // the slog.Logger used by stado_log.
 //
-// One Host per plugin instantiation — the capability lists in it are
-// the manifest's, not the process's. Instantiate() builds + registers
-// an instance of this type on the runtime before the wasm module runs.
+// One Host per tool invocation — the capability lists in it are the selected
+// signed tool's effective subset of its package manifest, not the process's.
+// Module identity and instantiation remain bound to the complete manifest.
 type Host struct {
 	Manifest plugins.Manifest
 	// Identity is derived by the native loader from the installed, bundled, or
@@ -35,27 +36,30 @@ type Host struct {
 	FSWrite []string
 	Workdir string // CWD the plugin sees for relative paths
 
-	// Session/LLM capability gates — Phase 7.1b (PR K2). DESIGN
-	// §"Plugin extension points for context management".
+	// Session/provider capability gates. Session imports expose generic session
+	// observations and transitions. ProviderInvokeBudget gates the generic
+	// provider primitive; a mandatory positive suffix is the signed per-instance
+	// cumulative token ceiling.
 	//
 	// SessionObserve gates stado_session_next_event (polling variant
 	// of stado_session_observe — wasm-native, no callback refs).
 	// SessionRead gates stado_session_read.
 	// SessionFork gates stado_session_fork.
-	// LLMInvokeBudget gates stado_llm_invoke; 0 = not permitted,
-	// positive = per-session token budget ceiling. Default when
-	// "llm:invoke" is declared without a suffix: 10000.
-	SessionObserve  bool
-	SessionRead     bool
-	SessionFork     bool
-	LLMInvokeBudget int
-	ArtifactPropose []string
-	ArtifactRead    []string
-	ArtifactEdit    []string
-	ArtifactObserve []string
+	SessionObserve       bool
+	SessionRead          bool
+	SessionFork          bool
+	ProviderInvokeBudget int
+	ArtifactPropose      []string
+	ArtifactRead         []string
+	ArtifactEdit         []string
+	ArtifactObserve      []string
+	EvidenceCatalog      map[string]bool
+	EvidenceSearch       map[string]bool
+	EvidenceOpen         map[string]bool
+	EvidenceValidate     bool
 
-	// SessionBridge wires the host-side session operations (read
-	// history, fork, LLM invoke, subscribe-to-events). Nil when the
+	// SessionBridge wires host-side session observations/transitions and may
+	// borrow a live provider for the separately gated provider primitive. Nil when the
 	// caller doesn't have a live session — in that case the gated
 	// host imports return -1 with a diagnostic in the log. Exposed as
 	// an interface so TUI / headless / tests can plug in different
@@ -68,6 +72,13 @@ type Host struct {
 	// or the legacy memory JSONL store (EP-0063).
 	ArtifactBridge ArtifactBridge
 	ArtifactCaller ArtifactCallerContext
+
+	// EvidenceBridge is a broker-authenticated, read-only corpus surface. The
+	// opaque admission binding never enters guest memory; request JSON cannot
+	// choose a principal, repository, source session, ancestry, or plugin
+	// namespace. It backs ordinary WASM tools used inside broker-created
+	// read-only children and mechanical citation validation in their parent.
+	EvidenceBridge EvidenceBridge
 
 	// ApplicationBridge is the broker-owned EP-0064 control plane for this
 	// exact plugin/session/generation admission. The bridge retains the opaque
@@ -243,6 +254,19 @@ type Host struct {
 	// by toolInvokeMaxDepth. Tester #3.
 	ToolInvoke *ToolInvokeAccess
 
+	// RegistryCatalog is the bounded, exact-registry fact and session-surface
+	// bridge used by signed discovery applications. The access object is built
+	// from the concrete registry adapter and caller identity by native runtime
+	// composition; guest JSON cannot select either. Calls remain separately
+	// gated by registry:catalog and session:tool-surface.
+	RegistryCatalog *RegistryCatalogAccess
+
+	// ContextResources is the exact, session-bound context catalog exposed to
+	// signed applications through operation+kind-scoped capabilities. It is
+	// composed from host facts; guest JSON never supplies paths, trust, source
+	// provenance, model visibility, or the effective tool ceiling.
+	ContextResources *ContextResourceAccess
+
 	// NetDial gates stado_net_dial / read / write / close (Tier 1
 	// raw socket primitives). Populated when the manifest declares
 	// net:dial:{tcp,udp,unix}:<host-or-path>:<port>. EP-0038g extends
@@ -276,10 +300,13 @@ type Host struct {
 	// the final tool result.
 	Progress func(plugin, text string)
 
-	// llmTokensUsed tracks the per-session running total against
-	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
-	// import so concurrent plugin calls don't race past the ceiling.
-	llmTokensUsed int64
+	// Provider reservations serialize the admission arithmetic, not provider
+	// work. Each call reserves its estimated/native input plus selected maximum
+	// output before dispatch, then releases unused headroom and commits actual
+	// reported or conservative estimated usage even on failure/cancellation.
+	providerBudgetMu       sync.Mutex
+	providerTokensUsed     int
+	providerTokensReserved int
 
 	// lastFSError carries the most recent stado_fs_* error message for
 	// retrieval by the wasm plugin via stado_fs_last_error. Populated
@@ -407,32 +434,6 @@ type SessionBridge interface {
 	// Fork creates a new session rooted at atTurnRef with seedMessage
 	// as its first user turn. Returns the new session ID.
 	Fork(ctx context.Context, atTurnRef, seedMessage string) (sessionID string, err error)
-	// InvokeLLM runs a one-shot completion against the active
-	// provider with the given prompt + options, returning the
-	// aggregated reply text and the number of tokens consumed (used
-	// to enforce the per-session budget). Options control persona,
-	// model override, additional system content, and sampling caps.
-	InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (reply string, tokensUsed int, err error)
-}
-
-// LLMInvokeOpts narrows what stado_llm_invoke / SessionBridge.InvokeLLM
-// callers can override per call. Zero values mean "inherit from the
-// active session" (persona, model) or "provider default" (sampling).
-type LLMInvokeOpts struct {
-	// Persona names the operating manual for this single call. Empty
-	// = inherit the session-active persona; "default" = bundled
-	// default; any other name resolves through the standard order.
-	Persona string
-	// Model overrides the session model for this call only. Empty =
-	// session model.
-	Model string
-	// System is additional system prompt content appended after the
-	// persona body + project AGENTS.md. Optional.
-	System string
-	// MaxTokens caps the response length. Zero = provider default.
-	MaxTokens int
-	// Temperature in [0..2] when supported. Zero = provider default.
-	Temperature float64
 }
 
 // ArtifactCallerContext contains host-authenticated scope attached to artifact
@@ -470,12 +471,24 @@ type ArtifactBridgeBinding struct {
 	Caller ArtifactCallerContext
 }
 
+// EvidenceBridge transports one fixed, capability-gated evidence operation
+// under a native-held broker binding. The broker derives every authority field
+// from that binding and returns only bounded JSON.
+type EvidenceBridge interface {
+	CallEvidence(context.Context, string, []byte) ([]byte, error)
+}
+
+type EvidenceBridgeBinding struct {
+	Bridge EvidenceBridge
+}
+
 // ApplicationBinding is minted by broker admission for one exact plugin,
 // session, and generation. The opaque broker token remains inside Bridge;
 // lifecycle code receives only the authenticated anchor and typed bridges.
 type ApplicationBinding struct {
 	Anchor      ApplicationAnchor
 	Artifact    ArtifactBridgeBinding
+	Evidence    EvidenceBridgeBinding
 	Application ApplicationBridge
 	Controller  ApplicationControllerBridge
 	Events      ApplicationEventTransport
@@ -752,6 +765,10 @@ type AgentSpawnRequest struct {
 	Execution            string       `json:"execution,omitempty"`
 	Supervision          string       `json:"supervision,omitempty"`
 	MaxRestarts          int          `json:"max_restarts,omitempty"`
+	// ChildToolOwner is injected from this Host's authenticated package
+	// identity on every WASM spawn. Guest JSON cannot claim another package's
+	// signed agent_child_only helpers.
+	ChildToolOwner string `json:"-"`
 	// IdempotencyKey names one logical spawn attempt. Lifecycle application
 	// hosts scope it to the authenticated plugin/session/generation and reject
 	// reuse with a different normalized request. It grants no authority.
@@ -974,20 +991,15 @@ func NewHostWithIdentity(m plugins.Manifest, identity plugins.RuntimeIdentity, w
 			case "fork":
 				h.SessionFork = true
 			}
-		case "llm":
-			// llm:invoke or llm:invoke:<budget>. Default budget when
-			// the suffix is omitted is 10000 — conservative ceiling
-			// that forces explicit uplift for bigger workloads.
-			if parts[1] != "invoke" {
+		case "provider":
+			// provider:invoke:<tokens> is exact: no bare default, malformed
+			// suffix, compatibility alias, or silent clamping before v1.
+			if len(parts) != 3 || parts[1] != "invoke" {
 				continue
 			}
-			budget := 10000
-			if len(parts) == 3 && parts[2] != "" {
-				if n, err := strconv.Atoi(parts[2]); err == nil && n > 0 {
-					budget = n
-				}
+			if budget, err := strconv.Atoi(parts[2]); err == nil && budget > 0 && budget <= maxProviderInvokeCapabilityTokens {
+				h.ProviderInvokeBudget = budget
 			}
-			h.LLMInvokeBudget = budget
 		case "artifact":
 			if len(parts) != 3 || strings.TrimSpace(parts[2]) == "" {
 				continue
@@ -1002,6 +1014,27 @@ func NewHostWithIdentity(m plugins.Manifest, identity plugins.RuntimeIdentity, w
 				h.ArtifactEdit = append(h.ArtifactEdit, scope)
 			case "observe":
 				h.ArtifactObserve = append(h.ArtifactObserve, scope)
+			}
+		case "evidence":
+			if len(parts) == 2 && parts[1] == "validate" {
+				h.EvidenceValidate = true
+				continue
+			}
+			if len(parts) != 3 || (parts[2] != "artifact" && parts[2] != "session") {
+				continue
+			}
+			if h.EvidenceCatalog == nil {
+				h.EvidenceCatalog = make(map[string]bool)
+				h.EvidenceSearch = make(map[string]bool)
+				h.EvidenceOpen = make(map[string]bool)
+			}
+			switch parts[1] {
+			case "catalog":
+				h.EvidenceCatalog[parts[2]] = true
+			case "search":
+				h.EvidenceSearch[parts[2]] = true
+			case "open":
+				h.EvidenceOpen[parts[2]] = true
 			}
 		case "exec":
 			switch parts[1] {
@@ -1258,6 +1291,11 @@ func (h *Host) AllowPrivateNetwork() bool { return h.NetHTTPRequestPrivate }
 func (h *Host) NeedsArtifactBridge() bool {
 	return len(h.ArtifactPropose) != 0 || len(h.ArtifactRead) != 0 ||
 		len(h.ArtifactEdit) != 0 || len(h.ArtifactObserve) != 0
+}
+
+func (h *Host) NeedsEvidenceBridge() bool {
+	return h != nil && (len(h.EvidenceCatalog) != 0 || len(h.EvidenceSearch) != 0 ||
+		len(h.EvidenceOpen) != 0 || h.EvidenceValidate)
 }
 
 // allowRead / allowWrite perform the capability check. Current

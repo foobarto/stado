@@ -31,9 +31,10 @@ Security remains foundational, but it is not the only product goal. Stado is
 also an execution substrate, an application platform, a durable memory and
 coordination system, and a set of quality gates around fallible agent work.
 
-Linux is the only supported platform now and through v1. Existing Darwin or
-Windows remnants are not compatibility promises and do not constrain the Linux
-architecture ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
+Linux is the only supported platform now and through v1. Darwin and Windows are
+outside the build, runtime, packaging, and roadmap contract and do not constrain
+the Linux architecture
+([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
 
 ## The architecture in one view
 
@@ -70,6 +71,12 @@ The broker and Linux kernel own authority. The orchestrator owns conversation
 and execution flow. WASM applications own product policy. Providers own their
 native protocol. Durable stores own history. User surfaces present these facts;
 they do not manufacture them.
+
+Within the Go source, **stado.kernel** names this host-owned substrate: the
+capability-gated WASM bindings, broker-bound fact projection, broker effects,
+resource ceilings, and Linux enforcement that applications may rely on but do
+not control. It is an architectural/code name only; stable `stado_*` wire
+imports remain unchanged.
 
 ## Core invariants
 
@@ -267,11 +274,12 @@ delivery path for turn-critical or authority-bearing events.
 
 ### Model-visible tools
 
-The model-visible name, description, JSON schema, and application behavior come
-from a WASM plugin. A small native discovery kernel may locate, describe,
-activate, and deactivate plugin tools, but it must not implement the work behind
-ordinary model tools. Transitional native exceptions are architecture debt and
-may not grow.
+The model-visible name, description, JSON schema, discovery workflow, and
+application behavior come from a WASM plugin. The native loader may verify
+packages and maintain a bounded typed registry projection for operator and WASM
+use, but it does not expose stado-owned discovery/activation tools directly to
+the model. Transitional native exceptions are architecture debt and may not
+grow.
 
 The host provides primitives such as:
 
@@ -282,6 +290,16 @@ The host provides primitives such as:
 - provider invocation under explicit token budgets;
 - trusted transport for approval, choice, print, and structured render UI;
 - nested tool dispatch through the same executor, hook, sandbox, and audit path.
+
+Provider invocation is deliberately split at that primitive boundary. Exact
+`provider:invoke:<positive-tokens>` grants only host-side provider construction,
+credentials, cancellation, cumulative input+output enforcement/accounting, and
+bounded versioned facts. It has no default form, USD cap, persona, guest actor,
+credential, provider-selection, or budget-override field. WASM owns request
+shape, prompt/system policy, sampling choices, and model-facing output. Cache
+read/write counters are factual subdivisions and are not double-counted into
+the hard token total; provider cleanup diagnostics cannot erase a completed
+semantic response.
 
 The host-import reference is a contract. An exported import must be documented,
 capability-scoped where it conveys authority, bounded, and linked to its owning
@@ -432,6 +450,17 @@ boundaries, typed signals, and evidence. They may create candidates but cannot
 activate them. Usage observations distinguish exposure, opening, citation, and
 evaluated outcome; correlation is not causation and mandatory guidance cannot
 be automatically demoted.
+
+Situational guidance follows the same facts/application split. On the TUI—the
+only v1 lifecycle-application surface—the broker projects bounded signal,
+child-status, and unread-count facts through an opaque application binding,
+while the live registry controller projects the actual tool ceiling. Another
+application's private review journal is deliberately absent. Current input and
+fast-context presence are untrusted quality facts. A signed WASM application
+owns classifiers, thresholds, ordering, and wording and may only append bounded
+pre-LLM context. It cannot deny, replace the model/system, mutate history, or
+widen tools. Failure-open guidance contributes nothing; run, headless, ACP, and
+subagents have no native fallback pretending to offer application parity.
 
 ### Verification
 

@@ -1,17 +1,15 @@
 package main
 
-// plugin_remove.go — `stado plugin remove <name>`. EP-0039 §G: the install /
-// update / use surface shipped without an uninstall, so a plugin could only be
-// removed by hand-deleting its state dir (and the lock entry would then make
-// `plugin update` resurrect it). This removes every installed version of a
-// plugin and drops its lock entry.
+// plugin_remove.go — `stado plugin remove <selector>`. Removal resolves one
+// authenticated source namespace in one explicit scope, revokes its live host
+// receipts, and deletes every retained package row in that scope. Immutable
+// lock rows remain provenance/tag-continuity history and never act as an
+// installed-package index.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -20,92 +18,72 @@ import (
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
-// safePluginName guards the removal below against traversal — install dirs are
-// <name>-<version> and we match the <name>- prefix to find every version, so
-// name must be a plain segment.
-var safePluginName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
-
-// matchPluginVersionDirs returns the install-version directories for a plugin
-// under base. It reads base literally (os.ReadDir) and filters by the
-// "<name>-" prefix rather than filepath.Glob(base+"/<name>-*"): Glob would
-// interpret glob metacharacters (`*`, `?`, `[`, `]`) anywhere in the full
-// pattern — including the base path returned by AllPluginDirs() when the
-// project lives under a directory whose name contains them — and could return
-// directories outside base. ReadDir treats base as a literal path, so matches
-// are always direct children of base (Codex #1).
-func matchPluginVersionDirs(base, name string) []string {
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return nil
-	}
-	prefix := name + "-"
-	var out []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), prefix) {
-			out = append(out, filepath.Join(base, e.Name()))
-		}
-	}
-	return out
-}
-
 var pluginRemoveCmd = &cobra.Command{
-	Use:   "remove <name>",
-	Short: "Uninstall a plugin (all installed versions) and drop its lock entry",
-	Long: `remove deletes every installed version directory for <name> from the
-project-local and global plugin dirs, and removes the plugin's plugin-lock.toml
-entry so 'stado plugin update' won't reinstall it. <name> is the installed
-plugin name (the install-dir prefix), e.g. 'gtfobins'.`,
+	Use:   "remove [project:|global:]<canonical-source|store-key>",
+	Short: "Uninstall every package version from one exact source namespace",
+	Long: `remove resolves an exact canonical source/store key, or a display alias
+only when that alias names one source namespace. It removes every retained
+version of that source in the selected row's scope. Prefix a selector with
+project: or global: when the same row exists in both scopes. Immutable lock rows are retained as
+source-continuity history so a later reinstall cannot accept a moved tag.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		name := args[0]
-		if name == ".." || !safePluginName.MatchString(name) {
-			return fmt.Errorf("invalid plugin name %q (expected a plain name like 'gtfobins')", name)
+		selected, selectedRoot, err := resolveManagedInstalledPackage(cfg, args[0])
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("plugin %q is not installed", args[0])
+			}
+			return err
 		}
-
+		namespace := selected.Identity.Namespace
 		resolver := workdirpath.NewUserConfigResolver()
 		var removed []string
-		for _, base := range cfg.AllPluginDirs() {
-			matches := matchPluginVersionDirs(base, name)
-			for _, dir := range matches {
-				info, lerr := os.Lstat(dir)
-				if lerr != nil || !info.IsDir() {
-					continue // only remove real directories, never a symlink/file
+		receiptRemovals := make(map[string]map[string]struct{})
+		type removal struct {
+			dir string
+		}
+		var planned []removal
+		for _, base := range []string{selectedRoot.Dir} {
+			canonicalRoot, resolveErr := filepath.EvalSymlinks(base)
+			if resolveErr != nil && !os.IsNotExist(resolveErr) {
+				return fmt.Errorf("remove: resolve plugin root %s: %w", base, resolveErr)
+			}
+			packages, listErr := plugins.ListInstalledPackages(base)
+			if listErr != nil {
+				return fmt.Errorf("remove: enumerate %s: %w", base, listErr)
+			}
+			for _, pkg := range packages {
+				if pkg.Identity.Namespace != namespace {
+					continue
 				}
-				if rmErr := resolver.RemoveAll(dir); rmErr != nil {
-					return fmt.Errorf("remove %s: %w", dir, rmErr)
+				planned = append(planned, removal{dir: pkg.Dir})
+				if receiptRemovals[canonicalRoot] == nil {
+					receiptRemovals[canonicalRoot] = make(map[string]struct{})
 				}
-				removed = append(removed, dir)
+				receiptRemovals[canonicalRoot][pkg.Record.StoreKey] = struct{}{}
 			}
 		}
-		if len(removed) == 0 {
-			return fmt.Errorf("plugin %q is not installed", name)
+		if len(planned) == 0 {
+			return fmt.Errorf("plugin %q is not installed", args[0])
 		}
-
-		// Drop matching lock entries (best-effort) so `plugin update` doesn't
-		// resurrect a removed plugin. Match on the identity's repo segment /
-		// local alias — the common case where the install name equals the repo.
-		for _, lockTarget := range pluginLockTargets(cfg) {
-			lockPath := lockTarget.Path
-			if lock, lerr := plugins.ReadLock(lockPath); lerr == nil {
-				kept := plugins.NewLock()
-				dropped := 0
-				for _, e := range lock.Entries {
-					if id, perr := plugins.ParseIdentity(e.Identity); perr == nil &&
-						(id.Repo == name || id.LocalAlias() == name) {
-						dropped++
-						continue
-					}
-					kept.Add(e)
-				}
-				if dropped > 0 {
-					if werr := kept.Write(lockPath); werr != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not update %s: %v\n", lockPath, werr)
-					}
-				}
+		// Revoke live host admission before deleting package bytes. A failed
+		// deletion then leaves inert evidence rather than an admitted package.
+		if err := plugins.RemoveInstallReceipts(cfg.StateDir(), receiptRemovals); err != nil {
+			return fmt.Errorf("remove exact admission receipts: %w", err)
+		}
+		for _, item := range planned {
+			if rmErr := resolver.RemoveAll(item.dir); rmErr != nil {
+				return fmt.Errorf("remove %s: %w", item.dir, rmErr)
+			}
+			removed = append(removed, item.dir)
+		}
+		for _, base := range []string{selectedRoot.Dir} {
+			if err := plugins.RemoveActivePackageMarker(base, namespace); err != nil {
+				return fmt.Errorf("remove active marker: %w", err)
 			}
 		}
 

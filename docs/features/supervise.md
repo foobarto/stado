@@ -1,31 +1,47 @@
 # Supervised work (`/supervise`)
 
-`/supervise` is the accepted opt-in quality-gate workflow for long-running or
-multi-stage work. An installed official signed WASM lifecycle application keeps
-an exactly selected contract in worker turns, evaluates host-observed progress
-with an independent read-only watchdog, and accepts completion only after
-deterministic gates and a fresh verifier.
+`/supervise` is an opt-in quality gate for long-running or multi-stage work. It
+keeps one selected contract in the worker loop, reviews anchored progress with
+fresh read-only watchdogs, and accepts completion only after deterministic
+checks and an independent verifier.
 
-> **Implementation status:** EP-0064's persistent WASM dispatcher and the
-> migration of supervise policy out of native code are in flight. This page
-> describes the accepted target behavior. Existing native workflow code is
-> cleanup debt, not a second supported architecture.
+The workflow is owned by the official `supervise` WASM lifecycle application,
+not by native stado code. Its source lives at
+[`foobarto/stado-plugins/supervise`](https://github.com/foobarto/stado-plugins/tree/main/supervise).
+The first intended plugin release is `supervise/v0.1.0`, with
+`min_stado_version: 0.80.0`. Plugin and stado versions are deliberately
+independent.
+
+> **Availability:** the source is preserved in a signed local
+> `stado-plugins` commit, but the plugin manifest/artifact has not yet been
+> signed with the official offline key or published. A normal stado install
+> therefore does not expose `/supervise` yet. There is no native fallback.
 >
-> The interactive TUI is the only lifecycle-application host for v0.80/v1.
-> `stado run`, headless JSON-RPC, and ACP reject configured applications before
-> provider/session work rather than running an incomplete copy of the workflow.
+> Once released, `/supervise` appears only when that exact signed, installed
+> lifecycle application is explicitly enabled for the session. The interactive
+> TUI is the only application host in the current/v1 scope. `stado run`,
+> headless JSON-RPC, ACP, ephemeral plugin execution, and child agent loops fail
+> closed when asked to compose a lifecycle application.
 
-It is a quality gate, not a security feature. It is designed to catch stalls,
-scope or contract drift, weak evidence, and premature completion in ordinary
-agent work. It does not make hostile repository content safe, contain a
-malicious worker, protect secrets, or turn model agreement into an
-authentication decision. Broker, sandbox, plugin, hook, and repository-trust
-controls remain the security boundary.
+Supervision is a quality gate, not a security feature. It is designed to catch
+stalls, scope drift, forgotten requirements, weak evidence, and premature
+completion in ordinary agent work. It does not make hostile repository content
+safe, contain a malicious worker, protect secrets, or turn model agreement into
+an authorization decision. The broker, sandbox, plugin capability system,
+hooks, repository trust, and central operator policy remain the security
+boundary.
 
-This is different from `/supervisor`: the latter is EP-0033's responsive
-off-band answer lane. It does not plan, monitor, interrupt, or verify work.
+This is different from `/supervisor`: that command controls EP-0033's
+responsive off-band answer lane. It does not plan, monitor, stop, or verify the
+main worker.
 
-## Start a run
+## Enable and start
+
+After the official package is published, install and explicitly enable the
+signed application according to the plugin release instructions. Merely having
+a package on disk does not activate its lifecycle behavior or command.
+
+In the TUI:
 
 ```text
 /supervise
@@ -33,133 +49,140 @@ off-band answer lane. It does not plan, monitor, interrupt, or verify work.
 /supervise start Implement resumable imports without breaking existing callers
 ```
 
-The application's setup UI asks for the objective, watchdog mode (`event` by
-default or `live`), plan-pivot approval (`user` by default or `watchdog`), and
-standard/high-assurance/custom scrutiny profile. `Ctrl+A` opens advanced
-settings for requirements/acceptance/verification hints, independent watchdog
-and verifier provider/model, provider-native thinking, thinking budget, effort,
-token budgets, timeouts, retry/backoff and correction limits, and
-required/fallback posture.
+The application asks for the objective, watchdog mode (`event` by default or
+`live`), plan-pivot policy (`user` by default or `watchdog`), and a
+standard/high-assurance/custom scrutiny profile. Advanced choices cover
+requirements and verification hints, independent watchdog/verifier provider
+and model, provider-native thinking, effort, token budgets, timeouts,
+retry/backoff, correction limits, and required/advisory failure posture.
 
-The standard profile treats event monitoring as advisory with the bounded
-ten-failure pause streak, while completion verification is required. High
-assurance makes watchdog and verifier fail closed and disables advisory
-fallback; changing the profile never widens plan-pivot authority.
+Reviewer budgets are token-only in v1. Thinking and effort are separate:
+`thinking=auto|on|off` controls provider reasoning, while
+`effort=low|medium|high|xhigh|max` is forwarded when the selected provider
+supports it. Provider credentials remain native and are never exposed to the
+plugin.
 
-Thinking and effort are separate: `thinking=auto|on|off` controls whether a
-native reasoning budget is requested, while
-`effort=low|medium|high|xhigh|max` is forwarded through the provider's effort
-control when supported.
-
-Reviewer spend ceilings are token-only in v1. Token caps are preflighted and
-enforced on every reviewer turn; timeouts remain a separate execution bound.
-
-A fresh watchdog proposes the full baseline. The application renders it through
-the generic WASM UI bridge. After quality-workflow confirmation, it proposes a
-session-scoped candidate, journals the exact artifact ID and version, and
-refuses to start or recover against any other version. This is application-local
-selection: it grants no authority and does not make the contract active prompt
-content. A TUI command or UI callback is not operator-origin security proof.
+A fresh baseline architect proposes constraints, non-goals, acceptance
+criteria, an ordered plan with explicit done conditions, definition of done,
+verification, and risks. The application renders that exact proposal and asks
+for quality-workflow confirmation. Acceptance selects one exact
+session-scoped candidate artifact for this application run. It does not
+activate prompt authority, widen plugin capabilities, or authenticate a
+security-sensitive operator grant.
 
 ## Modes
 
 | Mode | Reviews | Failure behavior |
 |------|---------|------------------|
-| `event` | Coalesced application detector events, plus optional review every configured N worker turns | Each review follows the application's bounded retry/escalation policy. Failure never approves a pivot or completion. |
-| `live` | Every completed worker turn, plus detector events; optional strict turn barrier | A strict profile holds the next turn until a current-anchor verdict. The operator can always interrupt, pause, or cancel. |
+| `event` | Coalesced detector events, plus an optional review every configured N worker turns | A trigger receives three bounded fresh attempts by default. Ten consecutive exhausted triggers pause the standard profile. |
+| `live` | Every completed worker turn, plus detector events; optional strict turn barrier | Reviews retry with durable capped backoff. Strict live holds the next worker turn until a current-anchor result exists. |
 
-Both modes build a fresh watchdog provider instance per review. Bounded durable
-handoff carries open concerns and suggested probes without keeping a second
-unbounded conversation. A separate fresh provider instance performs final
-verification.
+Activity is not the same as progress. The four-turn stall detector resets only
+when the active step changes or the completed-step count advances. New evidence,
+a changed tree, or more tool calls remain useful review context, but do not hide
+a stalled plan.
 
-All verdicts remain bound to the exact worker anchor they reviewed. A stale
-`continue`/`approve` is discarded. A stale `correct` is delivered at the next
-worker boundary as explicitly earlier-anchor advisory steering, without
-pausing or becoming a current verdict. A stale `pause`/`stop` creates a durable
-worker-scheduling hold and forces a fresh review of the latest anchor; only
-that current verdict can release, steer, pause, or stop the run. Failure of this
-confirming review pauses for the operator rather than falling back to advisory
-execution.
+Every watchdog and verifier is a fresh bounded child. A typed handoff carries
+open concerns and probes without keeping a second unbounded conversation. A
+successfully parsed, anchored verdict remains valid even if later provider
+cleanup reports an error; cleanup is diagnostic, not verdict authority.
 
-## Policy and enforcement ownership
+Stale watchdog answers have three deliberately different outcomes:
 
-The supervise application owns workflow policy. The host and broker own bounded
-session-anchored observations, durable ordering, capability ceilings, and the
-effects of scheduling transitions. Artifact activation is a separate broker
-authority operation and is not part of supervise startup.
+- stale `continue` or `approve` is discarded;
+- stale `correct` is queued as explicitly earlier-anchor advisory steering and
+  does not pause the worker;
+- stale `pause` or `stop` first acquires a durable scheduling hold and forces a
+  fresh watchdog review at the latest anchor. Only that current result may
+  release, steer, pause, or stop. If confirmation fails, the run pauses for the
+  operator.
 
-- The application keeps exactly one approved plan step active. Step-completion
-  claims need evidence under its policy; final verification cannot start until
-  every approved step has advanced.
-- The application owns the supervision schedule. Starting `/supervise` requests
-  replacement of an existing `/loop`; the broker enforces authorized holds,
-  pause, stop, cancel, and turn admission.
-- Ordinary follow-up prompts are held until a safe boundary. The application
-  asks a fresh watchdog to classify input, routes directly related input to the
-  worker, and defers unrelated or uncertain work as a broker-owned task tied to
-  the immutable input record. The application cannot rewrite or drop the
-  original input, and it cannot acknowledge the event before choosing a
-  disposition. After verified completion, the broker hands the exact ordered
-  set of still-open inputs created by that run back to the normal worker loop;
-  unrelated global backlog items are not claimed. Use
-  `/steer <message>` when you
-  explicitly want to override that default and affect the current turn.
-- The worker may record evidence, request a plan/contract pivot, and request
-  completion through tools exported by the supervise plugin. These are
-  application requests, not authority grants.
-- Plan pivots default to your approval. If configured, the application may
-  accept a watchdog recommendation only for plan-level pivots.
-  Objective/criteria/constraint changes always return to you.
-- A contract may require quality-workflow confirmation before typed
-  high-consequence effects such as destructive changes, push/merge, release,
-  publish, deploy, or external commitments. The application can hold scheduling
-  and request confirmation through the generic UI bridge, but this does not
-  authenticate the operator or create a security approval. Security-significant
-  authorization remains central host/broker policy; supervise does not infer it
-  by parsing shell or `gh` command text.
-- The application requests configured Verify Work commands through the audited
-  executor. It accepts only an anchored approval with cited evidence from the
-  independent verifier; the broker records completion against current contract,
-  run, and tree versions. A verifier failure never silently becomes completion.
-- Nested supervision is rejected. The root worker remains responsible for all
-  children, while the watchdog can inspect their lifecycle, results, diff, and
-  scope violations.
+This lets useful steering arrive without turning every slow review into a
+barrier, while preventing an obsolete stop decision from being ignored or
+blindly applied. A current `stop` request is enforced by the broker; model prose
+does not stop a loop by itself.
 
-Deterministic detectors inside the supervise application cover repeated errors,
-identical retry thrash, edit/revert cycles, verification regression, stalled
-criteria, budget burn, growing or
-out-of-scope diffs, child failure/exhaustion, step and pivot requests, risky
-boundaries, correction follow-up, and unsupported completion. Detectors inspect
-bounded host observations tied to the session/tree anchor, never hidden model
-reasoning. Their thresholds and
-coalescing are application policy, not native stado semantics.
+## What the application owns
 
-## Watchdog access
+The signed application owns the choices that another supervision application
+could make differently:
 
-The application spawns each watchdog/verifier with an attenuated role and tool
-profile. A bounded handoff and immutable evidence references travel through
-broker mailboxes. Generic session/research reads page host-filtered state,
-non-thinking transcript, tool results, audited diff, verification, budgets,
-children, and the anchored repository tree. Evidence stays tied to the root
-session sequence, contract/plan versions, active step, and tree digest.
+- contract setup and exactly one active plan step;
+- detector thresholds, cadence, cooldowns, retries, and handoff;
+- reviewer/verifier prompts and strict verdict decoding;
+- progress, pivot, correction, and completion policy;
+- routing immutable operator follow-ups as related work or deferred work;
+- recovery of its bounded journal state; and
+- token-only watchdog/verifier budgeting.
 
-The accepted EP-0064 design does not add native
-`supervise__read/search/follow` evidence tools. Any remaining bespoke native
-surface is migration debt; generic session, mailbox, artifact, and research
-primitives are sufficient. The reviewer receives no shell, mutation, ambient
-network, credential, approval, or deployment capability.
+Its three model-facing tools are dynamically projected only to the exact active
+application WorkerRun:
 
-The selected watchdog/verifier provider receives the evidence it asks for.
-Choose those providers as a data-trust decision, especially when they differ
-from the worker provider; stado preserves any hook-redacted tool result but
-does not promise to discover arbitrary secrets pasted into source or chat.
+- `supervise__report_progress` records criterion-linked evidence;
+- `supervise__request_pivot` proposes a complete replacement baseline; and
+- `supervise__request_completion` creates an explicit completion candidate.
 
-This is a quality gate, not a security boundary or a replacement for the
-broker, sandbox, plugin capabilities, repository trust policy, or audit log.
-The supervise application runs below that execution ceiling.
+The tools are application requests, not authority grants. They do not appear
+without the enabled application, and there is no Go-owned command or tool with
+the same name waiting underneath.
 
-## Lifecycle commands
+Plan-only pivots may be accepted by a watchdog when configured. Changes to the
+objective, criteria, constraints, or other contract fields return to the
+operator's quality confirmation. Destructive changes, push, merge, release,
+publish, deploy, secrets, and external commitments remain central security or
+operator policy. Supervise does not infer authorization by parsing shell or
+`gh` text.
+
+Ordinary follow-up prompts are captured as immutable broker input while the
+application owns recurrence. A fresh anchored reviewer classifies each input;
+related text is delivered unchanged at a safe worker boundary, while unrelated
+or uncertain input becomes durable deferred work. The application cannot
+rewrite, drop, or acknowledge an input before selecting a disposition. Use
+`/steer <message>` when you explicitly want to affect the current turn.
+
+## What stado owns
+
+Native stado supplies generic primitives a sandboxed application cannot create:
+canonical plugin/session identity, immutable tree/turn facts, ordered broker
+events, artifact and journal storage, attenuated child admission, mailbox and
+input routing, leased scheduling holds, pause/stop/cancel/completion effects,
+budget ceilings, audited tool execution, and the WASM sandbox itself.
+
+Review children receive only bounded read/search/context tools over an exact
+host-pinned repository source. They get no shell, mutation, ambient network,
+credential, approval, or deployment capability. The chosen reviewer provider
+does receive the evidence it asks for, so selecting a different provider is a
+data-egress trust choice.
+
+## Completion and Verify Work
+
+The worker cannot complete by ending a turn or writing persuasive prose. It
+must use `supervise__request_completion` after every criterion and ordered plan
+step has advanced.
+
+The application then requests the operator-configured `[verify].commands`
+suite through the generic `session:verification:request` bridge. The guest names
+the active WorkerRun version and a still-pending source event; it cannot provide
+the commands, tree anchor, or executable authority. The broker derives the
+exact anchor, and the TUI runs the suite through the ordinary audited executor
+only after the source callback acknowledgement is durable.
+
+The resulting `stado.dev/session-verification-facts/v1` event contains bounded
+facts and evidence references: suite/command/result digests, typed outcomes and
+failure fingerprints, exact trace/tree commits, and terminal broker evidence.
+It contains no command or output plaintext and no supervise verdict. A missing
+suite is recorded as `no_suite`, never as a pass. Native verification is
+at-least-once across the irreducible crash window after a command finishes but
+before its terminal WAL append, so verification commands must tolerate retry.
+
+Command facts are only the first gate. The application next asks a watchdog to
+review the explicit completion candidate and then uses a separate fresh
+verifier over the same contract, anchor, tree, and immutable evidence. Only a
+current verifier approval lets the application request broker completion. A
+required verifier failure pauses; an advisory failure invalidates the candidate
+and resumes work. Neither failure implies success.
+
+## Lifecycle
 
 ```text
 /supervise status
@@ -167,41 +190,39 @@ The supervise application runs below that execution ceiling.
 /supervise cancel
 ```
 
-The exactly selected contract candidate is a versioned session-scoped artifact. Rapid run state,
-detector history, watchdog handoff, and event cursors live in broker journal and
-mailbox records. A fresh WASM instance can reconstruct that state after an
-exact-session rebind; authoritative recovery never depends on instance memory.
-Full-process logical-session adoption remains a cutover blocker and must fail
-closed until the broker can reopen the durable generation and mint fresh opaque
-bindings without creating a second owner. `resume` restarts the
-appropriate interrupted phase: baseline review, approval, pivot review,
-verification, or an operator-paused worker. `cancel` is terminal and never
-deletes the audit record.
+Contract selection, detector history, pending children, leased holds, worker
+run state, input dispositions, and event cursors are durable. `resume` retries
+the exact interrupted phase; it never resurrects a cancelled, completed, or
+stopped WorkerRun. `cancel` is terminal and preserves the audit record. An
+inactive installed application acknowledges lifecycle boundaries without
+blocking ordinary work; a terminal run becomes dormant only after exact child,
+worker, hold, and journal cleanup succeeds.
 
-If hard context recovery automatically forks the worker, the application asks
-the broker to advance the durable sequence/tree anchor and attach the same
-immutable-root run to the compacted child. Reopening the child resumes
-supervision; reopening the parent does not. Manual forks and ordinary session
-switches never inherit a run implicitly. That atomic ancestry-checked transfer
-is also still a cutover blocker; current code must stop rather than silently
-lose or copy application state.
+Nested supervision is not supported. The root worker remains responsible for
+its children, while the watchdog can inspect their authenticated lifecycle,
+scope, results, diff, and budget facts.
 
 ## Evaluation
 
-The paired scenarios under [`evals/supervise`](../../evals/supervise/README.md)
-exercise common local/Ollama Cloud quirks. Validate and score artifacts with:
+The comparative scenarios and evaluator live with the official application:
+
+- [`supervise/evals`](https://github.com/foobarto/stado-plugins/tree/main/supervise/evals)
+- [`supervise/eval/cmd/supervise-eval`](https://github.com/foobarto/stado-plugins/tree/main/supervise/eval/cmd/supervise-eval)
+
+Build the evaluator from that plugin module, then validate/score with:
 
 ```sh
-stado supervise-eval scenario evals/supervise/scenarios/retry-thrash.json
-stado supervise-eval score --input observations.jsonl
+go build -o /tmp/supervise-eval ./eval/cmd/supervise-eval
+/tmp/supervise-eval scenario evals/scenarios/retry-thrash.json
+/tmp/supervise-eval score --input observations.jsonl
 ```
 
-The scorer keeps worker, watchdog, and verifier tokens separate and reports the
-quality-per-token tradeoff rather than pretending supervision is free.
+The protocol pins both arms and keeps worker, watchdog, and verifier tokens
+separate. The scenarios are testable claims, not published evidence that a
+second model universally improves work.
 
-For a narrative walkthrough of the failure modes behind the design, see
-[The Loop Needs a Witness](../articles/supervise-in-practice.md).
-
-See [EP-0062](../eps/0062-harness-enforced-supervised-work.md) for the quality
-semantics and [EP-0064](../eps/0064-wasm-lifecycle-applications.md) for the
-application/host placement and lifecycle contract.
+For the design rationale and example failure modes, read
+[The Loop Needs a Witness](../articles/supervise-in-practice.md). The normative
+quality contract is [EP-0062](../eps/0062-harness-enforced-supervised-work.md);
+the application/host placement and lifecycle ABI are
+[EP-0064](../eps/0064-wasm-lifecycle-applications.md).

@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,11 +21,9 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
-	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -99,9 +95,7 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	// operator Lua hooks were installed before this loader, then enabled WASM
 	// applications run by canonical signed identity. Native fact-only observers
 	// (currently LSP diagnostics) are appended by the caller afterwards.
-	sort.Slice(m.lifecycleApplications, func(i, j int) bool {
-		return m.lifecycleApplications[i].Identity.Canonical < m.lifecycleApplications[j].Identity.Canonical
-	})
+	sortLifecycleApplications(m.lifecycleApplications)
 	for _, application := range m.lifecycleApplications {
 		m.lifecycleHooks = m.lifecycleHooks.Append(application.Application)
 	}
@@ -115,18 +109,15 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 // whether the ID was an application; once true, callers must never fall back to
 // the weaker legacy background loader after an admission failure.
 func (m *Model) loadOneLifecycleApplication(ctx context.Context, cfg *config.Config, pluginRoots []string, id string) (*runtime.LoadedLifecycleApplication, bool, string) {
-	dir, err := plugins.InstalledDirInAny(pluginRoots, id)
+	pkg, err := plugins.ResolveInstalledPackage(pluginRoots, id)
 	if err != nil {
 		return nil, false, ""
 	}
-	mf, _, err := plugins.LoadFromDir(dir)
-	if err != nil || mf.Lifecycle == nil {
+	dir, mf := pkg.Dir, &pkg.Manifest
+	if mf.Lifecycle == nil {
 		return nil, false, ""
 	}
-	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
-	if err != nil {
-		return nil, true, fmt.Sprintf("lifecycle application %s: identity: %v", id, err)
-	}
+	identity := pkg.Identity
 	if previous := lifecycleApplicationByCanonical(m.lifecycleApplications, identity.Canonical); previous != nil {
 		return nil, true, fmt.Sprintf("lifecycle application %s duplicates canonical identity %s; one session may own exactly one instance", id, identity.Canonical)
 	}
@@ -134,7 +125,7 @@ func (m *Model) loadOneLifecycleApplication(ctx context.Context, cfg *config.Con
 	if !ok {
 		return nil, true, fmt.Sprintf("lifecycle application %s: broker admission unavailable", id)
 	}
-	host := m.newPluginHostAdapter()
+	host := m.newPluginHostAdapter(*mf)
 	loaded, err := runtime.LoadInstalledLifecycleApplication(ctx, dir, runtime.LifecycleApplicationLoadOptions{
 		Config: cfg, Broker: brokerController, Workdir: m.cwd, ToolHost: host,
 		InvokeExecutor: m.executor,
@@ -160,23 +151,51 @@ func (m *Model) loadOneLifecycleApplication(ctx context.Context, cfg *config.Con
 		_ = loaded.Close(context.Background())
 		return nil, true, fmt.Sprintf("lifecycle application %s duplicates canonical identity %s; one session may own exactly one instance", id, loaded.Identity.Canonical)
 	}
+	if err := m.admitLoadedLifecycleApplication(loaded); err != nil {
+		_ = loaded.Close(context.Background())
+		return nil, true, fmt.Sprintf("lifecycle application %s: %v", id, err)
+	}
+	return loaded, true, fmt.Sprintf("lifecycle application %s loaded as %s", id, loaded.Identity.Canonical)
+}
+
+// admitLoadedLifecycleApplication is the atomic projection half of staged
+// loading. It validates every operator command before registering any tools,
+// hooks, or routes. A duplicate application claim invalidates the already
+// staged route as well as the new claimant, so configuration order cannot
+// select an owner.
+func (m *Model) admitLoadedLifecycleApplication(loaded *runtime.LoadedLifecycleApplication) error {
 	for _, command := range loaded.Manifest.Commands {
 		fullName := "/" + command.Name
-		if IsReservedSlashName(fullName) && fullName != "/supervise" {
-			_ = loaded.Close(context.Background())
-			return nil, true, fmt.Sprintf("lifecycle application %s: command %s conflicts with a native operator command", id, fullName)
+		if IsReservedSlashName(fullName) {
+			return fmt.Errorf("command %s conflicts with a native operator command", fullName)
 		}
 		if skillName := m.skillSlash[command.Name]; skillName != "" {
-			_ = loaded.Close(context.Background())
-			return nil, true, fmt.Sprintf("lifecycle application %s: command %s conflicts with skill %s", id, fullName, skillName)
+			return fmt.Errorf("command %s conflicts with skill %s", fullName, skillName)
+		}
+		if _, conflicted := m.applicationCommandConflicts[command.Name]; conflicted {
+			return fmt.Errorf("command /%s has multiple application owners", command.Name)
 		}
 		if previous := m.applicationCommands[command.Name]; previous != nil {
-			_ = loaded.Close(context.Background())
-			return nil, true, fmt.Sprintf("lifecycle application %s: command /%s conflicts with %s", id, command.Name, previous.Identity.Canonical)
+			m.recordApplicationCommandConflict(command.Name)
+			return fmt.Errorf("command /%s conflicts with %s", command.Name, previous.Identity.Canonical)
 		}
 	}
-	m.projectLifecycleApplication(loaded)
-	return loaded, true, fmt.Sprintf("lifecycle application %s loaded as %s", id, loaded.Identity.Canonical)
+	if err := m.projectLifecycleApplication(loaded); err != nil {
+		return err
+	}
+	return nil
+}
+
+// recordApplicationCommandConflict makes duplicate lifecycle-application
+// ownership independent of configuration order. A failed second admission
+// must not leave the first claimant callable: the provider barrier alone does
+// not guard operator commands, aliases, or dynamic discovery.
+func (m *Model) recordApplicationCommandConflict(name string) {
+	delete(m.applicationCommands, name)
+	if m.applicationCommandConflicts == nil {
+		m.applicationCommandConflicts = make(map[string]struct{})
+	}
+	m.applicationCommandConflicts[name] = struct{}{}
 }
 
 // lifecycleApplicationByCanonical enforces EP-0064's exact-one identity
@@ -195,12 +214,34 @@ func lifecycleApplicationByCanonical(applications []*runtime.LoadedLifecycleAppl
 // object. Commands retain this exact pointer, hooks/events consume its
 // Application, and registered tools are the adapters already bound to that
 // application's serialization gate by the runtime loader.
-func (m *Model) projectLifecycleApplication(loaded *runtime.LoadedLifecycleApplication) {
+func (m *Model) projectLifecycleApplication(loaded *runtime.LoadedLifecycleApplication) error {
 	if loaded == nil {
-		return
+		return nil
 	}
+	// Admission is atomic. A lifecycle application's persistent adapter may
+	// replace only the ordinary installed adapter derived from the same exact
+	// package namespace. Native, bundled, override, and other-application name
+	// collisions fail before any registry or command route changes.
+	projected := make([]tool.Tool, 0, len(loaded.ModelTools))
 	if m.executor != nil && m.executor.Registry != nil {
-		for _, applicationTool := range loaded.Tools {
+		seen := make(map[string]bool, len(loaded.ModelTools))
+		for _, applicationTool := range loaded.ModelTools {
+			if applicationTool == nil || !runtime.ToolPermittedByConfig(applicationTool.Name(), m.cfg) {
+				continue
+			}
+			if seen[applicationTool.Name()] {
+				return fmt.Errorf("tool %q is declared more than once", applicationTool.Name())
+			}
+			seen[applicationTool.Name()] = true
+			if existing, ok := m.executor.Registry.Get(applicationTool.Name()); ok && existing != applicationTool {
+				metadata := runtime.ToolMetadataFor(existing)
+				if metadata.PackageNamespace != loaded.Identity.Namespace || metadata.LifecycleApplication != "" {
+					return fmt.Errorf("tool %q conflicts with an existing registry owner", applicationTool.Name())
+				}
+			}
+			projected = append(projected, applicationTool)
+		}
+		for _, applicationTool := range projected {
 			m.executor.Registry.Register(applicationTool)
 		}
 	}
@@ -211,6 +252,8 @@ func (m *Model) projectLifecycleApplication(loaded *runtime.LoadedLifecycleAppli
 	for _, command := range loaded.Manifest.Commands {
 		m.applicationCommands[command.Name] = loaded
 	}
+	m.applicationToolProjectionGeneration.Add(1)
+	return nil
 }
 
 // effectiveBackgroundPluginIDs is the launch-time background-plugin set:
@@ -258,15 +301,16 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		}
 		return bp, fmt.Sprintf("background plugin %s loaded (bundled default)", bundled.ID)
 	}
+	if id == "." || id == ".." || strings.Contains(id, "../") || strings.Contains(id, `..\`) ||
+		strings.ContainsRune(id, '\x00') || filepath.IsAbs(id) {
+		return nil, fmt.Sprintf("background plugin %s: invalid plugin id", id)
+	}
 
-	dir, err := plugins.InstalledDirInAny(pluginRoots, id)
+	pkg, err := plugins.ResolveInstalledPackage(pluginRoots, id)
 	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: %v", id, err)
 	}
-	mf, sig, err := plugins.LoadFromDir(dir)
-	if err != nil {
-		return nil, fmt.Sprintf("background plugin %s: manifest load failed: %v", id, err)
-	}
+	dir, mf, sig := pkg.Dir, &pkg.Manifest, pkg.Signature
 	if mf.Lifecycle != nil {
 		return nil, fmt.Sprintf("background plugin %s: lifecycle manifests require the persistent TUI application loader and cannot use the legacy BackgroundPlugin path", id)
 	}
@@ -275,15 +319,11 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: digest mismatch: %v", id, err)
 	}
+	identity := pkg.Identity
 	if cfg != nil {
-		ts := plugins.NewTrustStore(cfg.StateDir())
-		if err := ts.VerifyManifest(mf, sig); err != nil {
+		if err := runtime.VerifyInstalledPlugin(ctx, cfg, dir, mf, sig); err != nil {
 			return nil, fmt.Sprintf("background plugin %s: signature: %v", id, err)
 		}
-	}
-	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
-	if err != nil {
-		return nil, fmt.Sprintf("background plugin %s: identity: %v", id, err)
 	}
 	host := pluginRuntime.NewHostWithIdentity(*mf, identity, dir, nil)
 	host.ApprovalBridge = tuiApprovalBridge{model: m}
@@ -348,7 +388,7 @@ func (m *Model) tickBackgroundPluginsWithEvent(payload []byte) tea.Cmd {
 // applicationTurnBoundary publishes one generic broker-stamped host-fact
 // event and services the signed application queue before returning control to
 // Bubble Tea. Because the command does not complete while a broker hold is
-// active, strict-live supervision cannot race the next provider dispatch.
+// active, a lifecycle application cannot race the next provider dispatch.
 func (m *Model) applicationTurnBoundary(results []agent.ToolResultBlock, continuation applicationBoundaryContinuation) tea.Cmd {
 	if len(m.lifecycleApplications) == 0 || m.session == nil {
 		return nil
@@ -382,12 +422,32 @@ func (m *Model) applicationTurnBoundary(results []agent.ToolResultBlock, continu
 	}
 	session := m.session
 	controller := m.broker
+	executor := m.executor
+	verificationHost := hostAdapter{workdir: m.cwd, executorSandbox: m.executorSandbox}
+	if executor != nil {
+		verificationHost.readLog = executor.ReadLog
+		verificationHost.runner = executor.Runner
+	}
+	verificationConfig := m.verifyConfig
+	verificationPump := &m.applicationVerificationMu
+	verificationScope, verificationGeneration := m.applicationVerificationScope()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(verificationScope, 30*time.Minute)
 		defer cancel()
 		_, err := runtime.PublishSessionTurnCommitted(ctx, publisher, session, input)
+		published := err == nil
 		if err == nil {
 			err = runtime.DispatchLifecycleApplicationEvents(ctx, applications, 32)
+		}
+		if err == nil {
+			var verified int
+			verified, err = serviceApplicationVerificationsSerialized(verificationPump, ctx, applications, executor, controller, verificationHost, verificationConfig, applicationVerificationAnchorForSession(session))
+			if err == nil && verified > 0 {
+				// Terminal verification records synthesize targeted durable events.
+				// Deliver them before ticking so an application can release its own
+				// scheduling hold without racing another worker dispatch.
+				err = runtime.DispatchLifecycleApplicationEvents(ctx, applications, 32)
+			}
 		}
 		if err == nil {
 			for index, app := range applications {
@@ -411,7 +471,7 @@ func (m *Model) applicationTurnBoundary(results []agent.ToolResultBlock, continu
 		if err == nil {
 			completed, err = runtime.WaitForApplicationScheduleStatus(ctx, controller, applications)
 		}
-		return applicationBoundaryMsg{continuation: continuation, applications: applications, completed: completed, err: err}
+		return applicationBoundaryMsg{continuation: continuation, applications: applications, published: published, completed: completed, err: err, generation: verificationGeneration}
 	}
 }
 
@@ -427,7 +487,6 @@ func (m *Model) pollLifecycleApplicationEvents() tea.Cmd {
 	if len(applications) == 0 {
 		return func() tea.Msg { return applicationPollResultMsg{} }
 	}
-	m.applicationPollRunning = true
 	for _, app := range applications {
 		if app != nil && app.Application != nil {
 			if bridge := m.buildPluginBridge(app.Identity.Canonical); bridge != nil {
@@ -435,11 +494,49 @@ func (m *Model) pollLifecycleApplicationEvents() tea.Cmd {
 			}
 		}
 	}
+	executor := m.executor
+	verificationHost := hostAdapter{workdir: m.cwd, executorSandbox: m.executorSandbox}
+	if executor != nil {
+		verificationHost.readLog = executor.ReadLog
+		verificationHost.runner = executor.Runner
+	}
+	verificationConfig := m.verifyConfig
+	verificationSession := m.session
+	verificationController := m.broker
+	verificationPump := &m.applicationVerificationMu
+	verificationScope, verificationGeneration := m.applicationVerificationScope()
+	m.applicationPollRunning = true
+	m.applicationPollGeneration = verificationGeneration
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(verificationScope, 30*time.Minute)
 		defer cancel()
 		err := runtime.DispatchLifecycleApplicationEvents(ctx, applications, 32)
-		return applicationPollResultMsg{applications: applications, err: err}
+		verified := 0
+		if err == nil {
+			verified, err = serviceApplicationVerificationsSerialized(verificationPump, ctx, applications, executor, verificationController, verificationHost, verificationConfig, applicationVerificationAnchorForSession(verificationSession))
+		}
+		if err == nil && verified > 0 {
+			err = runtime.DispatchLifecycleApplicationEvents(ctx, applications, 32)
+		}
+		if err == nil {
+			for index, app := range applications {
+				if app == nil || app.Application == nil {
+					continue
+				}
+				unregister, tickErr := app.Application.Tick(ctx)
+				if tickErr == nil && !unregister {
+					continue
+				}
+				closed := app.Manifest.Lifecycle != nil && app.Manifest.Lifecycle.Failure == "closed"
+				if tickErr != nil && closed {
+					err = fmt.Errorf("lifecycle application %s tick after verification: %w", app.Identity.Canonical, tickErr)
+					break
+				}
+				_ = app.Close(context.Background())
+				applications[index] = nil
+			}
+		}
+		return applicationPollResultMsg{applications: applications, err: err, generation: verificationGeneration}
 	}
 }
 
@@ -582,12 +679,19 @@ func (m *Model) currentTurnNumber() int {
 }
 
 func (m *Model) hasAutoCompactBackgroundPlugin() bool {
+	return m.autoCompactBackgroundPluginIdentity() != ""
+}
+
+func (m *Model) autoCompactBackgroundPluginIdentity() string {
 	for _, bp := range m.backgroundPlugins {
 		if bp != nil && bp.Name() == "auto-compact" {
-			return true
+			if bp.Host != nil && strings.TrimSpace(bp.Host.Identity.Canonical) != "" {
+				return bp.Host.Identity.Canonical
+			}
+			return bp.Name()
 		}
 	}
-	return false
+	return ""
 }
 
 // hostAdapter implements tool.Host for the executor goroutine. Tool calls
@@ -605,22 +709,14 @@ type hostAdapter struct {
 	render      tuiRenderBridge // F9b.2 — stado_ui_render routing
 	spawn       func(context.Context, subagent.Request) (subagent.Result, error)
 	fleetBridge pluginRuntime.FleetBridge
-	research    func(context.Context, string, string) (any, error)
-	// activate is the lazy-load activation hook. Called by the
-	// tools__describe / tools__activate / plugin__load meta-tools via
-	// the pkg/tool.ToolActivator interface; adds the named tool to
-	// this session's activated set so subsequent toolDefs() include it.
-	// EP-0037.
-	activate func(name string)
-	// deactivate is the inverse hook for tools__deactivate /
-	// plugin__unload via pkg/tool.ToolDeactivator.
-	deactivate func(name string)
 	// progress receives stado_progress emissions from bundled wasm
 	// plugins. Wired so the TUI surfaces progress lines in the
 	// sidebar log tail. EP-0038h.
 	progress        func(plugin, text string)
 	executorSandbox runtime.ExecutorSandbox
 	broker          runtime.BrokerController
+	provider        agent.Provider
+	defaultModel    string
 
 	// pty is the TUI-session-lifetime PTY manager shared across every
 	// bundled-plugin tool dispatch. Without this each call would
@@ -630,14 +726,93 @@ type hostAdapter struct {
 	pty *pty.Manager
 }
 
+// modelToolSurfaceController is the atomic TUI implementation of the generic
+// session-surface primitive. Allows describes only the immutable/current
+// ceiling, not whether a tool is presently active, so deactivate never makes
+// a permitted tool impossible to reactivate.
+type modelToolSurfaceController struct {
+	model   *Model
+	ceiling map[string]bool
+}
+
+func newModelToolSurfaceController(model *Model) modelToolSurfaceController {
+	controller := modelToolSurfaceController{model: model, ceiling: make(map[string]bool)}
+	if model == nil || model.executor == nil || model.executor.Registry == nil {
+		return controller
+	}
+	for _, candidate := range model.executor.Registry.Snapshot().Tools {
+		controller.ceiling[candidate.Name()] = true
+	}
+	return controller
+}
+
+func (c modelToolSurfaceController) AllowsToolSurface(name string) bool {
+	return c.model != nil && c.ceiling[name] && !c.model.sessionToolOverrideHidesTool(name)
+}
+
+func (c modelToolSurfaceController) ApplyToolSurface(edit tool.ToolSurfaceEdit) error {
+	if c.model == nil {
+		return errors.New("session tool surface unavailable")
+	}
+	seen := make(map[string]string, len(edit.Activate)+len(edit.Deactivate))
+	for _, group := range []struct {
+		label string
+		names []string
+	}{{"activate", edit.Activate}, {"deactivate", edit.Deactivate}} {
+		for _, name := range group.names {
+			if !c.AllowsToolSurface(name) {
+				return fmt.Errorf("tool %q is outside the session ceiling", name)
+			}
+			if prior := seen[name]; prior != "" {
+				return fmt.Errorf("tool %q occurs more than once (%s, %s)", name, prior, group.label)
+			}
+			seen[name] = group.label
+		}
+	}
+	c.model.activatedToolsMu.Lock()
+	defer c.model.activatedToolsMu.Unlock()
+	if c.model.activatedTools == nil {
+		c.model.activatedTools = make(map[string]bool)
+	}
+	for _, name := range edit.Activate {
+		c.model.activatedTools[name] = true
+	}
+	for _, name := range edit.Deactivate {
+		delete(c.model.activatedTools, name)
+	}
+	return nil
+}
+
 // newPluginHostAdapter builds the one session-scoped host surface shared by
 // ordinary plugin tools and persistent lifecycle applications. Keeping this in
 // one constructor prevents applications from silently receiving a different
 // sandbox ceiling, broker, retained-agent fleet, or UI contract than tools.
-func (m *Model) newPluginHostAdapter() hostAdapter {
+func (m *Model) newPluginHostAdapter(manifests ...plugins.Manifest) hostAdapter {
 	rootCtx := m.rootCtx
 	if rootCtx == nil {
 		rootCtx = context.Background()
+	}
+	// Persistent applications are admitted before the TUI's first model turn,
+	// while ordinary provider construction is lazy. An application that signed
+	// agent/provider authority must nevertheless be able to use that authority
+	// as its first command (for example, a read-only baseline child). Build an
+	// explicitly configured provider at admission for only those manifests;
+	// unrelated applications retain the lazy startup contract.
+	if m.provider == nil && m.providerName != "" && m.buildProvider != nil {
+		needsProvider := false
+		for _, manifest := range manifests {
+			for _, capability := range manifest.Capabilities {
+				if capability == "agent:spawn" || strings.HasPrefix(capability, "provider:invoke:") {
+					needsProvider = true
+					break
+				}
+			}
+		}
+		if needsProvider {
+			if provider, err := m.buildProvider(); err == nil {
+				m.provider = provider
+			}
+		}
 	}
 	var readLog *tools.ReadLog
 	var runner sandbox.Runner
@@ -645,18 +820,23 @@ func (m *Model) newPluginHostAdapter() hostAdapter {
 		readLog = m.executor.ReadLog
 		runner = m.executor.Runner
 	}
-	var fleetBridge *runtime.FleetBridgeAdapter
+	var fleetBridge pluginRuntime.FleetBridge
 	if subagentRunner, ok := m.buildSubagentRunner(); ok && m.fleet != nil {
 		var fleetSpawner runtime.Spawner = subagentRunner
 		if publisher, ok := m.broker.(runtime.ApplicationEventPublisher); ok {
 			fleetSpawner = runtime.ApplicationEventLeasedSpawner(fleetSpawner, publisher)
 		}
-		fleetBridge = &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: fleetSpawner, RootCtx: rootCtx}
+		adapter := &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: fleetSpawner, RootCtx: rootCtx}
 		if m.cfg != nil && m.session != nil {
-			if _, err := runtime.ConfigureRetainedBridge(rootCtx, m.cfg, m.session, fleetBridge); err != nil {
-				fleetBridge = nil
-			}
+			// Retained execution is an optional extension of the ordinary
+			// fleet bridge. In the interactive daemon-backed surface the
+			// broker WAL can already be owned by the daemon, so configuring
+			// the process-local retained coordinator may legitimately fail.
+			// Keep ordinary async/wait children available; spawnRetained
+			// independently fails closed while Retained remains nil.
+			_, _ = runtime.ConfigureRetainedBridge(rootCtx, m.cfg, m.session, adapter)
 		}
+		fleetBridge = adapter
 	}
 	return hostAdapter{
 		workdir: m.cwd, readLog: readLog, runner: runner,
@@ -664,18 +844,7 @@ func (m *Model) newPluginHostAdapter() hostAdapter {
 		approval: tuiApprovalBridge{model: m}, choice: tuiChoiceBridge{model: m},
 		print: tuiPrintBridge{model: m}, render: tuiRenderBridge{model: m},
 		spawn: m.buildSubagentSpawner(), fleetBridge: fleetBridge,
-		research: m.buildResearchRunner(),
-		activate: func(name string) {
-			if m.activatedTools == nil {
-				m.activatedTools = map[string]bool{}
-			}
-			m.activatedTools[name] = true
-		},
-		deactivate: func(name string) {
-			if m.activatedTools != nil {
-				delete(m.activatedTools, name)
-			}
-		},
+		provider: m.provider, defaultModel: m.model,
 		progress: func(plugin, text string) {
 			m.pushLogLine("PROGRESS [" + plugin + "] " + text)
 		},
@@ -685,19 +854,27 @@ func (m *Model) newPluginHostAdapter() hostAdapter {
 
 func (h hostAdapter) AgentFleetBridge() any { return h.fleetBridge }
 
-func (h hostAdapter) ArtifactBrokerBinding(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginRuntime.ArtifactBridgeBinding, error) {
+func (h hostAdapter) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" || h.provider == nil {
+		return nil, errors.New("TUI provider bridge unavailable")
+	}
+	return &pluginRuntime.NativeProviderBridge{Provider: h.provider, DefaultModel: h.defaultModel}, nil
+}
+
+func (h hostAdapter) ArtifactBrokerBinding(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginRuntime.ArtifactBridgeBinding, error) {
 	brokerController, ok := h.broker.(runtime.ArtifactBrokerController)
 	if !ok {
 		return pluginRuntime.ArtifactBridgeBinding{}, errors.New("artifact broker binding unavailable")
 	}
-	return brokerController.BindArtifacts(ctx, identity, manifest)
+	return brokerController.BindArtifacts(ctx, identity, manifest, toolName)
 }
 
-func (h hostAdapter) Research(ctx context.Context, kind, query string) (any, error) {
-	if h.research == nil {
-		return nil, errors.New("research agent unavailable")
+func (h hostAdapter) EvidenceBrokerBinding(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginRuntime.EvidenceBridgeBinding, error) {
+	brokerController, ok := h.broker.(runtime.EvidenceBrokerController)
+	if !ok {
+		return pluginRuntime.EvidenceBridgeBinding{}, errors.New("evidence broker binding unavailable")
 	}
-	return h.research(ctx, kind, query)
+	return brokerController.BindEvidence(ctx, identity, manifest, toolName)
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -756,24 +933,6 @@ func (h hostAdapter) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 	h.readLog.RecordRead(key, info)
 }
 
-// ActivateTool implements pkg/tool.ToolActivator — surfaces a named tool
-// into the next turn's tool surface. Called by tools__describe /
-// tools__activate / plugin__load. When the activate hook isn't wired
-// (no Model context, e.g. tool run), the activation is silently dropped.
-func (h hostAdapter) ActivateTool(name string) {
-	if h.activate != nil {
-		h.activate(name)
-	}
-}
-
-// DeactivateTool implements pkg/tool.ToolDeactivator — removes a tool
-// from this session's per-turn surface. Inverse of ActivateTool.
-func (h hostAdapter) DeactivateTool(name string) {
-	if h.deactivate != nil {
-		h.deactivate(name)
-	}
-}
-
 // EmitProgress implements pkg/tool.ProgressEmitter — surfaces
 // stado_progress payloads to the TUI's sidebar log tail. EP-0038h.
 func (h hostAdapter) EmitProgress(plugin, text string) {
@@ -788,13 +947,12 @@ func (h hostAdapter) EmitProgress(plugin, text string) {
 func (h hostAdapter) PTYManager() any { return h.pty }
 
 // buildPluginBridge wires the live TUI's Session + active provider
-// behind a SessionBridgeImpl so plugins that declared session/LLM
+// behind a SessionBridgeImpl so plugins that declared session/provider
 // capabilities see real conversation state. Returns nil when the TUI
 // has no session or provider — plugins with those capabilities will
 // error cleanly at call time, matching the `stado tool run` CLI
-// path's behaviour. `pluginName` populates the `Plugin:` audit
-// trailer so plugin-initiated LLM calls + forks are attributable in
-// the trace log.
+// path's behaviour. `pluginName` is retained for session-fork attribution;
+// provider invocation identity comes only from the runtime Host identity.
 func (m *Model) buildPluginBridge(pluginName string) *pluginRuntime.SessionBridgeImpl {
 	if m.session == nil && m.provider == nil {
 		return nil
@@ -859,31 +1017,18 @@ func (m *Model) adoptForkedSession(childID, atTurnRef, seed string) tea.Cmd {
 		return m.rejectAutomaticRecoveryHandoff("auto-recovery: stage child lifecycle applications after handoff: "+err.Error(), true)
 	}
 	warnings := append([]string(nil), prepared.warnings...)
-	if rt := m.supervision; rt != nil && !superviseTerminal(rt.state.Status) {
-		anchor := rt.state.Anchor()
-		anchor.SessionSequence = max(rt.sequence, rt.state.SessionSequence) + 1
-		anchor.TreeDigest = superviseSessionTreeDigest(child)
-		st, reattachErr := rt.service.ReattachSession(m.rootCtx, rt.state.ID, rt.state.Version, supervise.RoleHost, child.ID, anchor, trajectory.LocalPrincipal(), "tui-host", "supervise-reattach:"+rt.state.ID+":"+child.ID)
-		if reattachErr != nil {
-			// Native supervise is legacy state outside the generic application
-			// scope. It cannot roll back the broker's committed child ownership.
-			warnings = append(warnings, "supervise: retained run could not attach to compacted child: "+reattachErr.Error())
-		} else {
-			rt.state, rt.sequence = st, st.SessionSequence
-			rt.detector = supervise.RestoreDetector(st.Detector)
-		}
-	}
 
 	prompt := m.recoveryPrompt
 	queued := m.queuedPrompt
 	draft := m.input.Value()
+	recoverApplicationWorker := m.recoveryApplicationWorker
 	m.recoveryPrompt = ""
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false
+	m.recoveryApplicationWorker = false
 	if retireErr := m.commitSessionTransition(context.Background(), prepared); retireErr != nil {
 		warnings = append(warnings, retireErr.Error())
 	}
-	m.registerSuperviseControlTools()
 	m.msgs = nil
 	m.blocks = nil
 	m.todos = nil
@@ -921,19 +1066,22 @@ func (m *Model) adoptForkedSession(childID, atTurnRef, seed string) tea.Cmd {
 	for _, warning := range warnings {
 		body += "\n" + warning
 	}
-	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
-		body += "\nsupervise: retained root " + m.supervision.state.RootSessionID + " and advanced the worker-session anchor"
-	}
 	if strings.TrimSpace(seed) != "" {
 		body += "\nsummary: " + trimSeed(seed, 120)
+	}
+	if recoverApplicationWorker {
+		m.input.SetValue(mergeRecoveryInput("", queued, draft))
+		m.appendBlock(block{kind: "system", body: body + "\nreconciling the exact application worker in the child session"})
+		m.renderBlocks()
+		return tea.Batch(
+			m.reconcileApplicationOperatorInput(applicationInputAfterNone),
+			m.reconcileApplicationWorkerRun(),
+		)
 	}
 	if prompt == "" {
 		m.input.SetValue(mergeRecoveryInput("", queued, draft))
 		m.appendBlock(block{kind: "system", body: body})
 		m.renderBlocks()
-		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
-			return m.nextSuperviseHostAction()
-		}
 		return nil
 	}
 	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
@@ -954,22 +1102,25 @@ func (m *Model) adoptForkedSession(childID, atTurnRef, seed string) tea.Cmd {
 		m.input.Reset()
 	}
 	m.renderBlocks()
-	if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
-		return m.nextSuperviseHostAction()
-	}
 	return m.startStream()
 }
 
 func (m *Model) rejectAutomaticRecoveryHandoff(message string, failClosed bool) tea.Cmd {
+	recoverApplicationWorker := m.recoveryApplicationWorker
 	m.input.SetValue(mergeRecoveryInput(m.recoveryPrompt, m.queuedPrompt, m.input.Value()))
+	m.queuedPrompt = ""
 	m.recoveryPrompt = ""
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false
+	m.recoveryApplicationWorker = false
 	if failClosed {
 		m.setApplicationFailureSource(applicationFailureSessionHandoff, errors.New(message))
 	}
 	m.appendBlock(block{kind: "system", body: message})
 	m.renderBlocks()
+	if recoverApplicationWorker && m.loop != nil && m.loop.application != nil {
+		return m.cancelApplicationLoop(message, false)
+	}
 	return nil
 }
 
@@ -1094,17 +1245,17 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, id
 		if choice != nil {
 			host.ChoiceBridge = choice
 		}
-		// Attach the session bridge only when the plugin declared at
-		// least one session/LLM capability AND the caller supplied a
-		// bridge. Keeps existing tool-only plugins (like the hello
-		// example) on their existing code path.
-		if bridge != nil && (host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0) {
+		// Attach the live bridge only when the plugin declared a session
+		// capability or the generic provider primitive and the caller supplied
+		// one. Provider use is not session authority, but this bridge also
+		// implements the bounded provider surface for direct TUI invocation.
+		if bridge != nil && (host.SessionObserve || host.SessionRead || host.SessionFork || host.ProviderInvokeBudget > 0) {
 			host.SessionBridge = bridge
 		}
 		if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "host imports: " + err.Error()}
 		}
-		mod, err := rt.Instantiate(ctx, wasmBytes, *mf)
+		mod, err := rt.InstantiateWithIdentity(ctx, wasmBytes, *mf, identity)
 		if err != nil {
 			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "instantiate: " + err.Error()}
 		}
@@ -1160,23 +1311,23 @@ func pluginToolListWidth(width int) int {
 // then indented under the plugin header in the nested hierarchy.
 func renderInstalledPluginList(width int, pluginRoots ...string) string {
 	seen := map[string]struct{}{}
-	var allDirs []string
+	var installed []plugins.InstalledPackage
 	for _, root := range pluginRoots {
-		ds, err := plugins.ListInstalledDirs(root)
+		packages, err := plugins.ListInstalledPackages(root)
 		if err != nil {
-			continue
+			return "Installed plugin store error: " + err.Error()
 		}
-		for _, d := range ds {
-			if _, already := seen[d]; !already {
-				seen[d] = struct{}{}
-				allDirs = append(allDirs, d)
+		for _, pkg := range packages {
+			key := pkg.Identity.Canonical + "#" + pkg.Identity.ManifestDigest
+			if _, already := seen[key]; !already {
+				seen[key] = struct{}{}
+				installed = append(installed, pkg)
 			}
 		}
 	}
-	if len(allDirs) == 0 {
+	if len(installed) == 0 {
 		return "No plugins installed. Run `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>` to add one."
 	}
-	pluginsRoot := pluginRoots[0]
 
 	// Inner width for the tool descriptions: the panel minus the nesting
 	// indent, never wider than the available space (see pluginToolListWidth).
@@ -1184,25 +1335,9 @@ func renderInstalledPluginList(width int, pluginRoots ...string) string {
 
 	var sb strings.Builder
 	sb.WriteString("Installed plugins:")
-	for _, name := range allDirs {
-		sb.WriteString("\n  /plugin:" + name)
-		// Find the first root that has this plugin dir.
-		var pluginPath string
-		for _, root := range pluginRoots {
-			p := filepath.Join(root, name)
-			if _, err := os.Lstat(p); err == nil {
-				pluginPath = p
-				break
-			}
-		}
-		if pluginPath == "" {
-			pluginPath = filepath.Join(pluginsRoot, name)
-		}
-		mf, _, err := plugins.LoadFromDir(pluginPath)
-		if err != nil {
-			sb.WriteString("  (manifest load failed: " + err.Error() + ")")
-			continue
-		}
+	for _, pkg := range installed {
+		sb.WriteString("\n  /plugin:" + pkg.Identity.Canonical + "  (" + pkg.Manifest.Name + ")")
+		mf := &pkg.Manifest
 		if len(mf.Tools) == 0 {
 			continue
 		}

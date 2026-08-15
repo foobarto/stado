@@ -22,6 +22,9 @@ type applicationOperation struct {
 }
 
 var applicationOperations = map[string]applicationOperation{
+	"artifact.migrate.legacy-memory-v1": {
+		capability: "artifact:migrate:legacy-memory-v1",
+	},
 	"journal.append": {
 		capability: "session:journal:append",
 		call: decodeApplicationCall(func(ctx context.Context, service *application.Service, auth application.Authority, input application.JournalAppend, requestID string) (any, error) {
@@ -34,8 +37,14 @@ var applicationOperations = map[string]applicationOperation{
 			return service.Project(ctx, auth, application.ProjectionOptions{
 				JournalLimit: input.JournalLimit, ControlLimit: input.ControlLimit, CompletionLimit: input.CompletionLimit, WorkerLimit: input.WorkerLimit,
 				DeferredTaskLimit: input.DeferredTaskLimit, DeferredTaskAfterOrdinal: input.DeferredTaskAfterOrdinal,
-				IncludeTerminal: input.IncludeTerminal,
+				VerificationLimit: input.VerificationLimit, IncludeTerminal: input.IncludeTerminal,
 			})
+		}),
+	},
+	"context.read": {
+		capability: "session:context:read",
+		call: decodeApplicationCall(func(ctx context.Context, service *application.Service, auth application.Authority, _ struct{}, _ string) (any, error) {
+			return service.ReadContext(ctx, auth)
 		}),
 	},
 	"hold.acquire": {
@@ -102,6 +111,12 @@ var applicationOperations = map[string]applicationOperation{
 			return service.CancelWorkerRun(ctx, auth, input, requestID)
 		}),
 	},
+	"verification.request": {
+		capability: "session:verification:request",
+		call: decodeApplicationCall(func(ctx context.Context, service *application.Service, auth application.Authority, input application.VerificationRequest, requestID string) (any, error) {
+			return service.RequestVerification(ctx, auth, input, requestID)
+		}),
+	},
 	"timer.schedule": {
 		capability: "timer:schedule",
 		call: decodeApplicationCall(func(ctx context.Context, service *application.Service, auth application.Authority, input application.TimerSchedule, requestID string) (any, error) {
@@ -130,6 +145,7 @@ type projectionOptionsWire struct {
 	ControlLimit             int    `json:"control_limit,omitempty"`
 	CompletionLimit          int    `json:"completion_limit,omitempty"`
 	WorkerLimit              int    `json:"worker_limit,omitempty"`
+	VerificationLimit        int    `json:"verification_limit,omitempty"`
 	DeferredTaskLimit        int    `json:"deferred_task_limit,omitempty"`
 	DeferredTaskAfterOrdinal uint64 `json:"deferred_task_after_ordinal,omitempty"`
 	IncludeTerminal          bool   `json:"include_terminal,omitempty"`
@@ -162,6 +178,20 @@ func (s *Service) applicationCall(ctx context.Context, params ApplicationCallPar
 	}
 	if !binding.hasCapability(operation.capability) {
 		return nil, fmt.Errorf("application capability %q is not admitted", operation.capability)
+	}
+	if params.Operation == "verification.request" && !containsApplicationEventKind(binding.eventKinds, "session.turn_committed") {
+		return nil, errors.New("application verification requests require a signed session.turn_committed subscription")
+	}
+	if params.Operation == "artifact.migrate.legacy-memory-v1" {
+		var empty struct{}
+		if err := strictUnmarshal(params.Payload, &empty); err != nil {
+			return nil, err
+		}
+		result, err := s.migrateLegacyMemory(ctx, binding)
+		if err != nil {
+			return nil, err
+		}
+		return boundedArtifactResponse(result)
 	}
 	state := s.artifacts
 	if state == nil || state.application == nil {

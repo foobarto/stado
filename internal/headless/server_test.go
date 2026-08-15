@@ -13,23 +13,49 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-func installHeadlessLifecycleFixture(t *testing.T, cfg *config.Config, id string) {
+func installHeadlessLifecycleFixture(t *testing.T, cfg *config.Config, id string) string {
 	t.Helper()
-	dir := filepath.Join(cfg.StateDir(), "plugins", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	source := filepath.Join(t.TempDir(), id)
+	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{"name":"quality","version":"1.0.0","wasm_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capabilities":[],"tools":[],"lifecycle":{}}`
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	mf, _, err := plugins.LoadFromDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg.StateDir(), "plugins", record.StoreKey)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"plugin.manifest.json", "plugin.manifest.sig"} {
+		data, readErr := os.ReadFile(filepath.Join(source, filename))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := os.WriteFile(filepath.Join(dir, filename), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plugins.WriteInstallRecord(dir, record, *mf); err != nil {
+		t.Fatal(err)
+	}
+	return record.StoreKey
 }
 
 func TestHeadlessRejectsConfiguredLifecycleApplicationBeforeServing(t *testing.T) {
@@ -41,8 +67,8 @@ func TestHeadlessRejectsConfiguredLifecycleApplicationBeforeServing(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	installHeadlessLifecycleFixture(t, cfg, "quality-1.0.0")
-	cfg.Plugins.Background = []string{"quality-1.0.0"}
+	storeKey := installHeadlessLifecycleFixture(t, cfg, "quality-source")
+	cfg.Plugins.Background = []string{storeKey}
 	applications, err := runtime.ConfiguredLifecycleApplications(cfg, nil)
 	if err != nil || len(applications) != 1 {
 		t.Fatalf("application classification = %#v, %v", applications, err)
@@ -63,10 +89,10 @@ func TestHeadlessPluginRunRejectsLifecycleManifestBeforeInstantiation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	installHeadlessLifecycleFixture(t, cfg, "quality-1.0.0")
+	storeKey := installHeadlessLifecycleFixture(t, cfg, "quality-source")
 	srv := NewServer(cfg, nil)
 	srv.sessions["h-1"] = &hSession{id: "h-1"}
-	_, err = srv.pluginRun(context.Background(), json.RawMessage(`{"sessionId":"h-1","id":"quality-1.0.0","tool":"quality"}`))
+	_, err = srv.pluginRun(context.Background(), json.RawMessage(`{"sessionId":"h-1","id":"`+storeKey+`","tool":"quality"}`))
 	if err == nil || !strings.Contains(err.Error(), "ephemeral plugin.run") || !strings.Contains(err.Error(), "interactive TUI") {
 		t.Fatalf("plugin.run lifecycle diagnostic = %v", err)
 	}

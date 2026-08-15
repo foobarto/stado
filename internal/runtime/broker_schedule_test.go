@@ -63,3 +63,25 @@ func TestCheckSchedulingMapsDurableStates(t *testing.T) {
 		t.Fatalf("broker failure did not fail closed: %v", err)
 	}
 }
+
+func TestNativeVerificationDispatchGateBypassesOnlyHold(t *testing.T) {
+	ctx := context.Background()
+	for state, wantErr := range map[ScheduleState]error{
+		ScheduleActive:    nil,
+		ScheduleHeld:      nil,
+		SchedulePaused:    ErrSchedulePaused,
+		ScheduleStopped:   ErrScheduleStopped,
+		ScheduleCompleted: ErrScheduleCompleted,
+	} {
+		gate := NativeVerificationDispatchGate(&scheduleBrokerStub{status: ScheduleStatus{State: state, ReasonCode: "quality-gate"}})
+		err := gate.BeforeTool(ctx)
+		if wantErr == nil && err != nil || wantErr != nil && !errors.Is(err, wantErr) {
+			t.Fatalf("state %s verification gate err=%v want=%v", state, err, wantErr)
+		}
+	}
+	private := errors.New("broker unavailable")
+	gate := NativeVerificationDispatchGate(&scheduleBrokerStub{err: private})
+	if err := gate.BeforeTool(ctx); !errors.Is(err, private) {
+		t.Fatalf("verification gate did not fail closed: %v", err)
+	}
+}

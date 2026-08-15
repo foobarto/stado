@@ -299,8 +299,8 @@ func TestResolver_List_Dedupes(t *testing.T) {
 
 func TestAssembleSystem(t *testing.T) {
 	p := &Persona{Body: "  PERSONA BODY  "}
-	got := AssembleSystem(p, "PROJECT", "MEMORY", "EXTRA")
-	expected := "PERSONA BODY\n\nPROJECT\n\nMEMORY\n\nEXTRA"
+	got := AssembleSystem(p, "PROJECT", "APPLICATION", "EXTRA")
+	expected := "PERSONA BODY\n\nPROJECT\n\nAPPLICATION\n\nEXTRA"
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

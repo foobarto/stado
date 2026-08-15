@@ -5,468 +5,327 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Partial
 type: Standards
 created: 2026-06-17
-requires: ["EP-0037"]
+requires: ["EP-0037", "EP-0038", "EP-0039"]
 extends: ["EP-0008"]
-see-also: ["EP-0018", "EP-0030", "EP-0039", "EP-0044"]
+see-also: ["EP-0018", "EP-0030", "EP-0044", "EP-0066"]
 history:
   - date: 2026-08-14
     status: Partial
     note: >
-      Trust-boundary correction: EP-44 did not ship a per-project TOFU store;
-      it chose always-strip plus explicit user-config opt-ins. Project skill
-      `allowed-tools` therefore remains unconditionally inert. Any future
-      enablement needs a separately accepted authority path and cannot rely on
-      the nonexistent EP-44 gate.
+      Corrected implementation placement and provenance. Native stado now
+      exposes only operation/kind-scoped, digest-fenced context-resource facts
+      plus the generic registry/session-surface primitive. The explicit
+      official skills WASM plugin owns search, matching, formatting, opening,
+      and activation requests. Native prompt listing, skills__load
+      registration, exact-name interception, and synthetic user-role injection
+      are deleted. Operator /skill, slash, and --skill remain native gestures.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      EP-44 did not ship a per-project TOFU store; project skill allowed-tools
+      therefore remains unconditionally inert. A future enablement needs a
+      separately accepted authority path.
   - date: 2026-06-29
     status: Partial
     note: >
-      Clarification (post-merge) on the `allowed-tools` trust-rule-2 wording
-      "pre-approves a prompt for an already-available tool": stado has NO
-      native-tool approval prompt — bundled tools run as soon as they are
-      surfaced (the old TUI approval loop was removed; only the opt-in plugin
-      `ui:approval` card remains, see docs/commands/tui.md). So `allowed-tools`
-      in Phase 1 == surfacing the tool onto the per-turn slate, which already
-      gives the Claude-Code "runs without asking" behavior for native tools;
-      there is no separate native approval step to skip. A 2026-06-29 operator
-      decision considered adding an approval-skip and resolved it as
-      already-satisfied (no code change); the only residual is suppressing a
-      plugin `ui:approval` card, deferred as not currently needed. See
-      .agent/decisions/2026-06-29-ep0045-phase1-merge-and-followups.md.
-  - date: 2026-06-29
-    status: Partial
-    note: >
-      Phase 1 shipped — model-invocable skills land. Loader recognizes
-      directory <name>/SKILL.md bundles (${STADO_SKILL_DIR} expansion) and
-      flat .stado/skills/<name>.md, with the os.Root/size/entry-count/symlink
-      guards extended to the directory walk. Frontmatter gains when_to_use,
-      disable-model-invocation, user-invocable, allowed-tools. The budget-capped
-      model listing is appended to the system prompt and skills__load injects
-      the body as a user message, wired uniformly across run / TUI / ACP /
-      headless / subagents. Trust: project-skill allowed-tools fail closed
-      (persona-scoped only until EP-44 TOFU); denying skills__load via
-      [tools].disabled disables model invocation wholesale while /skill: keeps
-      working (rule 3); inert skills (both invocations off) warn at load. Docs
-      synced (features/skills.md, commands/run.md, commands/tui.md, CHANGELOG)
-      and the package tests (internal/skills, internal/runtime, internal/tui)
-      are green. Phases 2–4 (arguments + dynamic injection, distribution
-      scopes, parity tail) remain open — see the phase table above. Status is
-      Partial, not Implemented, until they land.
-  - date: 2026-06-18
-    status: Draft
-    note: Phase 1 implementation in flight on feat/ep-0045-model-invocable-skills —
-      directory SKILL.md loader, budget-capped model listing, skills__load tool,
-      frontmatter knobs (when_to_use / disable-model-invocation / user-invocable /
-      allowed-tools), persona-scoped allowed-tools (project fail-closed). Post-review
-      fixes — skills__load is deniable per trust rule 3 (NOT a non-disableable
-      kernel meta-tool; surfaced on demand only when a model-invocable skill exists,
-      and denying it suppresses the listing too); skills wired uniformly across run /
-      TUI / ACP / headless / subagents; TUI now injects the loaded body as a user
-      message; inert-skill (both invocations off) load warning.
+      Initial Phase 1 shipped directory SKILL.md bundles, frontmatter controls,
+      persona allowed-tools, a native listing/loader, and cross-surface wiring.
+      The 2026-08-14 correction retains the file/operator behavior but replaces
+      the native model application and its false provenance path.
   - date: 2026-06-17
     status: Draft
-    note: Initial draft. Closes the gap between stado's user-invoked skill
-      prompts and Claude Code's model-invocable Agent Skills, reusing the
-      existing deferred-tool search/activate surface (EP-37).
+    note: Initial draft.
 ---
 
-> **Relationships:** **Requires:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md) · **Extends:** [EP-0008](./0008-repo-local-instructions-and-skills.md) · **See also:** [EP-0018](./0018-configurable-system-prompt-template.md), [EP-0030](./0030-security-research-default-harness.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0044](./0044-repo-config-trust-boundary.md)
+> **Relationships:** **Requires:** [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0039](./0039-plugin-distribution-and-trust.md) · **Extends:** [EP-0008](./0008-repo-local-instructions-and-skills.md) · **See also:** [EP-0018](./0018-configurable-system-prompt-template.md), [EP-0030](./0030-security-research-default-harness.md), [EP-0044](./0044-repo-config-trust-boundary.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md)
 
 # EP-45: Model-Invocable Skills (Agent Skills parity)
 
+> **Implementation status (2026-08-14):** The native model application is
+> removed and the generic resource/surface ABI plus reproducible official WASM
+> source are complete. The package remains unsigned/unpublished. Project
+> resource `allowed-tools` stays mechanically inert until a separately accepted
+> authority path exists, so the EP remains Partial.
+
 ## Problem
 
-Stado's skills (EP-8) are **user-invoked prompt injectors**. A skill is
-one markdown file under `.stado/skills/<name>.md`; the user pastes its
-body into the turn with `/skill:<name>`, `--skill <name>`, or a
-`slash:` shortcut. The model never sees that a skill exists and can
-never decide to use one. In Claude Code's taxonomy this is a *custom
-command*, not a *skill*.
+EP-8 made skills explicit operator prompt gestures. A project can name a
+reusable workflow and the operator can invoke it with `/skill:<name>`, a slash
+shortcut, or `stado run --skill`. That does not provide progressive disclosure:
+the model cannot discover a relevant skill and request its body when useful.
 
-Claude Code (and the [Agent Skills](https://agentskills.io) open
-standard it implements) define a skill by the property stado is
-missing: **progressive disclosure**. Each skill's `name` +
-`description` sit in the model's context cheaply; the model pulls the
-full body into context **on its own initiative** when the description
-matches the work at hand. The body can reference bundled supporting
-files (scripts, references, templates) that load only when needed. This
-is what lets a skill act as an on-demand capability rather than a
-snippet the user has to remember to paste.
+The first Phase 1 implementation closed that visible gap in the wrong layer.
+Native Go appended a skill listing to every system prompt, registered
+`skills__load`, recognized that exact tool name in AgentLoop and TUI, removed
+the body from the tool result, and appended it as a new user message. This had
+three architectural defects:
 
-Concretely, the gap today:
+1. a stado-owned model application lived in native code despite EP-2/38;
+2. every execution surface needed a skill-specific interceptor and fallback;
+3. a model-selected tool result was relabeled as operator/user provenance.
 
-| Capability | Claude Code | stado today |
-|---|---|---|
-| Model can invoke a skill by matching its description | yes (core) | **yes (Phase 1)** |
-| Skill body is a directory with bundled scripts/refs | `<name>/SKILL.md` + files | **yes; flat `.md` also supported** |
-| Personal / global skills | `~/.claude/skills/` | no (deliberate, EP-8 D2/skills.go) |
-| Plugin-bundled skills (namespaced) | `<plugin>/skills/` | no |
-| Arguments / substitution | `$ARGUMENTS`, `$N`, `$name`, `${...}` | no (EP-8 non-goal) |
-| Dynamic context injection | `` !`cmd` `` runs before model sees it | no (EP-8 non-goal) |
-| Per-skill tool pre-approval | `allowed-tools` | persona-scoped surfacing; project scope fail-closed |
-| Invocation control | `disable-model-invocation`, `user-invocable` | **yes (Phase 1)** |
-| Forked/subagent execution | `context: fork` + `agent:` | no |
-| Per-persona skill scoping | via subagent `skills:` | **yes — stado is ahead here** |
-
-The headline is the first row. Everything else is supporting surface
-that only matters once the model can choose a skill. The rest of this
-EP is mostly about closing the first row **without** inheriting Claude
-Code's full security-relevant surface area uncritically — stado is a
-sandboxed, trust-boundary-conscious tool (EP-5, EP-39, EP-44), and a
-project-checked-in skill that the model auto-loads, that grants tools,
-or that runs shell on open is exactly the repo-config-as-attacker
-problem EP-44 already fenced.
+The goal remains progressive disclosure. The correction changes placement and
+provenance rather than retreating to operator-only skills.
 
 ## Goals
 
-- Let the model discover and load a skill on its own, by description,
-  with the body costing context only when loaded (progressive
-  disclosure).
-- Adopt the `<name>/SKILL.md` directory format so a skill can bundle
-  supporting files (scripts, references, examples) the model loads on
-  demand — while keeping existing flat `.stado/skills/<name>.md` files
-  working.
-- Give skill authors the invocation-control and tool-scoping knobs that
-  make model invocation safe and predictable (`disable-model-invocation`,
-  `user-invocable`, `allowed-tools`).
-- Map every newly model-reachable or shell-touching skill surface onto
-  stado's existing trust boundary (EP-44 / EP-39) rather than bolting on
-  a parallel trust model.
-- Reuse the deferred-tool search/activate machinery (EP-37) as the
-  delivery vehicle instead of inventing a second progressive-disclosure
-  mechanism.
+- Let a model search admitted skill summaries and open one exact body on
+  demand.
+- Keep search/matching/formatting/invocation policy in an official signed WASM
+  plugin under EP-66.
+- Keep native stado limited to facts, trust projection, immutable identity,
+  bounds, and generic session-ceiling enforcement unavailable inside WASM.
+- Preserve explicit `/skill`, slash, and `--skill` operator gestures.
+- Preserve the flat Markdown and directory `SKILL.md` formats, including
+  `${STADO_SKILL_DIR}` references.
+- Make model-selected content remain an ordinary tool-origin result.
+- Give run, TUI, headless, ACP, and subagents the same context-bound behavior
+  without surface-specific fallbacks.
 
 ## Non-goals
 
-- **Not** removing the existing user-invoked surface. `/skill:<name>`,
-  `--skill`, and `slash:` keep working unchanged; they become *one* way
-  to invoke a skill, not the only way.
-- **Not** shipping the entire Claude Code frontmatter surface in one
-  release. `context: fork`, `model`/`effort` overrides, `paths` glob
-  activation, `skillOverrides` settings, live file-watch reload, and
-  `--add-dir` skill loading are explicitly deferred to Phase 4 / future
-  EPs (see Open questions). They are parity-nice, not gap-defining.
-- **Not** a general macro/templating language for its own sake.
-  Argument substitution and dynamic injection (Phase 2) are scoped to
-  the Agent Skills standard's syntax, gated on trust, and justified only
-  because the model-invocation use cases (`/fix-issue 123`, grounding a
-  skill in `git diff`) need them — this is the deliberate reversal of
-  EP-8's "no templating" non-goal, recorded in D5.
+- Bundling or default-enabling the official skill plugin. Installation, signer
+  trust, `[tools]` admission, and autoload remain explicit operator choices.
+- Treating plugin isolation as permission to trust project-controlled prompts.
+- Giving project `allowed-tools` authority. EP-44 has no accepted transition
+  for it.
+- Adding a native prompt-contribution or role-injection extension point.
+- Shipping argument substitution, dynamic shell interpolation, personal/global
+  skills, plugin-bundled skill directories, forked execution, model overrides,
+  path activation, or live reload in the corrected Phase 1.
 
-## Design
+## Decisions
 
-### Phasing
+### Model behavior belongs to an explicit WASM plugin
 
-The EP lands in phases so the gap-defining capability ships first and
-the trust-sensitive surface area lands deliberately.
+The official `skills` package lives in `foobarto/stado-plugins` and declares:
 
-- **Phase 1 — Model invocation + directory format.** The core gap.
-- **Phase 2 — Arguments + dynamic context injection.** Reverses EP-8
-  non-goals; trust-gated.
-- **Phase 3 — Distribution scopes.** Personal/global + plugin-bundled
-  skills.
-- **Phase 4 — Parity tail (deferred).** Fork execution, model/effort,
-  `paths`, settings overrides, live reload. Tracked as open questions,
-  not specified here.
+| Tool | Class | Effective capability subset | Behavior |
+|---|---|---|---|
+| `skills__search` | NonMutating | `context:resource:catalog:skill` | Search and format admitted skill facts; cannot open bodies or edit the tool surface |
+| `skills__load` | StateMutating | skill catalog + open, `registry:catalog`, `session:tool-surface` | Open one exact opaque resource ID returned by search, optionally request an allowed-tool surface edit, and return the labeled body as the tool result |
 
-### Phase 1 — Model-invocable skills
+The plugin is neither embedded nor enabled merely because stado found a skill
+file. Operators install the signed package and expose its tools through normal
+tool policy. Omitting or disabling `skills__load` prevents model-driven body
+invocation. There is no separate native listing to suppress.
 
-**Surface to the model via the deferred-tool mechanism.** Stado already
-solves "let the model discover and pull in a capability on demand" for
-tools: `tools__search` / `tools__describe` / `tools__activate` (EP-37).
-Skills get the same treatment rather than a new mechanism:
+Native stado has no `metaSkillLoad`, static `skills__load` registration,
+`FormatModelListing`, `AbsorbSkillLoad`, or exact-name autoload/result branch.
+Absence, plugin failure, or filtered tools has no native fallback.
 
-- At session start, each loaded skill contributes a one-line
-  `name` + `description` entry to the model's context (the same budgeted
-  listing the deferred-tool surface uses). This is the cheap half of
-  progressive disclosure.
-- A `skills__load` host tool (or a `kind=skill` row in the existing
-  tool-search index — see D2) returns the rendered skill body. When the
-  model calls it, the body enters context exactly as a user `/skill:`
-  injection does today, except the *model* initiated it.
-- User-facing `/skill:<name>`, `--skill`, and `slash:` shortcuts now
-  resolve to the same load path. One body, two initiators.
+### Generic context-resource ABI
 
-**Directory format with flat-file back-compat.** A skill becomes a
-directory whose entrypoint is `SKILL.md`:
+Two generic host imports bridge facts WASM cannot obtain from its garden:
 
+- `stado_context_resource_catalog` under
+  `context:resource:catalog:<kind>`;
+- `stado_context_resource_open` under `context:resource:open:<kind>`.
+
+Capabilities are exact by operation and kind. Catalog permission for `skill`
+does not grant open, another kind, a path, or filesystem authority.
+The package top-level capability list is the signed union, while each ordinary
+tool's required, presence-preserving signed subset attenuates its actual Host
+view. `[]` is explicit zero authority; omission is rejected rather than treated
+as inheritance. Admission rejects a duplicated or non-subset value, so
+`skills__search` cannot acquire open or surface-edit authority from its more
+capable sibling.
+
+`skills__load` requires the opaque `id` returned by search, never a display
+name. It obtains a fresh catalog and matches that exact ID before opening under
+the catalog digest. Duplicate display names therefore remain independently
+loadable, while a fabricated or stale ID fails closed. This follows the same
+rule as plugin package identity: human-readable labels do not select
+authority.
+
+Catalog pages are strict, bounded, ordered, and fenced by one
+`catalog_digest`. Every resource carries an opaque immutable `id`, exact
+content `digest`, kind, name, summary, scope, provenance, model visibility, and
+effective allowed-tool facts. Open requires kind, ID, and the exact catalog
+digest, and repeats the admitted fact with content format and content.
+
+The resource ID binds immutable source metadata, body, and declared tools. The
+catalog digest also binds the current effective tool projection. Pagination or
+open fails stale rather than combining facts from two source/trust/session
+states. No raw source path is exposed as authority.
+
+This ABI is intentionally not named after skills. Other applications may use a
+new kind after separately defining native admission and exact capabilities;
+the primitive itself contains no search score, matching, prose formatting,
+workflow choice, or role policy.
+
+### Native admission owns visibility and trust facts
+
+WASM does not receive every parsed file and decide which ones are safe:
+
+- `disable-model-invocation: true` resources are mechanically omitted from
+  both catalog and open;
+- rendered content over 128 KiB is omitted from the model catalog so the
+  complete labeled result fits the ordinary 1 MiB WASM tool-result channel,
+  including worst-case JSON escaping; operator `/skill` and `--skill` retain
+  the native loader's separate 1 MiB file allowance;
+- project resources report no effective allowed tools;
+- persona resources may report at most 64 unique valid exact names;
+- those names are intersected with an immutable snapshot of the exact
+  config-filtered registry and the live session override ceiling;
+- absent, globally disabled, and session-disabled names are omitted;
+- deactivate changes active state, not the ceiling, so a permitted name can be
+  reactivated later.
+
+The official plugin loads the generic exact registry catalog, checks every
+effective name exists in that same projection, and asks
+`stado_session_tool_surface_apply` to activate the complete batch under its
+registry digest. The host rechecks the whole batch before atomic mutation.
+Neither the skill nor the plugin can widen registry, broker, sandbox, or
+session authority.
+
+### Tool-origin content stays tool-origin
+
+`skills__load` returns a versioned JSON tool result containing the exact
+Markdown body, resource ID/digest, `scope`, `provenance`, content format, and
+any activated names. AgentLoop and TUI persist and send it exactly as a
+role=tool result. They do not trim the body, append a synthetic user message,
+or special-case the tool name.
+
+This differs deliberately from the explicit operator path. `/skill` and
+`--skill` truthfully create user input because the operator selected the skill.
+Matching body bytes do not imply matching provenance.
+
+### Cross-surface composition is context-bound
+
+`EffectiveSkills` remains the one project/persona resolution path. Each
+autonomous surface passes that catalog in the current tool-dispatch context:
+
+- run and headless AgentLoop;
+- ACP AgentLoop;
+- subagent one-shot AgentLoop rooted at the child worktree;
+- TUI direct async tool dispatch.
+
+The generic plugin adapter constructs resource access from that exact context
+for installed, bundled, and override dispatch uniformly. No lifecycle tick,
+system prompt contribution, global mutable catalog, or hidden per-surface
+fallback is required. A one-shot invocation with no bound catalog sees the
+primitive as unavailable.
+
+### Skill file and operator contract
+
+The loader recognizes both:
+
+```text
+.stado/skills/review.md
+.stado/skills/review/SKILL.md
 ```
-.stado/skills/
-  summarize-changes/
-    SKILL.md          # required: frontmatter + body
-    scripts/
-      check.sh        # referenced from the body, executed not inlined
-    reference.md      # loaded on demand when the body points to it
-```
 
-Loader changes in `internal/skills`:
+Directory skills may carry supporting files. `${STADO_SKILL_DIR}` is expanded
+only inside returned body content. Supporting files remain accessible solely
+through separately granted filesystem/process tools.
 
-- `Load` keeps walking up from cwd collecting `.stado/skills/`. For each
-  entry it now recognizes **both** `name/SKILL.md` (directory skill) and
-  the legacy `name.md` (flat skill). Flat files keep working verbatim —
-  they are skills with no bundle.
-- A new `Dir string` field on `Skill` records the skill's own directory
-  (empty for flat skills), exposed to the body as `${STADO_SKILL_DIR}`
-  so a bundled script is referenced by a stable path regardless of cwd
-  (mirrors Claude Code's `${CLAUDE_SKILL_DIR}`). Supporting files are
-  **not** auto-loaded; the body names them and the model reads/executes
-  them through normal FS/exec tools, which keeps them under the same
-  capability grants as any other file (EP-5).
-- The existing `os.Root` confinement, 1 MiB file cap, 4096-entry cap,
-  and symlink rejection (skills.go) extend to the directory walk:
-  `SKILL.md` and supporting files are read through the confined root;
-  symlinks out of the skill dir are still rejected.
-
-**Frontmatter additions (Phase 1).** The parser grows from `{name,
-description, slash}` to add:
+Phase 1 frontmatter remains:
 
 | Field | Meaning |
 |---|---|
-| `when_to_use` | Extra trigger context appended to `description` in the listing. |
-| `disable-model-invocation` | `true` ⇒ skill is omitted from the model-facing listing; only the user can invoke it. The safe default for side-effecting skills (`deploy`, `commit`). |
-| `user-invocable` | `false` ⇒ hidden from `/skill` menu and `slash:`; model-only background knowledge. |
-| `allowed-tools` | Tools pre-approved while this skill is active (see Trust below). |
+| `name` | Stable name within the effective catalog |
+| `description` | Primary search summary |
+| `when_to_use` | Additional matching context |
+| `slash` | Explicit operator shortcut |
+| `disable-model-invocation` | Omit from the model resource catalog |
+| `user-invocable` | Include/exclude operator gestures |
+| `allowed-tools` | Persona-only candidate names; project value is inert |
 
-`description` stays optional but becomes load-bearing: it is what the
-model matches on, so the docs guidance shifts from "optional label" to
-"write it for the model." Listing text is budget-capped the way the
-deferred-tool listing already is (EP-37); no new budget knob in Phase 1.
+Nearest project skill wins project collisions; project entries win persona
+name collisions. Invalid or oversized siblings warn without discarding valid
+entries. Existing path confinement, symlink refusal, entry bounds, and file
+size limits remain native loader responsibilities.
 
-**Trust boundary (the part stado must get right).** Model-invocable
-skills and `allowed-tools` are privilege surface, and project skills are
-attacker-controlled input under EP-44's threat model. Rules:
+## Phasing and status
 
-1. `allowed-tools` from a **project** skill (`.stado/skills/` inside the
-   repo) grants **no** tools. EP-44 did not ship its proposed per-project
-   TOFU store; its current posture is always-strip plus explicit user-config
-   opt-ins. A future project-skill authority path needs its own accepted
-   decision. Personal/global skills (Phase 3) are operator-authored and
-   trusted by location.
-2. `allowed-tools` never escalates past the session's own sandbox
-   policy. It pre-approves a *prompt* for an already-available tool; it
-   cannot widen the broker ceiling or the sandbox (consistent with the
-   wasm-tool-confinement model in memory). A skill cannot grant `bash`
-   network it doesn't otherwise have.
-3. Model invocation respects a session-level off switch: denying the
-   skill-load tool (analogous to Claude's `Skill` permission) disables
-   model invocation wholesale, leaving user invocation intact.
+Corrected Phase 1 is implemented in source but the EP remains **Partial**. The
+official plugin development artifact is deliberately unsigned and unpublished
+until the release gate uses the real offline key. Later phases still require
+separate implementation and trust review:
 
-### Phase 2 — Arguments and dynamic context injection
+1. **Corrected Phase 1:** model search/open, file formats, invocation controls,
+   persona allowed-tool projection, operator paths.
+2. **Deferred:** argument substitution and any dynamic context generation.
+3. **Deferred:** personal/global and plugin-distributed skill sources.
+4. **Deferred:** fork execution, model/effort overrides, paths, settings
+   overrides, and live reload.
 
-This phase reverses EP-8's "no templating / no parameter substitution"
-non-goal (D5), scoped to the Agent Skills standard:
+Dynamic shell interpolation is not an incremental convenience. It is command
+execution triggered by project prompt content and needs a dedicated accepted
+authority/sandbox design before implementation. This EP no longer pre-accepts
+an unimplemented EP-44 trust gate.
 
-- **Argument substitution** in the body: `$ARGUMENTS`, `$ARGUMENTS[N]`,
-  `$N`, and named `$name` (declared via an `arguments:` frontmatter
-  list), plus `${STADO_SESSION_ID}` and `${STADO_SKILL_DIR}`. If a skill
-  is invoked with arguments but contains no `$ARGUMENTS`, the input is
-  appended as `ARGUMENTS: <value>` (matching Claude Code). An
-  `argument-hint` field feeds autocomplete.
-- **Dynamic context injection**: `` !`cmd` `` inline and ```` ```! ````
-  fenced blocks run **before** the body is shown, output replacing the
-  placeholder. This is preprocessing, not a tool call.
+## Failure behavior
 
-**Trust boundary.** `` !`cmd` `` is arbitrary command execution at skill
-load. For a project skill this is RCE-on-open. Therefore:
+- Official plugin absent or not surfaced: no model skill discovery; operator
+  gestures continue.
+- Catalog capability absent or no context bound: plugin call fails closed with
+  no native fallback.
+- Catalog changes during pagination/open: stale failure; caller searches again.
+- Hidden skill: absent from catalog and impossible to open by guessed ID.
+- Invalid persona tool declarations: resource projection fails; no partial
+  activation.
+- Unknown/disabled persona names: omitted from effective facts.
+- Registry changes before activation: digest-fenced edit fails atomically.
+- Body plus result metadata exceeds the 1 MiB plugin tool-result buffer: load
+  returns an explicit size error rather than truncating content.
 
-- Dynamic injection from a project skill runs **only** when the project
-  is trusted (EP-44 gate) **and** the injected command executes under
-  the session sandbox policy — never the raw operator shell on a `run`/
-  `tui` session by default. When untrusted, the placeholder is replaced
-  with `[shell execution disabled: untrusted project skill]` (mirrors
-  Claude's `disableSkillShellExecution`), and a `disable-skill-shell`
-  config key provides a hard global off switch for managed setups.
-- Argument substitution is pure string templating and carries no
-  execution risk, so it is not trust-gated — but a substituted value is
-  never re-scanned for `` !`cmd` `` (single-pass, matching Claude Code),
-  so an argument can't smuggle in an injection.
+## Required tests
 
-### Phase 3 — Distribution scopes
-
-- **Personal/global skills** under `~/.config/stado/skills/` (XDG),
-  loaded after the cwd walk. This reverses the skills.go
-  "no user-global dir" stance (D2 of EP-8); the "why did this skill
-  run?" concern it raised is now answered by the model-facing listing
-  itself making provenance visible, and by precedence rules: project
-  (nearest) > personal > bundled, with name collisions resolved
-  nearest-wins as today.
-- **Plugin-bundled skills** under `<plugin>/skills/<name>/SKILL.md`,
-  namespaced `plugin:skill` so they can't collide with project/personal
-  skills, and inheriting the plugin's existing trust/signing posture
-  (EP-39), while project skills remain fail-closed.
-- Per-persona scoping (already shipped) composes on top unchanged.
-
-## Migration / rollout
-
-Pre-1.0: this is a **clean break**, not a compatibility-preserving
-change. No shims, no opt-in flags to retain old behavior. The breaking
-changes are enumerated in `CHANGELOG.md` at implementation time (the
-project's no-kid-gloves-pre-1.0 stance).
-
-- **Behavioral break (Phase 1):** every existing
-  `.stado/skills/<name>.md` becomes model-invocable by default — its
-  `description` enters the model-facing listing and the model may load
-  it on its own initiative (D7). A skill that should stay user-only adds
-  `disable-model-invocation: true`. This changes behavior for every repo
-  with a `.stado/skills/` on upgrade; acceptable pre-1.0, and it gets a
-  `CHANGELOG.md` entry.
-- Flat `.md` and directory `SKILL.md` both load (D3): flat is the
-  single-file convenience form, the directory form is for bundles. A
-  format choice, not a back-compat shim.
-- Phases 2–3 are additive frontmatter/locations.
-- Docs to update on implementation: `docs/features/skills.md`,
-  `docs/commands/run.md`, `docs/commands/tui.md` (add a model-invocation
-  section), plus the `CHANGELOG.md` entry enumerating the break. EP-8's
-  frontmatter already carries `extended-by: [18, 45]`; its accepted body
-  stays append-only.
-
-## Failure modes
-
-- **Skill triggers when unwanted.** Author tightens `description` or sets
-  `disable-model-invocation: true`. Surfaced via `/skill` listing showing
-  what the model can see.
-- **Skill never triggers.** Description lacks the words the user says.
-  Same remedy as Claude Code; `/skill` shows the live listing for
-  debugging.
-- **Listing budget overflow** with many skills: least-used descriptions
-  drop first (reuse EP-37's budgeting); names always retained.
-- **Malicious project skill** grants tools / runs shell on load:
-  defeated by the EP-44 trust gate (Phase 1 rule 1, Phase 2 trust rule).
-  An untrusted repo's skills are inert prompt text with no tools and no
-  shell.
-- **Broken skill file** (bad frontmatter, oversized, symlink): stays
-  non-fatal per the existing loader contract — warning emitted, other
-  skills still load.
-
-## Test strategy
-
-- **Loader** (`internal/skills`): directory `SKILL.md` discovery,
-  flat-file back-compat, `${STADO_SKILL_DIR}` resolution, supporting-file
-  confinement (symlink/`..` escape still rejected), precedence across
-  cwd/personal/plugin scopes.
-- **Model surface**: skill listing appears in the deferred-tool index;
-  `skills__load` returns the rendered body; `disable-model-invocation`
-  omits the entry; denying the load tool disables model invocation while
-  `/skill:` still works.
-- **Trust**: untrusted project skill grants no `allowed-tools` and its
-  `` !`cmd` `` is replaced with the disabled marker; trusted project +
-  personal skill behave fully. Pin against EP-44's existing trust tests.
-- **Substitution** (Phase 2): `$ARGUMENTS`/`$N`/`$name` expansion,
-  single-pass guarantee (substituted value not re-scanned), `ARGUMENTS:`
-  append fallback.
-- **TUI E2E** (pty-bridge, per CLAUDE.md): `/skill` listing reflects
-  model-visibility state; a model-initiated load renders the same block
-  a user `/skill:` does. Run inside `distrobox enter kali`.
-
-## Open questions
-
-- **Q1.** Is the model surface a dedicated `skills__load` tool or a
-  `kind=skill` extension of the existing `tools__*` search index?
-  (See D2 — leaning dedicated tool for a clean permission name, but the
-  shared index is less surface.)
-- **Q2.** Phase 4 scope: `context: fork` + `agent:` execution maps onto
-  stado's background-agent/subagent machinery (EP-38) and is attractive,
-  but pulls in model/effort overrides and agent-type resolution. Worth
-  its own EP once Phase 1–3 land.
-- **Q3.** `paths` glob activation (load a skill only when touching
-  matching files) needs a file-event hook stado doesn't have for skills
-  yet; defer with live-reload to Phase 4.
-- **Q4.** Settings-side visibility (`skillOverrides`-equivalent) vs.
-  frontmatter-only control. Frontmatter covers the common case; a
-  settings override matters mainly for skills you don't own (plugin/
-  shared-repo). Defer until plugin skills (Phase 3) exist.
+- strict operation/kind capability separation, JSON/UTF-8/size bounds, cursor
+  progress, stale pagination, stale open, and distinct open-envelope sizing;
+- resource ID changes with body/source/declaration changes;
+- hidden resources cannot catalog or open;
+- project tools remain inert; persona tools are unique/bounded and exactly
+  intersected with filtered registry/session ceilings;
+- AgentLoop and TUI controller ceilings reject absent names and remain stable
+  across deactivate/reactivate;
+- `skills__search` owns matching/formatting and `skills__load` owns open plus
+  one atomic activation request;
+- a `skills__load`-shaped result remains an unmodified role=tool message in
+  run and TUI;
+- native registry/prompt/handler debt remains zero under architecture guards;
+- official source passes unit, race, vet, reproducible build, and no-signature
+  checks.
 
 ## Decision log
 
-### D1. Define a skill by model-invocability, not by file shape
+### D1. Progressive disclosure, not file shape, defines model invocation
 
-- **Decided:** the gap this EP closes is the model's ability to discover
-  and load a skill by description (progressive disclosure); the directory
-  format and frontmatter additions are in service of that, not the point.
-- **Alternatives:** ship the `SKILL.md` directory format and supporting
-  files without model invocation (cosmetic parity), or ship only
-  invocation without the bundle (no on-demand reference files).
-- **Why:** model invocation is the one property that makes a "skill" a
-  skill in the Agent Skills standard; without it stado has custom
-  commands wearing the name.
+The model must be able to find a cheap summary and request the body. Flat and
+directory forms are authoring ergonomics, not different authority classes.
 
-### D2. Reuse the deferred-tool surface (EP-37) for disclosure
+### D2. Use an explicit application over generic facts
 
-- **Decided:** skills surface to the model through the existing
-  search/activate/deferred-tool machinery rather than a bespoke
-  progressive-disclosure path.
-- **Alternatives:** a separate skill-listing channel in the system
-  prompt; always-inline all skill bodies (defeats the cost win).
-- **Why:** stado already budgets and gates "capabilities the model pulls
-  in on demand" for tools; a second mechanism would duplicate the budget
-  logic and the permission story.
+A native listing/loader is rejected. A skill-specific privileged import is
+also rejected. Generic resource facts preserve the WASM innovation boundary
+while native admission retains facts and ceilings unavailable in the garden.
 
-### D3. Support both flat `.md` and directory `SKILL.md`
+### D3. Preserve initiator provenance
 
-- **Decided:** the loader recognizes both `name/SKILL.md` and `name.md`;
-  a one-line skill needs no directory, a bundling skill gets one.
-- **Alternatives:** require directories for every skill (ceremony for the
-  common one-file case), or refuse the directory form (no bundles).
-- **Why:** flat files are the right ergonomics for the single-prompt
-  common case; the directory form earns its ceremony only where
-  supporting files exist. This is a format choice, not a back-compat
-  obligation — the *behavioral* break (flat skills become
-  model-invocable) is clean and intentional, see D7.
+Operator selection produces user input. Model selection produces a tool
+result. Stado never changes one into the other based on an exact tool name.
 
-### D4. Bind new skill surface to the existing trust boundary, don't fork it
+### D4. Project allowed-tools remains inert
 
-- **Decided:** project-skill `allowed-tools` and `` !`cmd` `` injection remain
-  inert under EP-44's shipped always-strip posture. Plugin skills inherit
-  EP-39 plugin trust; `allowed-tools` never widens the sandbox. A future
-  project authority mechanism requires an explicit replacement decision.
-- **Alternatives:** a skill-specific trust prompt; trusting project
-  skills implicitly (matches some of Claude Code's defaults but violates
-  EP-44).
-- **Why:** a project skill is attacker-controlled input under stado's
-  threat model; reusing EP-44/EP-39 keeps one trust story instead of
-  two, and keeps untrusted-repo skills inert.
+EP-44 shipped always-strip for unsafe project authority rather than a TOFU
+store. Location alone cannot pre-approve session tools. Persona declarations
+are operator-authored and may be intersected with, never widen, the session
+ceiling.
 
-### D5. Reverse EP-8's "no templating" non-goal — scoped, in Phase 2
+### D5. Explicit installation and exposure
 
-- **Decided:** adopt the Agent Skills substitution + dynamic-injection
-  syntax (`$ARGUMENTS`, `` !`cmd` ``, …), trust-gated, single-pass.
-- **Alternatives:** keep EP-8's hard line (no args ever) — but then
-  `/fix-issue 123`-style skills and diff-grounded skills are impossible,
-  which are exactly the model-invocation use cases.
-- **Why:** the non-goal made sense when skills were static paste-ins;
-  once the model drives them, parameterization and grounding are the
-  point, not gold-plating. Scoped to the standard and gated on trust so
-  it doesn't become an unbounded macro language or an RCE vector.
-
-### D6. Phase the distribution scopes; ship the core gap first
-
-- **Decided:** personal/global and plugin-bundled skills land in Phase 3,
-  after model invocation and the directory format.
-- **Alternatives:** ship all locations at once.
-- **Why:** the core gap is invocation, not where files live; global/
-  plugin skills add trust and precedence surface that benefits from the
-  Phase 1 trust rules already being in place.
-
-### D7. All skills model-invocable by default — clean break, no opt-in to old behavior
-
-- **Decided:** on upgrade, every existing skill (flat or directory)
-  becomes model-invocable; opting *out* is one frontmatter line
-  (`disable-model-invocation: true`). No flag, default, or shim preserves
-  the old user-only behavior.
-- **Alternatives:** default flat skills to user-only and treat the
-  `SKILL.md` directory as the opt-in signal (the conservative,
-  upgrade-safe path the first draft leaned toward).
-- **Why:** pre-1.0 stado takes clean breaks and documents them in
-  `CHANGELOG.md` rather than carrying compatibility shims. A
-  per-format opt-in default would be exactly the kid-gloves the project
-  avoids, and it would split skill behavior on an irrelevant axis (file
-  shape) instead of on the author's intent (`disable-model-invocation`).
+The official plugin is not bundled or default-enabled. This keeps stado core
+small, makes model behavior a signed replaceable application, and leaves the
+operator in control of whether skill discovery consumes model surface.
 
 ## Related
 
-- [EP-8: Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md) — the current skill contract this extends.
-- [EP-37: Tool dispatch and operator surface](./0037-tool-dispatch-and-operator-surface.md) — the deferred-tool search/activate machinery reused for disclosure.
-- [EP-44: Repo-config trust boundary](./0044-repo-config-trust-boundary.md) — the always-strip posture that leaves project-skill grants and shell injection inert.
-- [EP-39: Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) — trust posture inherited by plugin-bundled skills.
-- [EP-5: Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) — the ceiling `allowed-tools` can never widen.
-- [Agent Skills open standard](https://agentskills.io) and [Claude Code skills docs](https://code.claude.com/docs/en/skills) — the parity target.
-- [docs/features/skills.md](../features/skills.md) — user-facing doc to update on implementation.
+- [EP-8](./0008-repo-local-instructions-and-skills.md)
+- [EP-37](./0037-tool-dispatch-and-operator-surface.md)
+- [EP-38](./0038-abi-v2-bundled-wasm-and-runtime.md)
+- [EP-39](./0039-plugin-distribution-and-trust.md)
+- [EP-44](./0044-repo-config-trust-boundary.md)
+- [EP-66](./0066-canonical-plugin-authority-and-application-placement.md)
+- [Skills reference](../features/skills.md)

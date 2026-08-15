@@ -46,7 +46,7 @@ func LoadBackgroundPlugin(ctx context.Context, rt *Runtime, wasmBytes []byte, ho
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		return nil, fmt.Errorf("background: host imports: %w", err)
 	}
-	mod, err := rt.Instantiate(ctx, wasmBytes, host.Manifest)
+	mod, err := rt.InstantiateWithIdentity(ctx, wasmBytes, host.Manifest, host.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("background: instantiate: %w", err)
 	}

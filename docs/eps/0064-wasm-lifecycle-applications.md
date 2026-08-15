@@ -10,6 +10,36 @@ extends: ["EP-0051", "EP-0062"]
 extended-by: ["EP-0066", "EP-0067"]
 see-also: ["EP-0017", "EP-0033", "EP-0036", "EP-0046", "EP-0060"]
 history:
+  - date: 2026-08-15
+    status: Accepted
+    note: Automatic compacted-child continuation is live-green under an ephemeral signed install. Context-overflow recovery binds the authenticated canonical auto-compact identity, transfers the complete broker application scope to the direct child, reconciles the exact WorkerRun once rather than replaying it as ordinary input, and terminalizes failed recovery without a ghost recurrence. Real plugin signing/publication remains open.
+  - date: 2026-08-15
+    status: Accepted
+    note: Transactional reload and explicit cold session resume are live-green. Durable broker adoption now keys the logical subject to the sidecar's stable canonical user-repository root rather than a launch cwd that changes on resume. The later automatic compacted-child proof is recorded separately; real plugin signing/publication remains open.
+  - date: 2026-08-15
+    status: Accepted
+    note: Signed official-source checkpoint 987906479e9675b2aa9f972802b5ab3716d4af48 and a real ephemeral-sign/install PTY now cross operator-owned Verify Work, exact source-content anchoring, watchdog review, a fresh independent verifier, durable successful completion, and exact hold release. The later reload/restart host correction is recorded separately; compacted-child proof and real plugin signing/publication remain open.
+  - date: 2026-08-15
+    status: Accepted
+    note: The signed official-source checkpoint add72505d3408293677b29aeae8cc1d2ee6ea913 adds the exact pivot replay/confirmation conformance corrections; the later live completion corrections await a new checkpoint, while restart, reload, compacted-child proof, and real plugin signing/publication remain open.
+  - date: 2026-08-15
+    status: Accepted
+    note: Application command cancellation now returns only an exact WorkerRun reference; the native host re-reads its terminal broker projection before stopping the matching local provider/tool turn, and a real PTY gate observes the held provider request close. This remains generic cleanup after broker authority, not guest cancellation authority.
+  - date: 2026-08-14
+    status: Accepted
+    note: The complete eight-package official source checkpoint is signed Git commit efd322c5b883e2f69472cc10b37995d08105fa40; isolated install/admission/reload and supervise setup-through-active-cancel PTY proof are green, while the remaining workflow proof and real plugin signing/publication remain open.
+  - date: 2026-08-14
+    status: Accepted
+    note: The staged official memory/learn source now uses one explicit TUI-only lifecycle package for commands and pre-LLM contribution. It is unsigned and unpublished; no run, headless, ACP, or native compatibility path simulates that application.
+  - date: 2026-08-14
+    status: Accepted
+    note: Added a distinct append-only pre-LLM contribution capability and an opaque-binding session-context fact projection for EP-60 guidance; callback failure posture is resolved by each signed application before the shared Lua runner, and the supported composition remains TUI-only.
+  - date: 2026-08-14
+    status: Accepted
+    note: The generic lifecycle host and complete official supervise source are implemented and the native supervise/evaluator paths are removed; the source is checkpointed in signed local stado-plugins commit 088b976, but the plugin artifact remains unsigned/unpublished and cross-repository release proof remains open.
+  - date: 2026-08-14
+    status: Accepted
+    note: Added a generic durable asynchronous native-verification request; the broker derives a pending turn anchor, the TUI alone resolves operator commands, and strict evidence-bearing facts return under an explicit at-least-once crash model.
   - date: 2026-08-14
     status: Accepted
     note: Attenuated child provider/model/thinking/effort selection behind agent:spawn:configure in addition to the operation-scoped spawn grant; provider credentials remain native.
@@ -33,7 +63,7 @@ history:
     note: EP-0067 refines contract activation into exact application-local candidate selection because supervise is a quality workflow, not an artifact authority grant.
   - date: 2026-08-14
     status: Accepted
-    note: Clarified that supervise is an official signed plugin sourced and released from foobarto/stado-plugins, not in-tree bundled application source.
+    note: Clarified that supervise is an official signed-plugin package sourced and released from foobarto/stado-plugins, not in-tree bundled application source; signing and release are rollout requirements, not claims that the package already exists.
   - date: 2026-08-14
     status: Accepted
     note: Accepted after re-evaluating supervise against the complete EP architecture.
@@ -160,17 +190,24 @@ orders named participants. The first deny short-circuits; validated mutations
 thread forward. Every decision names the participant identity and is audited.
 
 Build/load failure is visible and follows admission policy. Runtime timeout,
-trap, malformed output, or unavailable broker follows the manifest declaration
-intersected with stricter operator policy. A plugin cannot choose fail-open when
-the operator requires fail-closed. Post-action denial still cannot undo an
-effect.
+trap, malformed output, or unavailable broker follows the signed manifest's
+failure declaration. The application adapter resolves that posture before the
+shared Lua runner sees a callback result: `failure: open` logs and contributes
+nothing, while `failure: closed` returns a denial. A global fail-closed setting
+for operator-authored Lua policy cannot silently promote a failure-open advisory
+application into a turn gate. Post-action denial still cannot undo an effect.
 
 Lifecycle participation is a trusted plugin capability, not an ambient feature:
 
 ```text
 lifecycle:observe:<point-or-event>
 lifecycle:decide:<point>
+lifecycle:contribute:pre_llm
 ```
+
+`lifecycle:contribute:pre_llm` is distinct from decision authority. Its only
+valid response appends one bounded `system_append` to the current system text;
+it cannot carry a reason, deny, replace system/model, or mutate history.
 
 Project-local config cannot enable or widen it under EP-44. Installed plugins
 require the ordinary trust/pin/opt-in flow; an official package is not
@@ -218,6 +255,7 @@ provides:
 ```text
 stado_session_journal_append
 stado_session_projection_read
+stado_session_context_read
 stado_session_hold_acquire
 stado_session_hold_release
 stado_session_request_pause
@@ -228,11 +266,20 @@ stado_session_input_route
 stado_session_worker_request
 stado_session_worker_resume
 stado_session_worker_cancel
+stado_session_verification_request
 stado_agent_spawn / list / read_messages / send_message / cancel
 stado_agent_monitor / demonitor
 stado_mailbox_send / receive / ack
 stado_timer_schedule / cancel
 ```
+
+`stado_session_context_read` is the narrow EP-60 exception to general
+application projections: it accepts an empty request and returns only bounded
+broker-derived signal/child/message facts for the logical session in the
+opaque application binding. It exposes no caller-selected scope and no raw
+attributes, payloads, bodies, or errors. The TUI may also publish bounded
+current-input and fast-context-presence facts at `pre_llm`; both are untrusted
+quality observations, never operator authority.
 
 Existing agent imports may retain names while their single bundled-only
 `agent:fleet` gate is split into operation-scoped capabilities. User plugins may
@@ -301,7 +348,10 @@ application may replace another application's run. It may replace an operator
 `replace_operator_loop`.
 
 The application may CAS-cancel its own requested, resume-requested, or active run through
-`session:worker:cancel`. Successful `session:complete` derives the run's
+`session:worker:cancel`. A successful command then names only that exact run in
+`cancel_worker_run_id`; the native host re-reads the broker terminal projection
+before clearing recurrence and cancelling an in-flight provider or tool.
+The callback field supplies no cancellation authority. Successful `session:complete` derives the run's
 `completed` projection and ends recurrence normally. Before the native
 scheduler returns pause or stop, it durably terminalizes the active run as
 `interrupted` or `stopped`, including the reason and control WAL sequence. A
@@ -328,6 +378,40 @@ resume activation with a retryable conflict; releasing or settling it permits
 an exact activation retry, while an expired hold is ignored. Journal,
 operator-input, deferred-task, and application state keep their original run
 ownership and WAL order.
+
+### Generic asynchronous native verification
+
+A lifecycle application with `session:verification:request` may ask the native
+TUI to execute the operator-configured Verify Work suite for one exact active
+WorkerRun version and one still-pending `session.turn_committed` sequence. It
+cannot supply a session/tree anchor or command. The broker derives the immutable
+turn coordinate and source evidence, persists the request, and permits the
+native controller to claim it only after the source callback cursor ACK is
+durable.
+
+The TUI resolves only `[verify].commands`, rechecks the exact session tree and
+composition before, between, and after commands, and uses the ordinary audited
+executor path. A native executor view bypasses the application's leased hold so
+the held worker cannot deadlock its own quality check, while the ordinary worker
+executor remains held. Pause, stop, completion, terminal worker state, and
+scope transition still win. Hook observation and denial remain active; hook
+mutation is rejected so a persisted digest cannot describe a different command
+or rewritten result.
+
+The terminal `session.verification_finished` event contains strict, bounded
+facts: suite and ordered command/result digests, typed outcomes/failure
+fingerprints, the original turn evidence, exact signed trace/tree commit
+references, and the terminal broker-WAL evidence reference. It contains no
+command or output plaintext and no session/controller authority fields.
+`no_suite` records absence and is neither pass nor fail. Supervise or another
+application owns the policy interpretation and any hold/completion decision;
+native code emits no supervise-shaped verdict.
+
+There is no guest cancel operation and no claim that shell execution is exactly
+once. A process crash after a verifier command returns but before the terminal
+WAL append leaves `running`; recovery repeats the suite. This at-least-once
+window is irreducible without making arbitrary operator commands transactional,
+so configured verification commands must tolerate retry.
 
 ### Automatic compacted-child continuation
 
@@ -371,7 +455,7 @@ uses session/research primitives; native stado need not register
 
 ### Supervise as an official application
 
-The official signed `supervise` plugin owns:
+The official `supervise` plugin owns (and, once released, its signature binds):
 
 - setup UI and baseline schema;
 - its EP-63 `supervision-contract` artifact kind;
@@ -437,6 +521,17 @@ product behavior:
 The application exports operator commands and model-facing tools declared in
 its signed manifest. Stado's registry and operator-surface projection remain
 generic; no native `ToolDef` or Go dispatcher may implement supervise policy.
+
+A lifecycle tool may opt into ordinary turns with the strict presence-
+preserving `application_session: {"plan_visible": <bool>}` field. The object is
+closed, requires the boolean, is valid only on a lifecycle application, and is
+mutually exclusive with `application_worker` and `agent_child_only`. The exact
+admitted instance owns the projection: Do always receives the opted-in tool;
+Plan receives it only when `plan_visible` is explicitly true; BTW, worker runs,
+children, other applications, unsupported surfaces, stale generations, and
+replaced registry adapters never receive it. Global config and session disables
+remain ceilings. This is the generic contract used by the tasks application;
+the host contains no task-name exception.
 
 ### Review cadence and stale verdicts
 
@@ -506,26 +601,43 @@ execution.
 
 ## Migration / rollout
 
-1. Add canonical plugin runtime identity and the persistent application
-   dispatcher with lifecycle declarations and serialization.
-2. Route WASM lifecycle participants through the EP-51 runner on all supported
-   agent-loop/executor surfaces; make missing surface wiring explicit in tests.
-3. Add authenticated broker IPC for EP-63 artifacts, session projections,
-   journal, mailboxes, retained-agent monitoring, timers, and scheduling holds.
-4. Split the bundled-only `agent:fleet` capability into granular policy grants
-   and port the bundled agent plugin.
-5. Build and release the official supervise WASM plugin from
-   `github.com/foobarto/stado-plugins`, then migrate PR #257 state into one
-   activated contract artifact plus session journal events.
-6. Remove native supervise model tools, native workflow dispatch, and all direct
-   TUI/plugin WAL opens. Native fact collectors may remain after their output is
-   exposed generically.
-7. Keep EP-62 eval scenarios as behavior conformance tests and add strict-live,
-   periodic-event, stale-steer, stale-stop-confirmation, restart, and plugin-trap
-   cases.
+The persistent TUI dispatcher, signed-manifest commands/tools, canonical
+identity, authenticated broker bridges, generic artifacts/journal/events,
+attenuated child admission, immutable input routing, timers, leased holds,
+application WorkerRuns, successful completion, and generic asynchronous Verify
+Work facts are implemented. Unsupported surfaces fail closed. Native supervise
+commands, tools, service/policy, dispatch interception, evaluator, and direct
+WAL ownership are removed.
 
-Until this migration is complete, EP-62 remains Accepted rather than
-Implemented and v0.80.0 must not be published.
+The complete official application and its evaluator are preserved under
+[`foobarto/stado-plugins/supervise`](https://github.com/foobarto/stado-plugins/tree/main/supervise)
+in signed local source commit
+`987906479e9675b2aa9f972802b5ab3716d4af48`. Its complete-history recovery
+bundle is `.agent/stado-plugins-official-20260815-completion.bundle` (SHA-256
+`7eb946fe4c35b3630086f68eadab69d1bd3e5e6a3d702852648c2a1bd88c19ea`).
+That Git signature does not sign the plugin manifest or WASM artifact. The
+post-cutover isolated proof covered all eight packages, source-keyed install,
+explicit TUI admission, dynamic command ownership, tasks across reload and cold
+restart, unsupported-surface refusal, absence of native fallback, and supervise
+setup through versioned active-run cancellation.
+The ephemeral-sign/install cross-repository conformance proof now covers setup,
+exact review and pivot policy, immutable operator input, completion, reload,
+cold restart, automatic compacted-child transfer, removal, and no fallback.
+Remaining rollout is:
+
+1. freeze the reviewed and terminally audited root and official-plugin source;
+2. reproducibly build and sign `supervise/v0.1.0` with the operator-held offline
+   plugin key (`min_stado_version: 0.80.0`);
+3. publish it from `foobarto/stado-plugins`, install it into isolated roots, and
+   independently verify source, resolved commit, manifest, signature, digest,
+   activation, and command ownership; and
+4. repeat the plugin-owned paired scenarios plus strict-live, periodic-event,
+   stale-steer, stale-stop-confirmation, trap, lease, dormancy, pivot, input,
+   and verification-facts conformance.
+
+Until those release gates pass, EP-62 and EP-64 remain Accepted rather than
+Implemented, `/supervise` is unavailable to ordinary installations, and
+v0.80.0 must not be published.
 
 ## Failure modes
 
@@ -533,6 +645,8 @@ Implemented and v0.80.0 must not be published.
   ordinary sessions remain available unless operator policy requires the app.
 - Callback timeout/trap: apply bounded failure posture, record it, and avoid
   re-entering the instance until recovery/restart policy decides.
+- Failure-open contribution callback fault: log it and continue unchanged even
+  when the shared Lua hook runner is configured fail-closed.
 - Broker unavailable: authority-bearing operations fail closed; no file/WAL
   fallback. Existing holds remain effective until operator override or lease
   policy resolves them.
@@ -552,7 +666,8 @@ Implemented and v0.80.0 must not be published.
 
 - ABI and manifest tests for lifecycle declarations, canonical identity,
   capabilities, payload bounds, and response validation.
-- Deterministic ordering tests across Lua and multiple WASM participants.
+- Deterministic canonical ordering tests across Lua and multiple WASM
+  participants, including contribution chaining after a decide-capable app.
 - Concurrency/race tests proving one instance is never re-entered across tool,
   hook, event, tick, and close.
 - Crash/redelivery/idempotency tests at every event and broker transition.
@@ -563,8 +678,9 @@ Implemented and v0.80.0 must not be published.
 - Surface contract tests proving exact-one TUI composition and fail-closed
   rejection by run, headless, ACP, legacy background loading, ephemeral
   `plugin.run`, and recursively spawned children.
-- Supervise paired evals and state-machine tests run against the official WASM
-  application, with a guard that no native supervise tool is model-visible.
+- Supervise paired evals and state-machine tests run from the official plugin
+  repository against the WASM application, with a guard that no native
+  supervise tool, command, evaluator, or fallback is present.
 
 ## Decision log
 
@@ -626,6 +742,17 @@ Implemented and v0.80.0 must not be published.
   Partial support silently forks workflow state and recursively loads the
   supervisor into its own reviewers, which is worse than an explicit
   unsupported-surface error.
+
+### D7. Native verification emits facts, not application policy
+
+- **Decided:** the guest supplies only run/version/pending-event correlation;
+  the broker derives the anchor, and the TUI resolves and executes only
+  operator-configured commands before returning strict evidence-bearing facts.
+- **Alternatives:** let the plugin submit commands; make Verify Work native
+  supervise policy; treat no suite as pass; promise exactly-once execution.
+- **Why:** executable authority belongs to the operator/host, policy belongs to
+  the application, and arbitrary shell commands cannot be made transactional
+  across the terminal-WAL crash window.
 
 ## Related
 

@@ -46,6 +46,10 @@ func registerAgentSpawnImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
+			// Package ownership is host-authenticated presentation authority, not
+			// guest input. Set it for every WASM spawn; session/generation remain
+			// required only when the guest also requests idempotency.
+			req.ChildToolOwner = host.Identity.Namespace
 			if agentSpawnRequestsConfiguration(req) && !manifestHasExactCapability(host.Manifest.Capabilities, "agent:spawn:configure") {
 				writeJSONError(mod, resPtr, resCap, "agent:spawn:configure capability required for provider or reasoning overrides")
 				stack[0] = api.EncodeI32(-1)

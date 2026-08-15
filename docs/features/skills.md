@@ -1,175 +1,151 @@
 # `.stado/skills/` — reusable prompts
 
-Drop markdown skill files under `.stado/skills/` and stado exposes them as
-reusable prompts reachable via `/skill:<name>` in the TUI, `--skill <name>`
-on the CLI, or **`skills__load`** when the model decides a skill matches
-the task (EP-0045).
+Skills are Markdown prompts stored with a project or selected by a persona.
+The operator can invoke them directly with `/skill:<name>`, a declared slash
+shortcut, or `stado run --skill <name>`. Model-driven discovery is provided by
+the explicitly installed official `skills` WASM plugin; native stado does not
+append a skill listing to the system prompt or rewrite a plugin result into a
+user message.
 
 ## File format
 
-### Flat file (single prompt)
+A flat skill is `.stado/skills/<name>.md`:
 
 ```markdown
 ---
 name: refactor
-description: Extract a function — shown to the model for matching
+description: Extract a function while preserving call sites
+when_to_use: the user asks to simplify or separate repeated code
 ---
-Find repeated code near the cursor and factor it out into a helper.
+Find repeated code near the target and factor it into the narrowest helper.
 ```
 
-Path: `.stado/skills/<name>.md`
+A directory skill uses `.stado/skills/<name>/SKILL.md` and may carry scripts,
+references, or templates beside it:
 
-### Directory bundle (scripts / references)
-
-```
+```text
 .stado/skills/
   summarize/
-    SKILL.md          # required entrypoint
-    scripts/check.sh  # referenced via ${STADO_SKILL_DIR}/scripts/check.sh
+    SKILL.md
+    scripts/check.sh
 ```
 
-The body may use `${STADO_SKILL_DIR}` for stable paths to bundled files.
-Supporting files are not auto-loaded — the model reads or executes them
-via normal FS/exec tools under the sandbox.
+The body may refer to `${STADO_SKILL_DIR}/scripts/check.sh`. Stado expands that
+token inside the opened Markdown body. Supporting files are not automatically
+read or executed; normal filesystem and process tools remain separately
+capability- and sandbox-bound.
 
-Frontmatter keys (one `key: value` per line):
+Supported frontmatter:
 
-| Key | Purpose |
-|-----|---------|
-| `name` | Skill id (defaults to filename stem or directory name) |
-| `description` | Primary text the model matches on |
-| `when_to_use` | Extra trigger context appended to the listing |
-| `slash` | Bare TUI shortcut name (registers `/<name>`) |
-| `disable-model-invocation: true` | User-only — omitted from model listing |
-| `user-invocable: false` | Model-only — hidden from `/skill` and slash shortcuts |
-| `allowed-tools` | Tools surfaced onto the slate on load (persona skills only; project skills fail closed) |
+| Key | Meaning |
+|---|---|
+| `name` | Skill name; defaults to the flat filename or directory name |
+| `description` | Primary model-search and operator-listing summary |
+| `when_to_use` | Additional search/trigger context |
+| `slash` | Bare TUI shortcut registered as `/<name>` |
+| `disable-model-invocation: true` | Omit from the model-visible host resource catalog; operator gestures still work |
+| `user-invocable: false` | Hide from `/skill` and slash shortcuts; model discovery may still use it |
+| `allowed-tools` | Persona-only candidates for session surface activation; project declarations are inert |
 
-## Why skills exist
-
-Three drivers:
-
-1. **Repeated workflows deserve a name.** "Review this diff for
-   security issues" isn't a one-off prompt — it's a recurring ask.
-   A skill file turns it into a two-keystroke invocation.
-2. **Prompts live with the code.** `.stado/skills/` is in-repo, so
-   skills ship with the project, version with the code, and PR
-   reviews can gate prompt changes.
-3. **Works in CI + TUI.** The same skill file is invocable from
-   `stado run --skill <name>` in a pipeline and from `/skill:<name>`
-   in the interactive TUI, with no duplication.
-
-Skills are NOT macros / templates / parameterised prompts — they're
-deliberately single-shot text. Argument plumbing is out of scope;
-just layer `--prompt` on top when you need an ad-hoc tweak.
+Skills are plain text, not a macro language. Arguments, command substitution,
+automatic includes, and dynamic shell preprocessing are not implemented.
 
 ## Resolution
 
-Stado walks from cwd up to the filesystem root looking for
-`.stado/skills/` directories. Each `*.md` file and each
-`<name>/SKILL.md` directory entry is registered. Nearest wins.
+Stado walks from the current directory toward the filesystem root and loads
+each `.stado/skills/` directory. The nearest skill with a given name wins.
+Persona `skills:` entries are then resolved relative to the persona file and
+merged additively; a project-discovered name wins a collision.
 
-```
-repo-root/
-  .stado/skills/
-    review.md          # "Review for security + style"
-    refactor.md        # root-level: generic extract-method prompt
-  pkg/foo/
-    .stado/skills/
-      refactor.md      # foo-local: preserves the pkg's own style
-```
+Files are size-bounded, directory scans are entry-bounded, and symlink/path
+escapes are rejected. One invalid entry produces a warning without discarding
+valid siblings.
 
-Inside `pkg/foo/`, `/skill:refactor` uses `pkg/foo/.stado/skills/refactor.md`.
-Anywhere else, it uses the root version.
+## Operator invocation
 
-## Using skills
+TUI:
 
-### In the TUI
-
-```
-/skill                # list all loaded skills with descriptions
-/skill:refactor       # inject refactor.md body as a user message
-                      # (next Enter submits; /clear cancels)
+```text
+/skill                 # choose an operator-visible skill
+/skill:refactor        # append its body as an operator/user message
+/review                # example `slash: review` shortcut
 ```
 
-The sidebar shows "Skills: N — /skill" when any are loaded, so
-the feature is discoverable without prior knowledge.
-
-### From the CLI
+CLI:
 
 ```sh
 stado run --skill refactor
+stado run --skill refactor --prompt "apply this to the billing package"
 ```
 
-Resolves `.stado/skills/refactor.md` from cwd (same walk-up as TUI),
-uses the body as the prompt. Combine with `--prompt`:
+These are explicit operator gestures and remain native. Their user-role
+provenance is truthful because the operator initiated them.
+
+## Model invocation
+
+Install and trust the official package after its signed release:
 
 ```sh
-stado run --skill refactor --prompt "apply to the billing module"
+stado plugin install github.com/foobarto/stado-plugins/skills@v0.1.0
 ```
 
-Skill body first, then your prompt appended. Unknown skill →
-actionable error listing what's available.
+It is optional, not bundled, and not enabled or autoloaded by installation.
+Expose `skills__search` and `skills__load` through the normal `[tools]` policy;
+for example, adding the `meta` autoload category exposes both official skill
+and registry discovery tools:
 
-## Model invocation (EP-0045)
-
-By default, every loaded skill's `name` + `description` appear in the
-system prompt. The model can call **`skills__load`** with `{"name":"<skill>"}`
-to inject the body as a user message — same effect as `/skill:<name>`.
-
-- Set `disable-model-invocation: true` for side-effecting skills the
-  model must not auto-load (`deploy`, `commit`, …).
-- Deny `skills__load` via `[tools].disabled` to disable model invocation
-  while keeping user `/skill:` working.
-- Project skills never honor `allowed-tools`. EP-44's proposed per-project TOFU
-  gate did not ship; the current fail-closed posture has no project authority
-  transition.
-
-### What `allowed-tools` does (and doesn't)
-
-`allowed-tools` **surfaces** the named tools onto the per-turn slate when the
-skill loads, so the model can call them without a `tools__describe`
-round-trip. It does **not** widen the sandbox (a granted `bash` still runs
-under the session sandbox policy).
-
-There is no separate "skip the approval prompt" step, because stado's native
-(bundled) tools have no approval prompt — they run as soon as they're surfaced
-(see [commands/tui.md → Approvals](../commands/tui.md)). Surfacing a tool via
-`allowed-tools` therefore already gives the Claude-Code "runs without asking"
-behavior for native tools. The only interactive approval in stado is the
-opt-in **plugin `ui:approval`** card, which `allowed-tools` does not currently
-suppress.
-
-## Design notes
-
-- **Argument injection** lands in EP-0045 Phase 2 (`$ARGUMENTS`, `` !`cmd` ``).
-- **No include/reference expansion.** Skills are plain text; keep each
-  one self-contained or use directory bundles + `${STADO_SKILL_DIR}`.
-- **Scope is cwd-walk + persona `skills:`** (no `~/.config/stado/skills/`
-  until Phase 3).
-
-## Sample
-
-A minimal skill:
-
-```markdown
----
-name: audit-tests
-description: Flag tests that look flaky or brittle
----
-Scan the most recently-modified test files. For each, flag:
-- Timing-dependent assertions (sleeps, race windows)
-- Hard-coded ports / ephemeral-fd assumptions
-- Tests that only assert "no error" without content
-
-Output one bullet per finding with file:line.
+```toml
+[tools]
+autoload_categories = ["meta"]
 ```
 
-With `tools enabled`, the model will `grep` / `read` through the
-repo and produce a scoped review.
+If `[tools].enabled` is an allowlist, it must also admit both exact names.
+
+- `skills__search {"query":"review"}` searches the current admitted skill
+  facts and returns opaque IDs, summaries, scopes, and provenance.
+- `skills__load {"id":"sha256:…"}` opens the exact opaque ID returned by
+  search under a fresh digest-fenced catalog and
+  returns JSON containing the Markdown `body`, `scope`, and `provenance` as an
+  ordinary tool result.
+
+Skill names are display/search labels, not selectors. Duplicate names remain
+independently loadable by ID; a fabricated or stale ID fails closed against
+the current catalog.
+
+There is no native prompt listing and no skill-specific handler in AgentLoop,
+TUI, ACP, headless, or subagents. Those surfaces bind the same effective skill
+set as generic host facts when they dispatch the plugin. Disabling or omitting
+`skills__load` prevents model-driven body invocation; it does not require the
+host to hide a separate system-prompt listing because none exists.
+
+## Trust and allowed tools
+
+Native stado owns admission facts; the plugin owns search, matching, output
+formatting, and the decision to request a session-surface edit.
+
+- `disable-model-invocation` resources are mechanically omitted before WASM
+  can catalog or open them.
+- Rendered bodies over 128 KiB are omitted from the model catalog. Native
+  operator `/skill` and `--skill` keep the loader's separate 1 MiB file limit;
+  the narrower model bound guarantees the complete labeled JSON result fits
+  the ordinary 1 MiB WASM tool-result channel even under worst-case escaping.
+- Project `allowed-tools` is always inert. EP-44 did not create a project
+  authority transition for this field.
+- Persona `allowed-tools` is operator-authored relative to the persona. The
+  host limits it to 64 unique valid names and intersects it with the exact
+  filtered registry and session ceiling. Unknown, globally disabled, and
+  session-disabled names are omitted.
+- The plugin activates the resulting exact names in one digest-fenced atomic
+  edit. It cannot widen the registry, sandbox, broker, or session ceiling.
+
+`skills__search` is NonMutating. `skills__load` is StateMutating because a
+valid persona skill may edit the session tool surface. Neither capability is a
+security boundary by itself; normal signed-plugin admission and host ceilings
+remain authoritative.
 
 ## See also
 
-- [features/instructions.md](./instructions.md) — repo-global
-  instructions file (AGENTS.md / CLAUDE.md). Skills are the
-  per-workflow sibling.
-- [commands/run.md](../commands/run.md) — `--skill` flag reference.
+- [EP-45](../eps/0045-model-invocable-skills.md)
+- [Plugin installation](../commands/plugin.md)
+- [Host context-resource imports](../plugins/host-imports.md#stado_context_resource_catalog-and-stado_context_resource_open)
+- [Repository instructions](./instructions.md)

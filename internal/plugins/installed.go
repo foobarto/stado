@@ -49,11 +49,20 @@ func listInstalledDirs(root string, maxEntries int) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("installed plugin entry %q is a symlink; source-keyed discovery refuses linked state", name)
+			}
+			if !info.IsDir() {
 				continue
 			}
 			if name == activeMarkerDir {
 				continue // reserved marker dir, not an installed plugin
+			}
+			if name == "anchor-trust" {
+				return nil, fmt.Errorf("retired pre-v0.80 anchor metadata directory %q is unsupported; remove it after reviewing the unified trust store", name)
+			}
+			if !validInstalledStoreKey(name) {
+				return nil, fmt.Errorf("legacy flat installed-plugin directory %q is unsupported; reinstall it explicitly", name)
 			}
 			ids = append(ids, name)
 		}

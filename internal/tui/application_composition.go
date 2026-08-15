@@ -18,6 +18,7 @@ import (
 type lifecycleComposition struct {
 	applications       []*runtime.LoadedLifecycleApplication
 	commands           map[string]*runtime.LoadedLifecycleApplication
+	commandConflicts   map[string]struct{}
 	hooks              *hooks.LifecycleRunner
 	failure            error
 	admissionFailure   error
@@ -41,11 +42,16 @@ func (c *lifecycleComposition) close(ctx context.Context) {
 // its exact session/generation binding without restarting unrelated legacy
 // observers.
 func (m *Model) closeLifecycleApplications(ctx context.Context) {
+	m.invalidateApplicationVerificationScope()
+	if len(m.lifecycleApplications) > 0 {
+		m.applicationToolProjectionGeneration.Add(1)
+	}
 	for _, application := range m.lifecycleApplications {
 		_ = application.Close(ctx)
 	}
 	m.lifecycleApplications = nil
 	m.applicationCommands = nil
+	m.applicationCommandConflicts = nil
 }
 
 // stageLifecycleApplications builds a composition without disturbing the
@@ -57,6 +63,7 @@ func (m *Model) closeLifecycleApplications(ctx context.Context) {
 func (m *Model) stageLifecycleApplications(ctx context.Context, cfg *config.Config) (*lifecycleComposition, []string) {
 	savedApplications := m.lifecycleApplications
 	savedCommands := m.applicationCommands
+	savedCommandConflicts := m.applicationCommandConflicts
 	savedHooks := m.lifecycleHooks
 	savedFailure := m.applicationFailure
 	savedAdmissionFailure := m.applicationAdmissionFailure
@@ -64,12 +71,14 @@ func (m *Model) stageLifecycleApplications(ctx context.Context, cfg *config.Conf
 
 	m.lifecycleApplications = nil
 	m.applicationCommands = nil
+	m.applicationCommandConflicts = nil
 	m.applicationFailure = nil
 	m.applicationAdmissionFailure = nil
 	m.applicationFailureSources = nil
 	defer func() {
 		m.lifecycleApplications = savedApplications
 		m.applicationCommands = savedCommands
+		m.applicationCommandConflicts = savedCommandConflicts
 		m.lifecycleHooks = savedHooks
 		m.applicationFailure = savedFailure
 		m.applicationAdmissionFailure = savedAdmissionFailure
@@ -107,9 +116,7 @@ func (m *Model) stageLifecycleApplications(ctx context.Context, cfg *config.Conf
 		}
 	}
 
-	sort.Slice(m.lifecycleApplications, func(i, j int) bool {
-		return m.lifecycleApplications[i].Identity.Canonical < m.lifecycleApplications[j].Identity.Canonical
-	})
+	sortLifecycleApplications(m.lifecycleApplications)
 	for _, application := range m.lifecycleApplications {
 		m.lifecycleHooks = m.lifecycleHooks.Append(application.Application)
 	}
@@ -119,10 +126,17 @@ func (m *Model) stageLifecycleApplications(ctx context.Context, cfg *config.Conf
 	}
 	composition.applications = m.lifecycleApplications
 	composition.commands = m.applicationCommands
+	composition.commandConflicts = m.applicationCommandConflicts
 	composition.hooks = m.lifecycleHooks
 	composition.failure = m.applicationFailure
 	composition.admissionFailure = m.applicationAdmissionFailure
 	return composition, warnings
+}
+
+func sortLifecycleApplications(applications []*runtime.LoadedLifecycleApplication) {
+	sort.SliceStable(applications, func(i, j int) bool {
+		return applications[i].Identity.Canonical < applications[j].Identity.Canonical
+	})
 }
 
 // installLifecycleComposition is the commit half of staging. The new fields
@@ -132,9 +146,18 @@ func (m *Model) installLifecycleComposition(ctx context.Context, composition *li
 	if composition == nil {
 		return
 	}
+	// Cancel native verification before changing the session/application
+	// composition. The command goroutine holds only this immutable scope and
+	// the old session pointer; it never races by consulting mutable Model fields.
+	m.replaceApplicationVerificationScope()
 	oldApplications := m.lifecycleApplications
+	// Provider turns bind lifecycle tools to exact module pointers. Every
+	// composition commit invalidates that projection even when a replacement
+	// verifies to the same canonical package identity and tool names.
+	m.applicationToolProjectionGeneration.Add(1)
 	m.lifecycleApplications = composition.applications
 	m.applicationCommands = composition.commands
+	m.applicationCommandConflicts = composition.commandConflicts
 	m.lifecycleHooks = composition.hooks
 	m.applicationFailure = composition.failure
 	m.applicationAdmissionFailure = composition.admissionFailure
@@ -162,6 +185,41 @@ func (m *Model) installLifecycleComposition(ctx context.Context, composition *li
 	for _, application := range oldApplications {
 		_ = application.Close(ctx)
 	}
+}
+
+func (m *Model) applicationVerificationScope() (context.Context, uint64) {
+	if m.applicationVerificationContext == nil {
+		m.replaceApplicationVerificationScope()
+	}
+	return m.applicationVerificationContext, m.applicationVerificationGeneration
+}
+
+func (m *Model) replaceApplicationVerificationScope() {
+	if m.applicationVerificationCancel != nil {
+		m.applicationVerificationCancel()
+	}
+	parent := m.rootCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	m.applicationVerificationGeneration++
+	m.applicationVerificationContext, m.applicationVerificationCancel = context.WithCancel(parent)
+	// Any running poll belongs to the cancelled generation. A new composition
+	// may schedule its own poll immediately; the old result carries its captured
+	// generation and cannot clear or overwrite that new poll.
+	m.applicationPollRunning = false
+	m.applicationPollGeneration = 0
+}
+
+func (m *Model) invalidateApplicationVerificationScope() {
+	if m.applicationVerificationCancel != nil {
+		m.applicationVerificationCancel()
+	}
+	m.applicationVerificationGeneration++
+	m.applicationVerificationContext = nil
+	m.applicationVerificationCancel = nil
+	m.applicationPollRunning = false
+	m.applicationPollGeneration = 0
 }
 
 // rebindLifecycleApplications constructs one fresh composition for the

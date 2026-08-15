@@ -7,16 +7,17 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/plugins"
 )
 
 // TestPluginInfo_DumpsManifestAsJSON: install a fake plugin, run
 // `plugin info`, capture stdout, assert the manifest fields are
 // pretty-printed JSON keys jq can grep over.
 func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
-	cfg := isolatedHome(t)
+	_ = isolatedHome(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	pluginInstallSigner = hex.EncodeToString(pub)
 	defer func() { pluginInstallSigner = "" }()
@@ -25,9 +26,14 @@ func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("plugin install: %v", err)
 	}
-	defer func() {
-		_ = os.RemoveAll(filepath.Join(cfg.StateDir(), "plugins", "infodemo-0.1.0"))
-	}()
+	mf, _, err := plugins.LoadFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(src, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Capture stdout. cobra's RunE writes via fmt.Println — redirect
 	// os.Stdout for the duration.
@@ -41,7 +47,7 @@ func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
 
 	pluginInfoJSON = true
 	defer func() { pluginInfoJSON = false }()
-	runErr := pluginInfoCmd.RunE(pluginInfoCmd, []string{"infodemo-0.1.0"})
+	runErr := pluginInfoCmd.RunE(pluginInfoCmd, []string{record.StoreKey})
 	_ = w.Close()
 	out, _ := os.ReadFile("/proc/self/fd/" + readPipeFD(r))
 	if runErr != nil {
@@ -58,18 +64,22 @@ func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
 	}
-	if parsed["name"] != "infodemo" {
-		t.Errorf("name field = %v, want infodemo", parsed["name"])
+	if parsed["store_key"] != record.StoreKey {
+		t.Errorf("store key = %v, want %s", parsed["store_key"], record.StoreKey)
 	}
-	if parsed["version"] != "0.1.0" {
-		t.Errorf("version field = %v, want 0.1.0", parsed["version"])
+	manifest, _ := parsed["manifest"].(map[string]any)
+	if manifest["name"] != "infodemo" {
+		t.Errorf("name field = %v, want infodemo", manifest["name"])
 	}
-	caps, _ := parsed["capabilities"].([]any)
+	if manifest["version"] != "0.1.0" {
+		t.Errorf("version field = %v, want 0.1.0", manifest["version"])
+	}
+	caps, _ := manifest["capabilities"].([]any)
 	if len(caps) != 1 || caps[0] != "cfg:state_dir" {
 		t.Errorf("capabilities = %v, want [cfg:state_dir]", caps)
 	}
 	// Sanity: pretty-printed (newlines + 2-space indent).
-	if !strings.Contains(string(out), "\n  \"name\":") {
+	if !strings.Contains(string(out), "\n  \"manifest\":") || !strings.Contains(string(out), "\n    \"name\":") {
 		t.Errorf("output is not pretty-printed:\n%s", out)
 	}
 }

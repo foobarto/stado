@@ -7,6 +7,9 @@ implemented-in: v0.48.8
 type: Standards
 created: 2026-05-04
 history:
+  - date: 2026-08-14
+    status: Implemented
+    note: The native memory/learning consumers and their fixtures cited by the original rollout were later deleted. The surviving shared predicate and parent-walk contract remain implemented and tested in internal/workdirpath; the historical path list below is not a current dependency inventory.
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patch in branch shakedown-2026-05-04.
@@ -24,6 +27,11 @@ see-also: ["EP-0004"]
 > **Relationships:** **See also:** [EP-0004](./0004-git-native-sessions-and-audit.md)
 
 # EP-0027: Repo-root discovery — single predicate, single helper
+
+> **Current note:** The body records the original six callers. The later
+> memory/learning application cutover deleted those native consumers; the
+> implemented invariant now lives in `internal/workdirpath/repodisco.go` and
+> its tests.
 
 ## Problem
 

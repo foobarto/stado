@@ -1,0 +1,22 @@
+{
+  "name": "stado-builtin-tool-web",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["net:http_request"],
+  "tools": [
+    {
+      "name": "web__fetch",
+      "description": "Fetch a URL and return the body converted to markdown. Supports HTTPS to public hosts via net:http_request capability.",
+      "export": "fetch",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"timeout_ms\":{\"type\":\"integer\"},\"url\":{\"type\":\"string\"}},\"required\":[\"url\"],\"type\":\"object\"}",
+      "categories": ["web", "network"],
+      "capabilities": ["net:http_request"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-web"
+}

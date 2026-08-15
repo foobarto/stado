@@ -49,16 +49,6 @@ type Manifest struct {
 	TimestampUTC    string            `json:"timestamp_utc"`
 	Nonce           string            `json:"nonce"`
 
-	// Requires is the optional plugin-dependency list. Each entry is
-	// "<plugin-name>" or "<plugin-name> >= <version>" (semver).
-	// stado plugin install verifies that every listed plugin is
-	// already installed at a satisfying version; install fails with
-	// a clear error when a required plugin is missing. Tester #8 —
-	// prevents silent partial-functionality when a composite plugin
-	// (e.g. exploit-lib needing http-session) is installed without
-	// its prerequisites.
-	Requires []string `json:"requires,omitempty"`
-
 	// AuthorPubkeyHex is the raw Ed25519 public key in hex (64 chars).
 	// It is NOT part of the canonicalised manifest — stored separately
 	// so the trust-layer can echo it in error messages when a pin is
@@ -72,6 +62,12 @@ type Manifest struct {
 type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Export is the wasm ABI suffix used for this tool. Empty means Name.
+	// Keeping the optional entrypoint separate lets a signed manifest expose a
+	// stable model-facing wire name such as "fs__read" while dispatching the
+	// module's "stado_tool_read" export. The model name and ABI mapping are both
+	// authenticated manifest data; native registration code supplies neither.
+	Export string `json:"export,omitempty"`
 	// Class is the tool's mutation class:
 	//   "NonMutating" (default), "StateMutating", "Mutating", or "Exec".
 	// Parsed case-insensitively so manifests can use a looser style
@@ -92,6 +88,114 @@ type ToolDef struct {
 	// Not validated against the canonical taxonomy; marked distinctly
 	// in tools.describe output.
 	ExtraCategories []string `json:"extra_categories,omitempty"`
+	// Capabilities is a presence-preserving signed per-tool subset. Ordinary
+	// tools must declare it explicitly, including [] for zero authority; a nil
+	// pointer is reserved for lifecycle-application tools, whose persistent
+	// shared module has package-wide authority. Pointer presence prevents an
+	// explicit zero-authority [] from canonicalizing like an omitted/inheriting
+	// field. Use CapabilitySubset for programmatic manifests.
+	Capabilities *[]string `json:"capabilities,omitempty"`
+	// AgentChildOnly keeps an ordinary signed helper tool out of parent/model
+	// registries. It is registered only for an exact narrow_tools request from a
+	// broker-created child whose loader-verified signed spawning package
+	// namespace owns the helper. Lifecycle applications cannot use this
+	// projection. Host
+	// imports still enforce their own broker bindings and capabilities.
+	AgentChildOnly bool `json:"agent_child_only,omitempty"`
+	// ApplicationWorker opts this tool into provider turns owned by this exact
+	// lifecycle application. The nested plan_visible boolean is required when
+	// the object is present: false exposes the tool only in Do mode, while true
+	// additionally exposes it in Plan mode. Ordinary turns, BTW turns, and
+	// worker turns owned by another application never receive it. The
+	// declaration is signed manifest data; host tool-policy ceilings remain
+	// authoritative.
+	ApplicationWorker *ApplicationWorkerToolDef `json:"application_worker,omitempty"`
+	// ApplicationSession opts this lifecycle tool into ordinary turns of the
+	// exact interactive TUI session that admitted the persistent application.
+	// It is never projected into BTW, child, run/headless/ACP/MCP, or another
+	// application instance. false is a signed Do-only declaration; true also
+	// permits Plan. The closed nested object is presence-preserving so omission
+	// cannot acquire a future default meaning.
+	ApplicationSession *ApplicationSessionToolDef `json:"application_session,omitempty"`
+}
+
+// CapabilitySubset returns a fresh presence-preserving per-tool capability
+// declaration. With no arguments it represents explicit zero authority.
+func CapabilitySubset(values ...string) *[]string {
+	copyValues := make([]string, len(values))
+	copy(copyValues, values)
+	return &copyValues
+}
+
+// ApplicationWorkerToolDef is the signed projection policy for one
+// lifecycle-application tool. It deliberately has a closed schema: adding an
+// unknown key must fail admission rather than be silently ignored by an older
+// host and acquire a different meaning after an upgrade.
+type ApplicationWorkerToolDef struct {
+	PlanVisible bool `json:"plan_visible"`
+}
+
+type ApplicationSessionToolDef struct {
+	PlanVisible bool `json:"plan_visible"`
+}
+
+func (d *ApplicationWorkerToolDef) UnmarshalJSON(raw []byte) error {
+	type wire struct {
+		PlanVisible *bool `json:"plan_visible"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var value wire
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("application_worker: %w", err)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return fmt.Errorf("application_worker: %w", err)
+	}
+	if value.PlanVisible == nil {
+		return errors.New("application_worker: plan_visible is required")
+	}
+	d.PlanVisible = *value.PlanVisible
+	return nil
+}
+
+func (d *ApplicationSessionToolDef) UnmarshalJSON(raw []byte) error {
+	type wire struct {
+		PlanVisible *bool `json:"plan_visible"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var value wire
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("application_session: %w", err)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return fmt.Errorf("application_session: %w", err)
+	}
+	if value.PlanVisible == nil {
+		return errors.New("application_session: plan_visible is required")
+	}
+	d.PlanVisible = *value.PlanVisible
+	return nil
+}
+
+func ensureJSONEOF(decoder *json.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+// ExportName returns the wasm ABI suffix authenticated by the manifest.
+func (t ToolDef) ExportName() string {
+	if name := strings.TrimSpace(t.Export); name != "" {
+		return name
+	}
+	return t.Name
 }
 
 // CommandDef declares one operator-invoked application command. Commands are

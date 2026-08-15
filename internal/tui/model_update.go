@@ -16,15 +16,12 @@ package tui
 //                              when a picker is open)
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 )
 
@@ -51,29 +48,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onStreamDone(m, msg)
 	case verifyResultMsg:
 		return onVerifyResult(m, msg)
-	case superviseBaselineResultMsg:
-		return onSuperviseBaselineResult(m, msg)
-	case superviseBaselineDecisionMsg:
-		return onSuperviseBaselineDecision(m, msg)
-	case superviseVerifierResultMsg:
-		return onSuperviseVerifierResult(m, msg)
-	case supervisePivotReviewMsg:
-		return onSupervisePivotReview(m, msg)
-	case supervisePivotDecisionMsg:
-		return onSupervisePivotDecision(m, msg)
-	case superviseEventReviewMsg:
-		return onSuperviseEventReview(m, msg)
-	case superviseRiskDecisionMsg:
-		return onSuperviseRiskDecision(m, msg)
-	case superviseFollowupReviewMsg:
-		return onSuperviseFollowupReview(m, msg)
 	case btwResultMsg:
 		return onBtwResult(m, msg)
-	case learnResultMsg:
-		return onLearnResult(m, msg)
-	case learnManageResultMsg:
-		return onLearnManageResult(m, msg)
-
 	case logTailMsg:
 		return onLogTail(m, msg)
 	case localFallbackReadyMsg:
@@ -449,45 +425,6 @@ func yesKey(msg tea.KeyPressMsg) bool {
 
 func noKey(msg tea.KeyPressMsg) bool {
 	return msg.Text == "n" || msg.Text == "N"
-}
-
-func (m *Model) appendSubagentNotice(content string) {
-	var res subagent.Result
-	if err := json.Unmarshal([]byte(content), &res); err != nil || res.ChildSession == "" {
-		return
-	}
-	m.recordSubagentResult(res)
-	status := res.Status
-	if status == "" {
-		status = "completed"
-	}
-	body := fmt.Sprintf("spawn_agent %s → %s", status, res.ChildSession)
-	if res.Error != "" {
-		body += "\n  error: " + trimSeed(res.Error, 160)
-	}
-	if res.Worktree != "" {
-		body += "\n  worktree: " + res.Worktree
-	}
-	if len(res.ChangedFiles) > 0 {
-		body += fmt.Sprintf("\n  changed: %d file(s)", len(res.ChangedFiles))
-	}
-	if len(res.ScopeViolations) > 0 {
-		body += fmt.Sprintf("\n  scope violations: %d", len(res.ScopeViolations))
-	}
-	body += "\n  attach:  stado session attach " + res.ChildSession
-	if len(res.ChangedFiles) > 0 {
-		parentID := "<parent-session-id>"
-		if m.session != nil && m.session.ID != "" {
-			parentID = m.session.ID
-		}
-		adopt := "\n  adopt:   stado session adopt " + parentID + " " + res.ChildSession
-		if res.ForkTree != "" {
-			adopt += " --fork-tree " + res.ForkTree
-		}
-		adopt += " --apply"
-		body += adopt
-	}
-	m.appendBlock(block{kind: "system", body: body})
 }
 
 // acceptFilePickerSelection replaces the @<query> fragment in the

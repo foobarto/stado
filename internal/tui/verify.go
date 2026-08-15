@@ -48,9 +48,6 @@ func (m *Model) startVerification() tea.Cmd {
 }
 
 func onVerifyResult(m *Model, msg verifyResultMsg) (tea.Model, tea.Cmd) {
-	if m.supervision != nil && m.supervision.gateActive {
-		return onSuperviseGateResult(m, msg)
-	}
 	if !m.verifying || msg.generation != m.verifyGeneration {
 		return m, nil
 	}

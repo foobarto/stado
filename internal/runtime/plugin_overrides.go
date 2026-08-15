@@ -54,6 +54,15 @@ func (p *pluginOverrideTool) Schema() map[string]any {
 }
 func (p *pluginOverrideTool) Class() tool.Class { return p.class }
 
+func (p *pluginOverrideTool) ToolMetadata() ToolMetadata {
+	return ToolMetadata{
+		Canonical: CanonicalToolName(p.def.Name), Plugin: p.manifest.Name,
+		PackageNamespace: p.identity.Namespace,
+		Categories:       append([]string(nil), p.def.Categories...),
+		ExtraCategories:  append([]string(nil), p.def.ExtraCategories...),
+	}
+}
+
 // Run dispatches the override plugin via pluginrun.Run. Pre-Step-0.2
 // this had its own copy of the runtime + host setup; pluginrun
 // absorbed it. The override path remains distinct only in HOW the
@@ -64,42 +73,33 @@ func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h to
 		return tool.Result{Error: err.Error()}, err
 	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
-		Manifest:       p.manifest,
-		Identity:       p.identity,
-		WasmBytes:      p.wasm,
-		ToolName:       p.def.Name,
-		Args:           args,
-		Cfg:            p.cfg,
-		Workdir:        h.Workdir(),
-		InvokeRegistry: p.invokeReg,
-		InvokeExecutor: p.invokeExec,
+		Manifest:         p.manifest,
+		Identity:         p.identity,
+		WasmBytes:        p.wasm,
+		ToolName:         p.def.Name,
+		Args:             args,
+		Cfg:              p.cfg,
+		Workdir:          h.Workdir(),
+		InvokeRegistry:   p.invokeReg,
+		InvokeExecutor:   p.invokeExec,
+		RegistryCatalog:  NewRegistryCatalogAccess(p.invokeReg, p.identity.Namespace),
+		ContextResources: contextResourcesFromSkillContext(ctx),
 	}, h)
-}
-
-func normalisePluginID(ref string) string {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return ""
-	}
-	return strings.Replace(ref, "@", "-", 1)
 }
 
 func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.Tool, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("tool override %q: config unavailable", target)
 	}
-	pluginID := normalisePluginID(pluginRef)
+	pluginID := strings.TrimSpace(pluginRef)
 	if pluginID == "" {
 		return nil, fmt.Errorf("tool override %q: empty plugin id", target)
 	}
-	pluginDir, err := plugins.InstalledDir(filepath.Join(cfg.StateDir(), "plugins"), pluginID)
+	pkg, err := plugins.ResolveInstalledPackage([]string{filepath.Join(cfg.StateDir(), "plugins")}, pluginID)
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: %w", target, err)
 	}
-	mf, sig, err := plugins.LoadFromDir(pluginDir)
-	if err != nil {
-		return nil, fmt.Errorf("tool override %q: load %s: %w", target, pluginID, err)
-	}
+	pluginDir, mf, sig := pkg.Dir, &pkg.Manifest, pkg.Signature
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
 	if _, err := verifyPluginOverride(context.Background(), cfg, pluginDir, mf, sig); err != nil {
 		return nil, fmt.Errorf("tool override %q: verify %s: %w", target, pluginID, err)
@@ -119,23 +119,29 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 	if def == nil {
 		return nil, fmt.Errorf("tool override %q: plugin %s does not declare tool %q", target, pluginID, target)
 	}
+	if def.AgentChildOnly {
+		return nil, fmt.Errorf("tool override %q: plugin %s declares a child-only helper", target, pluginID)
+	}
 	var schema map[string]any
 	if def.Schema != "" {
 		if err := json.Unmarshal([]byte(def.Schema), &schema); err != nil {
 			return nil, fmt.Errorf("tool override %q: plugin %s schema: %w", target, pluginID, err)
 		}
 	}
-	class, err := pluginRuntime.EffectiveToolClass(*def, mf.Capabilities)
+	effectiveCapabilities, err := mf.EffectiveToolCapabilities(*def)
+	if err != nil {
+		return nil, fmt.Errorf("tool override %q: plugin %s capabilities: %w", target, pluginID, err)
+	}
+	class, err := pluginRuntime.EffectiveToolClass(*def, effectiveCapabilities)
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: plugin %s class: %w", target, pluginID, err)
 	}
-	identity, err := RuntimeIdentityForPluginDir(pluginDir, *mf)
-	if err != nil {
-		return nil, fmt.Errorf("tool override %q: plugin %s identity: %w", target, pluginID, err)
-	}
-	host := pluginRuntime.NewHostWithIdentity(*mf, identity, pluginDir, nil)
-	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
-		return nil, fmt.Errorf("tool override %q: plugin %s declares session/llm capabilities that registry overrides cannot supply", target, pluginID)
+	identity := pkg.Identity
+	effectiveManifest := *mf
+	effectiveManifest.Capabilities = effectiveCapabilities
+	host := pluginRuntime.NewHostWithIdentity(effectiveManifest, identity, pluginDir, nil)
+	if host.SessionObserve || host.SessionRead || host.SessionFork || host.ProviderInvokeBudget > 0 {
+		return nil, fmt.Errorf("tool override %q: plugin %s declares session/provider capabilities that registry overrides cannot supply", target, pluginID)
 	}
 	return &pluginOverrideTool{
 		pluginID:  pluginID,
@@ -173,13 +179,16 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 	}
 
 	ts := plugins.NewTrustStore(cfg.StateDir())
+	if _, err := ts.CheckInstalledPackage(pluginDir, mf, sig); err != nil {
+		return nil, err
+	}
 	store, err := ts.Load()
 	if err != nil {
 		return nil, err
 	}
 	entry, ok := store[mf.AuthorPubkeyFpr]
 	if !ok {
-		return nil, fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band and run `stado plugin trust <pubkey>`, or retry with `stado plugin verify . --signer <pubkey>` to pin on first use (TOFU)", mf.AuthorPubkeyFpr)
+		return nil, fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band, run `stado plugin trust <pubkey>`, then retry verification", mf.AuthorPubkeyFpr)
 	}
 	pubBytes, err := hex.DecodeString(entry.Pubkey)
 	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
@@ -196,30 +205,10 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 		return nil, fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
 			got, entry.Fingerprint)
 	}
-	if err := mf.Verify(pub, sig); err != nil {
-		return nil, err
-	}
-	if err := plugins.ValidateVersion(mf.Version); err != nil {
-		return nil, fmt.Errorf("verify: manifest version %q is not semver-compatible: %w", mf.Version, err)
-	}
-	if entry.LastVersion != "" {
-		less, err := plugins.VersionLess(mf.Version, entry.LastVersion)
-		if err != nil {
-			return nil, fmt.Errorf("verify: compare versions: %w", err)
-		}
-		if less {
-			return nil, fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", mf.Version, entry.LastVersion)
-		}
-	}
 	if err := consultOverrideCRL(cfg, mf); err != nil {
 		return nil, err
 	}
 	if err := consultOverrideRekor(ctx, cfg, mf, sig, pub); err != nil {
-		return nil, err
-	}
-	entry.LastVersion = mf.Version
-	store[entry.Fingerprint] = entry
-	if err := ts.Save(store); err != nil {
 		return nil, err
 	}
 	return pub, nil

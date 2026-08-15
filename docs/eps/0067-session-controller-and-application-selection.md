@@ -20,6 +20,13 @@ history:
 
 # EP-0067: Session Controller Capabilities and Non-Authority Application Selection
 
+> **Implementation status (2026-08-14):** Session controller authentication,
+> durable logical-session adoption, exact application candidate selection, and
+> ancestry-verified compacted-child handoff are source-complete. The EP remains
+> Accepted because security-significant fresh artifact activation still needs
+> a predeclared policy or separately trusted presenter; no in-process command
+> or UI callback may impersonate it.
+
 ## Problem
 
 The broker's mode-0700 Unix socket and peer-credential check establish the

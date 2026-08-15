@@ -7,6 +7,9 @@ type: Process
 created: 2026-04-22
 extended-by: ["EP-0061"]
 history:
+  - date: 2026-08-14
+    status: Accepted
+    note: Implemented Standards EPs must name their first shipped release in implemented-in; catalogue validation enforces the release metadata so status cannot drift from rollout evidence.
   - date: 2026-04-22
     status: Draft
     note: Initial draft — bootstraps the EP process itself, modelled after PEP-1.
@@ -251,7 +254,8 @@ Optional fields, added as they become relevant:
   replacing it. Useful for forward navigation so a reader of this EP
   discovers follow-up work.
 - `see-also: [N, M]` — loosely related EPs, looser than `extended-by`.
-- `implemented-in: vX.Y.Z` — release where this first shipped.
+- `implemented-in: vX.Y.Z` — release where this first shipped. Required when a
+  Standards EP has `status: Implemented`; omit it before then.
 - `discussion-at: <URL>` — link to issue/PR where debate happened.
 
 All EP-reference fields use YAML lists (`[1, 3, 7]`) even when only
@@ -417,8 +421,7 @@ the first few days of the EP process, it's looser.
 5. When consensus is reached, update `status: Accepted` and merge.
 6. Open implementation PRs that reference the EP number in their
    descriptions.
-7. When shipped, update `status: Implemented` and optionally add
-   `implemented-in:`.
+7. When shipped, update `status: Implemented` and add `implemented-in:`.
 
 ## Process for withdrawing, superseding, or rejecting
 

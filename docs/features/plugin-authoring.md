@@ -193,6 +193,18 @@ wasm-import boundary. The full vocabulary is catalogued in the
 this table covers the most common groups and the plugin-run
 surface each requires.
 
+For an ordinary package, put the sorted union in top-level `capabilities`, then
+give every `tools[]` entry its exact required subset in
+`tools[].capabilities`. Use `[]` for a tool needing no host authority; omission
+and `null` are rejected. The loader also rejects duplicates and capabilities
+absent from the package set. This lets a search/read export stay narrow even
+when a sibling mutates session state; installed, override, bundled, and nested
+dispatch all apply the same attenuation.
+
+Do not add per-tool capabilities to a persistent lifecycle application. Its
+callbacks and tools share one long-lived WASM instance and Host, so the signed
+top-level package set is the truthful authority boundary.
+
 | Capability shape | What it gates | Required surface |
 |------------------|---------------|------------------|
 | `fs:read:/abs/path`, `fs:write:/abs/path` | `stado_fs_read` / `stado_fs_write` to that path | Any |
@@ -205,7 +217,7 @@ surface each requires.
 | `exec:proc[:<binary-glob>]` | `stado_proc_*` and `stado_exec`; add `bundled-bin:<name>` for rg/ast-grep | TUI / `stado run` when spawning subprocesses (sandbox runner needed) |
 | `exec:pty[:<binary-glob>]` | PTY-backed shell sessions (`stado_pty_*`) | TUI / `stado run` (screen via `shell.read` `mode: screen`, not a separate screenshot tool — EP-0043) |
 | `session:read`, `session:fork`, `session:observe` | Session reads + fork RPC | `tool run --session <id>` |
-| `llm:invoke[:<token-budget>]` | Outbound LLM calls | `tool run --session <id>` (uses the session's provider) |
+| `provider:invoke:<positive-token-budget>` | Generic authenticated, token-bounded provider facts (`stado_provider_invoke`); the plugin owns request and output policy | Any provider-configured execution surface; `tool run` constructs the configured provider, while a live session borrows its provider |
 | `artifact:propose:<local-kind>`, `artifact:edit:<local-kind>` | Propose a broker-owned artifact or candidate version for a manifest-declared local kind | `tool run --session <id>` (or a broker-attached agent loop) |
 | `artifact:read:<qualified-kind-pattern>`, `artifact:observe:<qualified-kind-pattern>` | Query or observe explicit qualified kinds within broker scope/sensitivity policy | `tool run --session <id>` (or a broker-attached agent loop) |
 | `session:journal:append`, `session:projection:read` | Durable lifecycle journal and caller-scoped projection | Persistent lifecycle application |
@@ -213,6 +225,7 @@ surface each requires.
 | `session:complete` | Durable successful-completion transition; distinct from pause/stop | Persistent lifecycle application with broker scheduling |
 | `session:input:route` | Durably claim an exact immutable input for asynchronous review, then deliver or defer it for the application's exact worker run | Persistent TUI lifecycle application with broker-owned input routing |
 | `session:worker:request`, `session:worker:resume`, `session:worker:cancel` | Request, resume-request, or cancel a bounded application-owned worker recurrence; activation and resume activation are native-only | Persistent TUI lifecycle application with broker scheduling |
+| `session:verification:request` | Request durable execution of operator `[verify].commands` at an exact pending turn; the plugin supplies no command or anchor | Persistent TUI lifecycle application subscribed to `session.turn_committed` and `session.verification_finished` |
 | `timer:schedule` | Durable timer schedule/cancel | Persistent lifecycle application |
 | `state:read[:<key-glob>]`, `state:write[:<key-glob>]` | Process-lifetime in-memory KV (`stado_instance_*`) | Any |
 | `secrets:read[:<name-glob>]`, `secrets:write[:<name-glob>]` | Operator secret store (`stado_secrets_*`) | Any |
@@ -239,12 +252,49 @@ to pass.
 
 | Field | Purpose |
 |---|---|
-| `requires` | Array of `"<plugin-name>"` or `"<name> >= <ver>"` — install fails if a dep is missing. |
 | `tools[].categories` | Array of category tags (`file`, `network`, `code-search`, …). Operators can add `[tools].autoload_categories = ["file"]` to surface tools by category instead of by name. |
+| `tools[].capabilities` | Required for ordinary tools: exact unique subset of top-level package capabilities used as the host-import ceiling and risk-class input; `[]` means zero. Must be omitted for lifecycle-application tools, which share package authority. |
+| `tools[].application_worker` | Lifecycle applications only: `{"plan_visible": false}` opts the exact persistent tool into the application's active WorkerRun in Do mode; `true` also permits Plan. The boolean is required. Ordinary, other-application, and BTW turns never receive lifecycle tools. |
 | `artifact_kinds` | EP-0063 local kind names, bounded object-root JSON Schemas, and optional deterministic index projections. Covered by the signed manifest digest. |
 | `lifecycle` | EP-0064 point/event subscriptions, failure policy, and bounded callback timeout for the persistent TUI application instance. |
 | `commands` | Signed operator command declarations. Optional `timeout_ms` (maximum 15 minutes) applies only to that serialized command; zero inherits the lifecycle timeout. |
 | `min_stado_version` | Refuses install on older stado. Set to the version that introduced any host import you call. |
+
+### Giving an application worker its own tools
+
+A lifecycle application can export tools for internal or host-mediated use
+without exposing them to the LLM. That is the default: merely placing a tool
+in `tools[]` does not put a persistent application's adapter on an ordinary
+turn.
+
+Opt in only the controls the application's own worker needs:
+
+```json
+{
+  "tools": [
+    {
+      "name": "quality__progress",
+      "description": "Record progress against the accepted contract",
+      "class": "StateMutating",
+      "application_worker": {"plan_visible": true}
+    },
+    {
+      "name": "quality__operator_only",
+      "description": "Used only from application callbacks"
+    }
+  ],
+  "lifecycle": {"points": ["post_turn"]}
+}
+```
+
+Here `quality__progress` is projected only when this exact installed
+application owns the active broker WorkerRun. It remains visible in Plan mode
+because the manifest says so, even though its honest class is
+`StateMutating`. `quality__operator_only` is never placed on a model turn.
+Neither appears in BTW, and neither can override an operator's global or
+session tool disable. Treat `application_worker` as signed projection policy,
+not a capability or a substitute for the host imports the implementation
+actually needs.
 
 ## Iteration loop
 

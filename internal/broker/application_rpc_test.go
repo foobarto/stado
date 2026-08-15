@@ -27,6 +27,7 @@ func newLifecycleRPCFixture(t *testing.T, events []string, capabilities ...strin
 		Name: "watcher", Version: "v1.0.0",
 		Lifecycle:    &plugins.LifecycleDef{Events: append([]string(nil), events...)},
 		Capabilities: append([]string(nil), capabilities...),
+		Tools:        []plugins.ToolDef{{Name: "watcher__status"}},
 	}
 	identity, err := plugins.RuntimeIdentityForLocalSource(manifest, t.TempDir())
 	if err != nil {
@@ -174,6 +175,110 @@ func TestApplicationEventRPCUsesVerifiedSubscriptionsAndDurableCursor(t *testing
 	events, _ = nextLifecycleRPC(t, fixture.service, binding.BindingToken, 10)
 	if len(events) != 0 {
 		t.Fatalf("acknowledged events replayed: %+v", events)
+	}
+}
+
+func TestLifecycleApplicationBindingRetainsPackageWideCapabilities(t *testing.T) {
+	fixture := newLifecycleRPCFixture(t, nil, "session:schedule")
+	binding := bindLifecycleRPC(t, fixture, fixture.manifest)
+	fixture.service.artifacts.mu.RLock()
+	state := fixture.service.artifacts.bindings[binding.BindingToken]
+	fixture.service.artifacts.mu.RUnlock()
+	if !state.lifecycle || !state.hasCapability("session:schedule") {
+		t.Fatalf("lifecycle package authority was attenuated: lifecycle=%v caps=%v", state.lifecycle, state.capabilities)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"session_id": fixture.session.SessionID, "controller_token": fixture.session.controllerToken,
+		"identity": fixture.identity, "manifest": fixture.manifest, "tool_name": fixture.manifest.Tools[0].Name,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.Dispatch(context.Background(), MethodApplicationBind, raw); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("application bind accepted ordinary tool selector: %v", err)
+	}
+}
+
+func TestLifecycleBindingTokenCarriesExactEvidenceAuthorityAndFences(t *testing.T) {
+	fixture := newLifecycleRPCFixture(t, nil, "evidence:catalog:artifact")
+	fixture.service.sessionsMu.Lock()
+	fixture.service.sessions[fixture.session.SessionID].scope.durable = true
+	fixture.service.sessions[fixture.session.SessionID].scope.subject = "logical-session"
+	fixture.service.sessionsMu.Unlock()
+	first := bindLifecycleRPC(t, fixture, fixture.manifest)
+	call := func(token string, payload json.RawMessage) error {
+		_, err := fixture.service.evidenceCall(context.Background(), EvidenceCallParams{
+			BindingToken: token, Operation: "catalog", Payload: payload,
+		})
+		return err
+	}
+	if err := call(first.BindingToken, json.RawMessage(`{"corpus":"artifact"}`)); err != nil {
+		t.Fatalf("declared lifecycle evidence capability failed: %v", err)
+	}
+	if err := call(first.BindingToken, json.RawMessage(`{"corpus":"artifact","session_id":"other"}`)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("guest-selected evidence session reached the broker: %v", err)
+	}
+
+	undeclared := newLifecycleRPCFixture(t, nil)
+	denied := bindLifecycleRPC(t, undeclared, undeclared.manifest)
+	if _, err := undeclared.service.evidenceCall(context.Background(), EvidenceCallParams{
+		BindingToken: denied.BindingToken, Operation: "catalog", Payload: json.RawMessage(`{"corpus":"artifact"}`),
+	}); err == nil || !strings.Contains(err.Error(), "evidence:catalog:artifact capability required") {
+		t.Fatalf("undeclared lifecycle evidence capability was accepted: %v", err)
+	}
+
+	second := bindLifecycleRPC(t, fixture, fixture.manifest)
+	if err := call(first.BindingToken, json.RawMessage(`{"corpus":"artifact"}`)); err == nil || !strings.Contains(err.Error(), "unknown artifact binding") {
+		t.Fatalf("superseded lifecycle evidence token remained active: %v", err)
+	}
+	if err := call(second.BindingToken, json.RawMessage(`{"corpus":"artifact"}`)); err != nil {
+		t.Fatalf("rebound lifecycle evidence token failed: %v", err)
+	}
+	fixture.service.sessionsMu.Lock()
+	fixture.service.sessions[fixture.session.SessionID].generation++
+	fixture.service.sessionsMu.Unlock()
+	if err := call(second.BindingToken, json.RawMessage(`{"corpus":"artifact"}`)); err == nil || !strings.Contains(err.Error(), "stale artifact binding") {
+		t.Fatalf("generation-stale lifecycle evidence token remained active: %v", err)
+	}
+}
+
+func TestApplicationContextReadUsesHiddenBindingSubjectAndEmptyRequest(t *testing.T) {
+	fixture := newLifecycleRPCFixture(t, nil, "session:context:read")
+	fixture.service.sessionsMu.Lock()
+	fixture.service.sessions[fixture.session.SessionID].scope.subject = "logical-current-session"
+	fixture.service.sessionsMu.Unlock()
+	binding := bindLifecycleRPC(t, fixture, fixture.manifest)
+
+	fixture.service.artifacts.mu.RLock()
+	authority := fixture.service.artifacts.bindings[binding.BindingToken].applicationAuthority()
+	fixture.service.artifacts.mu.RUnlock()
+	if authority.Subject != "logical-current-session" {
+		t.Fatalf("application authority subject = %q", authority.Subject)
+	}
+
+	raw := dispatchRPC(t, fixture.service, MethodApplicationCall, ApplicationCallParams{
+		BindingToken: binding.BindingToken, RequestID: "context:read", Operation: "context.read",
+		Payload: json.RawMessage(`{}`),
+	})
+	var snapshot application.ContextSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Schema != "stado.dev/session-context-facts/v1" {
+		t.Fatalf("context snapshot=%s parsed=%+v err=%v", raw, snapshot, err)
+	}
+	if strings.Contains(string(raw), "logical-current-session") {
+		t.Fatalf("hidden logical subject leaked into response: %s", raw)
+	}
+	for _, forged := range []string{
+		`{"subject":"other"}`, `{"session_id":"other"}`, `{"generation":99}`,
+		`{"path":"/tmp/foreign"}`, `{"plugin":"github.com/other/app"}`,
+	} {
+		params, _ := json.Marshal(ApplicationCallParams{
+			BindingToken: binding.BindingToken, RequestID: "context:forged", Operation: "context.read",
+			Payload: json.RawMessage(forged),
+		})
+		if _, err := fixture.service.Dispatch(context.Background(), MethodApplicationCall, params); err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("forged context selector %s error=%v", forged, err)
+		}
 	}
 }
 
@@ -600,6 +705,7 @@ func TestLifecycleRebindIsExclusiveAndKeepsDurableCursor(t *testing.T) {
 	artifactBinding, err := fixture.service.bindArtifacts(context.Background(), ArtifactBindParams{
 		SessionID: fixture.session.SessionID, ControllerToken: fixture.session.controllerToken,
 		Identity: fixture.identity, Manifest: fixture.manifest,
+		ToolName: fixture.manifest.Tools[0].Name,
 	})
 	if err != nil {
 		t.Fatal(err)

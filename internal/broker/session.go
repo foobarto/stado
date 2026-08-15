@@ -53,6 +53,8 @@ type sessionState struct {
 	principal  string
 	repoID     string
 	parentID   string
+	role       string
+	mode       string
 	generation uint64
 	// taint is the session's current provenance state (phase 6).
 	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
@@ -329,7 +331,7 @@ func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, D
 	s.sessions[id] = &sessionState{
 		handle: storedHandle, controller: controllerDigest, controllerVersion: 1,
 		principal: parentState.principal, repoID: parentState.repoID,
-		parentID: parent.SessionID, generation: 1,
+		parentID: parent.SessionID, role: req.Role, mode: req.Mode, generation: 1,
 	}
 	s.sessionsMu.Unlock()
 	s.logDecision(req, d)

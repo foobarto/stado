@@ -262,6 +262,14 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		Execution:            "retained",
 	}
 	reqBytes, _ := json.Marshal(req)
+	// Authority-bearing package ownership is not guest input. Even an explicit
+	// JSON attempt is ignored and replaced from the loader-bound Host identity.
+	var guestRequest map[string]any
+	if err := json.Unmarshal(reqBytes, &guestRequest); err != nil {
+		t.Fatal(err)
+	}
+	guestRequest["child_tool_owner"] = "github.com/other/plugin"
+	reqBytes, _ = json.Marshal(guestRequest)
 	h.memWrite(0, reqBytes)
 	const resPtr, resCap = 256, 512
 
@@ -272,8 +280,10 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		t.Fatalf("expected positive bytes-written, got %d", n)
 	}
 	got := br.lastSpawnReq
-	if !reflect.DeepEqual(got, req) {
-		t.Errorf("forwarded request = %#v, want %#v", got, req)
+	wantRequest := req
+	wantRequest.ChildToolOwner = h.host.Identity.Namespace
+	if !reflect.DeepEqual(got, wantRequest) {
+		t.Errorf("forwarded request = %#v, want %#v", got, wantRequest)
 	}
 	if got.Prompt != req.Prompt {
 		t.Errorf("Prompt = %q, want %q", got.Prompt, req.Prompt)

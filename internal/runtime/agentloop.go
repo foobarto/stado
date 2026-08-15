@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -70,7 +69,6 @@ type AgentLoopOptions struct {
 	// Implementations persist deterministic trajectory signals; callback errors
 	// are non-fatal because learning telemetry must not break the active task.
 	OnToolOutcome func(turnIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
-	Research      func(context.Context, string, string) (any, error)
 
 	// OnSubagentEvent fires when spawn_agent creates or finishes a child
 	// session. It is best-effort user/client visibility; audit remains in
@@ -127,23 +125,16 @@ type AgentLoopOptions struct {
 	// from ~/.config/stado/system-prompt.md by config.Load. Empty falls
 	// back to instructions.DefaultSystemPromptTemplate.
 	SystemTemplate string
-	// MemoryContext is optional approved-memory prompt context. Callers
-	// own retrieval/scoping so this loop stays provider/session generic.
-	MemoryContext string
-	// GuidanceContext is optional bounded host-derived workflow guidance. It
-	// is evaluated at every internal model turn so newly detected trajectory
-	// signals can guide the next step without rewriting message history.
-	GuidanceContext func() string
-
 	// Persona, when non-nil, supplies the agent's operating manual
 	// (system prompt body). Replaces the default stado-shipped
 	// system prompt template entirely; project AGENTS.md / CLAUDE.md
-	// (passed as System) and MemoryContext still append. Nil falls
+	// (passed as System) still appends. Nil falls
 	// back to instructions.ComposeSystemPrompt for legacy callers.
 	Persona *personas.Persona
 
 	// Skills is the effective skill catalog for this loop (cwd ∪ persona).
-	// Drives the model-facing listing in the system prompt and skills__load.
+	// It is bound as loader/session-bounded context facts for an installed WASM
+	// application; native prompt composition never advertises or injects it.
 	Skills []skills.Skill
 
 	// InboxFn is the optional pull-source for operator- or peer-
@@ -199,6 +190,13 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	}
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = 20
+	}
+	toolSurface := &sessionToolSurface{activated: make(map[string]bool)}
+	if opts.Executor != nil && opts.Executor.Registry != nil {
+		toolSurface.ceiling = make(map[string]bool)
+		for _, candidate := range opts.Executor.Registry.Snapshot().Tools {
+			toolSurface.ceiling[candidate.Name()] = true
+		}
 	}
 	if opts.Broker != nil {
 		initialTaint := opts.InitialTaint
@@ -267,10 +265,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			}
 			if opts.Config != nil && loopRunner.Parent != nil {
 				closeRetained, retainedErr := ConfigureRetainedBridge(ctx, opts.Config, loopRunner.Parent, fb)
-				if retainedErr != nil {
-					return "", nil, fmt.Errorf("configure retained agents: %w", retainedErr)
+				if retainedErr == nil && closeRetained != nil {
+					defer func() { _ = closeRetained() }()
 				}
-				defer func() { _ = closeRetained() }()
 			}
 		}
 		ptyMgr := pty.NewManager()
@@ -293,7 +290,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			fleetBridge:          fb,
 			pty:                  ptyMgr,
 			defaultSandboxPolicy: opts.DefaultSandboxPolicy,
-			research:             opts.Research,
+			provider:             opts.Provider,
+			defaultModel:         opts.Model,
+			broker:               opts.Broker,
 		}
 	}
 
@@ -312,6 +311,17 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	var lifecycleApplications []*LoadedLifecycleApplication
 	applicationSession := parentSession
 	applicationPublisher, _ := opts.Broker.(ApplicationEventPublisher)
+	if provider, ok := opts.Broker.(ApplicationEventContextProvider); ok {
+		scope := provider.ApplicationEventContext()
+		// A broker controller is also used for ordinary child isolation. A
+		// child with no admitted lifecycle application has generation zero;
+		// publishing session.turn_committed through that inactive scope would
+		// fail the controller RPC and incorrectly abort an otherwise ordinary
+		// agent turn.
+		if scope.Generation == 0 || applicationSession == nil || scope.SessionID != applicationSession.ID {
+			applicationPublisher = nil
+		}
+	}
 	publishTurnBoundary := func(turnCtx context.Context, turn, totalTokens int, treeBefore plumbing.Hash, text string, calls []agent.ToolUseBlock, results []agent.ToolResultBlock, usage agent.Usage, verification *VerifyOutcome, duration time.Duration) (bool, error) {
 		if applicationPublisher == nil || applicationSession == nil {
 			return false, nil
@@ -350,9 +360,6 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 
 	caps := opts.Provider.Capabilities()
 	tracer := otel.Tracer(telemetry.TracerName)
-
-	// EP-0037: track tools activated by tools.describe across turns.
-	activatedNames := map[string]bool{}
 
 	for turn := 0; turn < opts.MaxTurns; turn++ {
 		finalTextBeforeTurn := len(finalText)
@@ -449,15 +456,8 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			// this run — headless/run honors persona `tools:`/`recommended_tools:`
 			// the same way the TUI's per-turn path does. nil persona = no extra.
 			extra := opts.Persona.EffectiveTools()
-			// EP-0045: surface skills__load on the per-turn tool slate only
-			// when the session has a model-invocable skill (and the tool
-			// isn't denied). Keeps it off the slate — and out of the model's
-			// sight — when there's nothing to load.
-			if SkillModelInvocationEnabled(opts.Executor.Registry, opts.Skills) {
-				extra = append(extra, "skills__load")
-			}
 			autoloaded := AutoloadedToolsWithExtra(opts.Executor.Registry, opts.Config, extra)
-			surface := dedupeTools(append(autoloaded, activatedSlice(opts.Executor.Registry, activatedNames)...))
+			surface := dedupeTools(append(autoloaded, activatedSlice(opts.Executor.Registry, toolSurface.names())...))
 			req.Tools = ToolDefsFromSlice(surface)
 		}
 		allowedTools := allowedToolSet(req.Tools)
@@ -820,7 +820,6 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
 		toolResults := make([]agent.ToolResultBlock, 0, len(calls))
-		var skillInjections []string
 		for _, c := range calls {
 			if !toolAllowed(allowedTools, c.Name) {
 				results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
@@ -830,7 +829,8 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				}})
 				continue
 			}
-			res, runErr := opts.Executor.Run(turnCtx, c.Name, c.Input, opts.Host)
+			callCtx := tool.WithToolSurfaceController(turnCtx, toolSurface)
+			res, runErr := opts.Executor.Run(callCtx, c.Name, c.Input, opts.Host)
 			content := res.Content
 			isErr := res.Error != ""
 			if runErr != nil {
@@ -838,21 +838,6 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				isErr = true
 			} else if isErr {
 				content = res.Error
-			}
-			// EP-0037: tools.describe activates tool schemas into the session surface.
-			if c.Name == "tools__describe" && !isErr {
-				extractActivated(content, activatedNames)
-			}
-			// EP-0045: skills__load injects the body as a user message and
-			// promotes persona-scoped allowed-tools into the session surface.
-			if c.Name == "skills__load" && !isErr {
-				for _, name := range SkillLoadAllowedTools(content) {
-					activatedNames[name] = true
-				}
-				if body, trimmed := AbsorbSkillLoad(content); body != "" {
-					skillInjections = append(skillInjections, body)
-					content = trimmed
-				}
 			}
 			resultBlock := agent.ToolResultBlock{
 				ToolUseID: c.ID,
@@ -873,9 +858,6 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				turnSpan.End()
 				return finalText, msgs, fmt.Errorf("runtime: mark broker tainted: %w", err)
 			}
-		}
-		for _, body := range skillInjections {
-			msgs = append(msgs, agent.Text(agent.RoleUser, body))
 		}
 		completed, err = publishTurnBoundary(turnCtx, turn, totalTokens, turnTreeBefore, text, calls, toolResults, usage, nil, time.Since(turnStart))
 		if err != nil {
@@ -929,36 +911,14 @@ func coalesceVerifyEvents(text string, calls []agent.ToolUseBlock, usage agent.U
 // (project AGENTS.md + memory still append). Without a persona,
 // falls back to instructions.ComposeSystemPrompt for legacy behavior.
 func buildTurnSystem(opts AgentLoopOptions) string {
-	memoryContext := opts.MemoryContext
-	if opts.GuidanceContext != nil {
-		if guidance := strings.TrimSpace(opts.GuidanceContext()); guidance != "" {
-			memoryContext = strings.TrimSpace(strings.Join([]string{memoryContext, guidance}, "\n\n"))
-		}
-	}
 	var sys string
 	if opts.Persona != nil {
-		sys = personas.AssembleSystem(opts.Persona, opts.System, memoryContext, "")
+		sys = personas.AssembleSystem(opts.Persona, opts.System, "", "")
 	} else {
 		sys = instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
 			Provider: opts.Provider.Name(),
 			Model:    opts.Model,
-			Memory:   memoryContext,
 		})
-	}
-	// Gate the listing on the same condition as the skills__load autoload:
-	// no listing when there's no model-invocable skill or the load tool is
-	// denied, so we never advertise a capability the model can't use.
-	var reg *tools.Registry
-	if opts.Executor != nil {
-		reg = opts.Executor.Registry
-	}
-	if SkillModelInvocationEnabled(reg, opts.Skills) {
-		if listing := skills.FormatModelListing(opts.Skills); listing != "" {
-			if sys != "" {
-				sys += "\n\n"
-			}
-			sys += listing
-		}
 	}
 	return sys
 }

@@ -58,7 +58,11 @@ func NewPluginTool(mod *Module, def plugins.ToolDef) (*PluginTool, error) {
 				mod.Name, def.Name, err)
 		}
 	}
-	class, err := EffectiveToolClass(def, mod.Manifest.Capabilities)
+	capabilities, err := mod.Manifest.EffectiveToolCapabilities(def)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %s tool %s: capabilities: %w", mod.Name, def.Name, err)
+	}
+	class, err := EffectiveToolClass(def, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -67,13 +71,13 @@ func NewPluginTool(mod *Module, def plugins.ToolDef) (*PluginTool, error) {
 
 // EffectiveToolClass computes the runtime class for one plugin tool.
 //
-// Tool classes in the manifest describe mutation intent only. Plugin
-// capabilities are plugin-wide, so any declared tool can still use the plugin's
-// broader host imports. A plugin with file-read, network, session, or LLM
-// capabilities is therefore not "safe" just because one tool declared itself
-// non-mutating. For safety-gating and audit we conservatively promote:
+// Tool classes in the manifest describe mutation intent only. The supplied
+// capabilities must be the selected tool's effective (possibly attenuated)
+// set. For safety-gating and audit we conservatively promote:
 //   - fs:write:* -> at least Mutating
-//   - fs:read:*, net:*, session:*, llm:* and unknown caps -> Exec
+//   - provider:invoke:<tokens>, agent:spawn*, and session:tool-surface -> at least StateMutating
+//   - evidence:* and lsp:* -> retain the signed class
+//   - fs:read:*, net:*, session:* and unknown caps -> Exec
 func EffectiveToolClass(def plugins.ToolDef, capabilities []string) (tool.Class, error) {
 	class, err := def.ClassValue()
 	if err != nil {
@@ -88,10 +92,31 @@ func EffectiveToolClass(def plugins.ToolDef, capabilities []string) (tool.Class,
 			class = maxClass(class, tool.ClassMutating)
 		case strings.HasPrefix(cap, "exec:"):
 			class = maxClass(class, tool.ClassExec)
+		case cap == "registry:catalog":
+			// Catalog discovery returns bounded registry facts and grants no
+			// mutation, OS, network, session, or provider authority by itself.
+			continue
+		case cap == "session:tool-surface":
+			// Changing the session-visible tool surface mutates session state,
+			// but does not touch the worktree or grant execution authority.
+			class = maxClass(class, tool.ClassStateMutating)
+		case strings.HasPrefix(cap, "provider:invoke:"):
+			// Provider use consumes signed token budget and may affect a
+			// provider-side cache, but grants no OS execution and changes no
+			// worktree bytes. Its model-facing plugin remains trace-only.
+			class = maxClass(class, tool.ClassStateMutating)
+		case cap == "agent:spawn" || strings.HasPrefix(cap, "agent:spawn:"):
+			// Spawning a child changes broker/session state but grants no direct
+			// OS mutation authority to the outer tool.
+			class = maxClass(class, tool.ClassStateMutating)
+		case strings.HasPrefix(cap, "evidence:"):
+			// Evidence calls return authenticated read facts or mechanically
+			// validate citations. Durable read receipts are host audit state, not
+			// project/session mutation, so exact child helpers remain read-only.
+			continue
 		case strings.HasPrefix(cap, "fs:read:"),
 			strings.HasPrefix(cap, "net:"),
-			strings.HasPrefix(cap, "session:"),
-			strings.HasPrefix(cap, "llm:"):
+			strings.HasPrefix(cap, "session:"):
 			class = maxClass(class, tool.ClassExec)
 		case strings.HasPrefix(cap, "lsp:"):
 			// lsp:* is read-only query capability. Leave the manifest
@@ -154,7 +179,7 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 
 	alloc := p.mod.wasmMod.ExportedFunction("stado_alloc")
 	freeFn := p.mod.wasmMod.ExportedFunction("stado_free")
-	exportName := "stado_tool_" + p.def.Name
+	exportName := "stado_tool_" + p.def.ExportName()
 	toolFn := p.mod.wasmMod.ExportedFunction(exportName)
 
 	if alloc == nil || freeFn == nil || toolFn == nil {

@@ -37,10 +37,11 @@ var artifactKindNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 // Keeping this parser in plugins makes the WASM import gate and the broker
 // authority consume one contract instead of reinterpreting strings twice.
 type ArtifactCapabilities struct {
-	Propose []string
-	Read    []string
-	Edit    []string
-	Observe []string
+	Propose               []string
+	Read                  []string
+	Edit                  []string
+	Observe               []string
+	MigrateLegacyMemoryV1 bool
 }
 
 // ArtifactKindDef is the signed manifest declaration for one plugin-owned
@@ -71,13 +72,48 @@ type LifecycleDef struct {
 // LifecycleCapabilities is the signed, broker-consumable lifecycle authority
 // projection. Observe authorizes delivery of a point or event; Decide is a
 // narrower set of synchronous points at which the application may deny or
-// mutate. Merely subscribing in LifecycleDef never grants either authority.
+// mutate. Contribute authorizes only the bounded append-only pre_llm context
+// contribution defined by EP-0060/0064; it cannot deny or replace host fields.
+// Merely subscribing in LifecycleDef never grants any of these authorities.
 type LifecycleCapabilities struct {
-	Observe []string
-	Decide  []string
+	Observe    []string
+	Decide     []string
+	Contribute []string
 }
 
 func (m Manifest) ValidateExtensions() error {
+	toolNames := make(map[string]bool, len(m.Tools))
+	for i, definition := range m.Tools {
+		if toolNames[definition.Name] {
+			return fmt.Errorf("tools[%d] %q: duplicate tool name", i, definition.Name)
+		}
+		toolNames[definition.Name] = true
+		if definition.ApplicationWorker != nil && m.Lifecycle == nil {
+			return fmt.Errorf("tools[%d] %q: application_worker requires a lifecycle declaration", i, definition.Name)
+		}
+		if definition.ApplicationSession != nil && m.Lifecycle == nil {
+			return fmt.Errorf("tools[%d] %q: application_session requires a lifecycle declaration", i, definition.Name)
+		}
+		if definition.ApplicationWorker != nil && definition.ApplicationSession != nil {
+			return fmt.Errorf("tools[%d] %q: application_worker and application_session are mutually exclusive", i, definition.Name)
+		}
+		if definition.ApplicationSession != nil && definition.AgentChildOnly {
+			return fmt.Errorf("tools[%d] %q: application_session and agent_child_only are mutually exclusive", i, definition.Name)
+		}
+		if m.Lifecycle != nil {
+			if definition.AgentChildOnly {
+				return fmt.Errorf("tools[%d] %q: agent_child_only is not valid for lifecycle application tools", i, definition.Name)
+			}
+			if definition.Capabilities != nil {
+				return fmt.Errorf("tools[%d] %q: lifecycle application tools must omit capabilities because the persistent module has package-wide authority", i, definition.Name)
+			}
+		} else if definition.Capabilities == nil {
+			return fmt.Errorf("tools[%d] %q: ordinary tools must explicitly declare capabilities, including [] for zero authority", i, definition.Name)
+		}
+		if _, err := m.EffectiveToolCapabilities(definition); err != nil {
+			return fmt.Errorf("tools[%d] %q: %w", i, definition.Name, err)
+		}
+	}
 	if err := validateCommandDefs(m.Commands); err != nil {
 		return err
 	}
@@ -106,6 +142,45 @@ func (m Manifest) ValidateExtensions() error {
 		return err
 	}
 	return nil
+}
+
+// EffectiveToolCapabilities returns the exact host-capability view for one
+// signed tool definition. Ordinary tools require a present list, which may
+// only attenuate package authority. Lifecycle tools must omit it and inherit
+// package authority because their callbacks/tools share a persistent Host.
+// Callers must keep
+// identity, signature, and module instantiation bound to the original manifest
+// and use this projection only for the selected tool's Host and risk class.
+func (m Manifest) EffectiveToolCapabilities(definition ToolDef) ([]string, error) {
+	if m.Lifecycle != nil {
+		if definition.Capabilities != nil {
+			return nil, errors.New("lifecycle application tool capabilities must be omitted")
+		}
+		return append([]string(nil), m.Capabilities...), nil
+	}
+	if definition.Capabilities == nil {
+		return nil, errors.New("ordinary tool capabilities must be explicitly declared")
+	}
+	declaredCapabilities := *definition.Capabilities
+
+	packageCapabilities := make(map[string]struct{}, len(m.Capabilities))
+	for _, capability := range m.Capabilities {
+		packageCapabilities[capability] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(declaredCapabilities))
+	for _, capability := range declaredCapabilities {
+		if capability == "" || strings.TrimSpace(capability) != capability {
+			return nil, fmt.Errorf("tool capability must be a non-empty exact value: %q", capability)
+		}
+		if _, duplicate := seen[capability]; duplicate {
+			return nil, fmt.Errorf("duplicate tool capability %q", capability)
+		}
+		seen[capability] = struct{}{}
+		if _, declared := packageCapabilities[capability]; !declared {
+			return nil, fmt.Errorf("tool capability %q is not declared by the package", capability)
+		}
+	}
+	return append([]string(nil), declaredCapabilities...), nil
 }
 
 func validateCommandDefs(commands []CommandDef) error {
@@ -193,6 +268,11 @@ func (m Manifest) ParseLifecycleCapabilities() (LifecycleCapabilities, error) {
 				return LifecycleCapabilities{}, fmt.Errorf("lifecycle decide target %q is not a subscribed point", target)
 			}
 			out.Decide = append(out.Decide, target)
+		case "contribute":
+			if target != "pre_llm" || !points[target] {
+				return LifecycleCapabilities{}, fmt.Errorf("lifecycle contribute target %q is not the subscribed pre_llm point", target)
+			}
+			out.Contribute = append(out.Contribute, target)
 		default:
 			return LifecycleCapabilities{}, fmt.Errorf("unknown lifecycle capability operation %q", parts[1])
 		}
@@ -218,6 +298,10 @@ func (c LifecycleCapabilities) CanObserve(target string) bool {
 
 func (c LifecycleCapabilities) CanDecide(point string) bool {
 	return containsCapability(c.Decide, point)
+}
+
+func (c LifecycleCapabilities) CanContribute(point string) bool {
+	return containsCapability(c.Contribute, point)
 }
 
 func (m Manifest) ParseArtifactCapabilities() (ArtifactCapabilities, error) {
@@ -252,7 +336,12 @@ func (m Manifest) ParseArtifactCapabilities() (ArtifactCapabilities, error) {
 			}
 			out.Edit = append(out.Edit, scope)
 		case "read", "observe":
-			if !validQualifiedArtifactPattern(scope) {
+			if strings.HasPrefix(scope, "self#") {
+				local := strings.TrimPrefix(scope, "self#")
+				if !declared[local] || !artifactKindNameRE.MatchString(local) {
+					return ArtifactCapabilities{}, fmt.Errorf("artifact %s self kind %q is not declared", parts[1], local)
+				}
+			} else if !validQualifiedArtifactPattern(scope) {
 				return ArtifactCapabilities{}, fmt.Errorf("invalid artifact %s kind pattern %q", parts[1], scope)
 			}
 			if parts[1] == "read" {
@@ -260,6 +349,17 @@ func (m Manifest) ParseArtifactCapabilities() (ArtifactCapabilities, error) {
 			} else {
 				out.Observe = append(out.Observe, scope)
 			}
+		case "migrate":
+			if scope != "legacy-memory-v1" {
+				return ArtifactCapabilities{}, fmt.Errorf("unknown artifact migration %q", scope)
+			}
+			if m.Lifecycle == nil {
+				return ArtifactCapabilities{}, errors.New("legacy memory migration is lifecycle-application-only")
+			}
+			if !declared["memory"] || !declared["lesson"] {
+				return ArtifactCapabilities{}, errors.New("legacy memory migration requires declared memory and lesson kinds")
+			}
+			out.MigrateLegacyMemoryV1 = true
 		default:
 			return ArtifactCapabilities{}, fmt.Errorf("unknown artifact capability operation %q", parts[1])
 		}
@@ -288,6 +388,42 @@ func validQualifiedArtifactPattern(pattern string) bool {
 
 func (c ArtifactCapabilities) AllowsPropose(local string) bool {
 	return containsCapability(c.Propose, local)
+}
+
+// ResolveSelf binds signed self-kind grants to the broker-authenticated
+// runtime identity. The guest never supplies or learns authority through this
+// conversion: only an exact manifest-declared local kind may use self# and the
+// verified loader/broker identity supplies the namespace (EP-0063, EP-0066).
+func (c ArtifactCapabilities) ResolveSelf(identity RuntimeIdentity) (ArtifactCapabilities, error) {
+	if err := identity.Validate(); err != nil {
+		return ArtifactCapabilities{}, err
+	}
+	resolve := func(patterns []string) ([]string, error) {
+		out := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			if !strings.HasPrefix(pattern, "self#") {
+				out = append(out, pattern)
+				continue
+			}
+			qualified, err := identity.QualifiedKind(strings.TrimPrefix(pattern, "self#"))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, qualified)
+		}
+		return out, nil
+	}
+	var err error
+	out := c
+	out.Propose = append([]string(nil), c.Propose...)
+	out.Edit = append([]string(nil), c.Edit...)
+	if out.Read, err = resolve(c.Read); err != nil {
+		return ArtifactCapabilities{}, err
+	}
+	if out.Observe, err = resolve(c.Observe); err != nil {
+		return ArtifactCapabilities{}, err
+	}
+	return out, nil
 }
 func (c ArtifactCapabilities) AllowsEdit(local string) bool { return containsCapability(c.Edit, local) }
 func (c ArtifactCapabilities) AllowsRead(kind string) bool  { return allowsQualified(c.Read, kind) }

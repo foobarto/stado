@@ -87,7 +87,7 @@ var toolListCmd = &cobra.Command{
 		}
 		var rows []row
 		for _, t := range reg.All() {
-			md := runtime.LookupToolMetadata(t.Name())
+			md := runtime.ToolMetadataFor(t)
 			if md.Canonical == "" {
 				continue // hidden internal tool
 			}
@@ -99,10 +99,6 @@ var toolListCmd = &cobra.Command{
 				state = "autoloaded"
 			}
 			// The PLUGIN column was blank for autoloaded user-plugin tools:
-			// LookupToolMetadata only knows the bundled tools, so user plugins
-			// fell through to the unknown-bare branch (empty Plugin). Fall back
-			// to the tool's own PluginName() so every plugin-backed tool shows
-			// its source consistently (#031 — `stado tool ls` display cleanup).
 			plugin := md.Plugin
 			if plugin == "" {
 				if pn, ok := t.(interface{ PluginName() string }); ok {
@@ -183,7 +179,7 @@ var toolInfoCmd = &cobra.Command{
 		if !ok {
 			// canonical lookup via metadata
 			for _, candidate := range reg.All() {
-				if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
+				if runtime.ToolMetadataFor(candidate).Canonical == query {
 					t = candidate
 					ok = true
 					break
@@ -193,7 +189,7 @@ var toolInfoCmd = &cobra.Command{
 		if !ok {
 			return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", query)
 		}
-		md := runtime.LookupToolMetadata(t.Name())
+		md := runtime.ToolMetadataFor(t)
 		schema, _ := json.MarshalIndent(t.Schema(), "", "  ")
 		if toolJSONFlag {
 			out := map[string]any{
@@ -311,7 +307,7 @@ func validateKnownToolArgs(verb string, args []string) error {
 	known := map[string]bool{}
 	for _, t := range reg.All() {
 		known[t.Name()] = true
-		if c := runtime.LookupToolMetadata(t.Name()).Canonical; c != "" {
+		if c := runtime.ToolMetadataFor(t).Canonical; c != "" {
 			known[c] = true
 		}
 	}

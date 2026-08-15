@@ -25,7 +25,7 @@ func TestDisplayPluginName(t *testing.T) {
 // TestAutoloadedPluginNames_DefaultRegistry exercises the helper end
 // to end against the bundled plugin set BuildDefaultRegistry stamps
 // out, so the test catches regressions in the wrapping chain
-// (renamedTool → bundledPluginTool.PluginName) without mocking it.
+// (bundledPluginTool.PluginName) without mocking it.
 // Asserts the names every release ships, not the full set, so adding
 // a new bundled plugin doesn't force this test to update.
 func TestAutoloadedPluginNames_DefaultRegistry(t *testing.T) {

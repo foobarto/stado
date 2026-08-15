@@ -8,10 +8,12 @@ import (
 
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 type tuiScheduleBroker struct {
@@ -144,6 +146,30 @@ func TestTUI_PreLLM_MutateRewritesRequest(t *testing.T) {
 	// History is immutable at this seam.
 	if len(m.msgs) != 1 || m.msgs[0].Role != agent.RoleUser {
 		t.Fatalf("pre_llm mutate must not touch message history: %+v", m.msgs)
+	}
+}
+
+func TestTUI_PreLLMCallbackReceivesLiveExactToolSurfaceController(t *testing.T) {
+	prov := &captureReqProvider{done: make(chan struct{})}
+	m := newLifecycleTestModel(t, prov)
+	known := projectedTool("demo__quality_fact", "source/demo@v1", false, false, tool.ClassNonMutating)
+	registry := tools.NewRegistry()
+	registry.Register(known)
+	m.executor = &tools.Executor{Registry: registry}
+	observed := false
+	m.lifecycleHooks = hooks.NewLifecycleRunner(hooks.BuiltinHook{
+		HookName:   "observe-live-ceiling",
+		Subscribed: []hooks.Point{hooks.PointPreLLM},
+		Fn: func(ctx context.Context, _ hooks.Point, _ hooks.Payload) (hooks.HookResult, error) {
+			controller, ok := tool.ToolSurfaceControllerFrom(ctx)
+			observed = ok && controller.AllowsToolSurface(known.Name()) && !controller.AllowsToolSurface("demo__absent")
+			return hooks.Continue(), nil
+		},
+	})
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hello")}
+	m.startStream()
+	if !observed {
+		t.Fatal("pre_llm callback did not receive the exact live TUI tool surface controller")
 	}
 }
 

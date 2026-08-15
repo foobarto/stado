@@ -77,7 +77,51 @@ type LoadedLifecycleApplication struct {
 	Controller  pluginruntime.ApplicationControllerBridge
 	Events      pluginruntime.ApplicationEventTransport
 	Tools       []*pluginruntime.PluginTool
-	dispatchMu  sync.Mutex
+	// ModelTools are the registry adapters for Tools. Each retains the exact
+	// admitted application namespace and signed per-tool worker projection;
+	// TUI ownership checks never infer either fact from a tool name.
+	ModelTools []tool.Tool
+	dispatchMu sync.Mutex
+}
+
+// LifecycleApplicationTool preserves the exact persistent adapter while
+// attaching host-readable signed identity/projection metadata. The wrapper
+// does not change class, schema, capabilities, execution, or serialization.
+type LifecycleApplicationTool struct {
+	tool       *pluginruntime.PluginTool
+	identity   plugins.RuntimeIdentity
+	pluginName string
+	definition plugins.ToolDef
+}
+
+func newLifecycleApplicationTool(adapter *pluginruntime.PluginTool, identity plugins.RuntimeIdentity, pluginName string, definition plugins.ToolDef) *LifecycleApplicationTool {
+	return &LifecycleApplicationTool{tool: adapter, identity: identity, pluginName: pluginName, definition: definition}
+}
+
+func (t *LifecycleApplicationTool) Name() string           { return t.tool.Name() }
+func (t *LifecycleApplicationTool) Description() string    { return t.tool.Description() }
+func (t *LifecycleApplicationTool) Schema() map[string]any { return t.tool.Schema() }
+func (t *LifecycleApplicationTool) Class() tool.Class      { return t.tool.Class() }
+func (t *LifecycleApplicationTool) Run(ctx context.Context, args json.RawMessage, host tool.Host) (tool.Result, error) {
+	return t.tool.Run(ctx, args, host)
+}
+func (t *LifecycleApplicationTool) ToolMetadata() ToolMetadata {
+	metadata := ToolMetadata{
+		Canonical: CanonicalToolName(t.definition.Name), Plugin: t.pluginName,
+		PackageNamespace:     t.identity.Namespace,
+		LifecycleApplication: t.identity.Namespace,
+		Categories:           append([]string(nil), t.definition.Categories...),
+		ExtraCategories:      append([]string(nil), t.definition.ExtraCategories...),
+	}
+	if t.definition.ApplicationWorker != nil {
+		metadata.ApplicationWorker = t.identity.Namespace
+		metadata.ApplicationWorkerPlan = t.definition.ApplicationWorker.PlanVisible
+	}
+	if t.definition.ApplicationSession != nil {
+		metadata.ApplicationSession = t.identity.Namespace
+		metadata.ApplicationSessionPlan = t.definition.ApplicationSession.PlanVisible
+	}
+	return metadata
 }
 
 // LoadInstalledLifecycleApplication verifies and starts a lifecycle application
@@ -133,6 +177,9 @@ func loadVerifiedLifecycleApplication(ctx context.Context, pluginDir string, mf 
 	host := pluginruntime.NewHostWithIdentity(mf, identity, opts.Workdir, nil)
 	host.StateDir = opts.Config.StateDir()
 	host.AttachAuthorityStores(opts.Config.StateDir(), rt.InstanceStore(), opts.SecretsAudit)
+	if opts.InvokeExecutor != nil {
+		host.RegistryCatalog = NewRegistryCatalogAccess(opts.InvokeExecutor.Registry, identity.Namespace)
+	}
 	attachLifecycleHostSurface(host, opts.ToolHost)
 	if opts.ConfigureHost != nil {
 		opts.ConfigureHost(host)
@@ -143,6 +190,12 @@ func loadVerifiedLifecycleApplication(ctx context.Context, pluginDir string, mf 
 	}
 	host.ArtifactBridge = binding.Artifact.Bridge
 	host.ArtifactCaller = binding.Artifact.Caller
+	if host.NeedsEvidenceBridge() {
+		if binding.Evidence.Bridge == nil {
+			return nil, errors.New("lifecycle application: declared evidence authority has no broker binding")
+		}
+		host.EvidenceBridge = binding.Evidence.Bridge
+	}
 	host.ApplicationBridge = binding.Application
 	host.ApplicationAnchor = binding.Anchor
 	if err := binding.Anchor.Validate(); err != nil {
@@ -171,11 +224,23 @@ func loadVerifiedLifecycleApplication(ctx context.Context, pluginDir string, mf 
 		_ = app.Close(context.Background())
 		return nil, fmt.Errorf("lifecycle application: tools: %w", err)
 	}
+	if len(appTools) != len(mf.Tools) {
+		_ = app.Close(context.Background())
+		return nil, errors.New("lifecycle application: tool adapters do not match signed manifest")
+	}
+	modelTools := make([]tool.Tool, len(appTools))
+	for i, adapter := range appTools {
+		if adapter == nil || adapter.Name() != mf.Tools[i].Name {
+			_ = app.Close(context.Background())
+			return nil, errors.New("lifecycle application: tool adapter order does not match signed manifest")
+		}
+		modelTools[i] = newLifecycleApplicationTool(adapter, identity, mf.Name, mf.Tools[i])
+	}
 	keepRuntime = true
 	return &LoadedLifecycleApplication{
 		Dir: pluginDir, Manifest: mf, Identity: identity, Runtime: rt,
 		Application: app, Bridge: binding.Application, Controller: binding.Controller,
-		Events: binding.Events, Tools: appTools,
+		Events: binding.Events, Tools: appTools, ModelTools: modelTools,
 	}, nil
 }
 

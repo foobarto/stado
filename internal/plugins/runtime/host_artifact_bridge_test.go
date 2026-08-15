@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -148,6 +149,60 @@ func TestArtifactBridgeQualifiedReadPatterns(t *testing.T) {
 	}
 	if len(bridge.calls) != 1 {
 		t.Fatalf("denied query reached bridge: %+v", bridge.calls)
+	}
+}
+
+func TestArtifactBridgeResolvesSelfKindFromAuthenticatedIdentity(t *testing.T) {
+	bridge := &recordingArtifactBridge{response: []byte(`{"items":[]}`)}
+	h := artifactTestHarness(t, "artifact:read:self#contract").withArtifactBridge(bridge).install()
+
+	body := []byte(`{"kinds":["self#contract"]}`)
+	h.memWrite(0, body)
+	if got := h.callImport(context.Background(), "stado_artifact_query", 0, uint64(len(body)), 1024, 256); got <= 0 {
+		t.Fatalf("self query returned %d", got)
+	}
+	if len(bridge.calls) != 1 {
+		t.Fatalf("bridge calls = %+v", bridge.calls)
+	}
+	var request struct {
+		Kinds []string `json:"kinds"`
+	}
+	if err := json.Unmarshal(bridge.calls[0].payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	want, err := h.host.Identity.QualifiedKind("contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Kinds) != 1 || request.Kinds[0] != want {
+		t.Fatalf("resolved kinds = %v, want %q", request.Kinds, want)
+	}
+
+	singular := []byte(`{"kind":"self#contract"}`)
+	h.memWrite(0, singular)
+	if got := h.callImport(context.Background(), "stado_artifact_query", 0, uint64(len(singular)), 1024, 256); got <= 0 {
+		t.Fatalf("singular self query returned %d", got)
+	}
+	if err := json.Unmarshal(bridge.calls[1].payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Kinds) != 1 || request.Kinds[0] != want {
+		t.Fatalf("singular query was not canonicalized: %+v", request)
+	}
+
+	denied := []byte(`{"kinds":["self#other"]}`)
+	h.memWrite(0, denied)
+	if got := h.callImport(context.Background(), "stado_artifact_query", 0, uint64(len(denied)), 1024, 256); got >= 0 {
+		t.Fatalf("undeclared self kind returned %d", got)
+	}
+	if len(bridge.calls) != 2 {
+		t.Fatal("denied self kind reached bridge")
+	}
+
+	ambiguous := []byte(`{"kind":"self#contract","kinds":["self#contract"]}`)
+	h.memWrite(0, ambiguous)
+	if got := h.callImport(context.Background(), "stado_artifact_query", 0, uint64(len(ambiguous)), 1024, 256); got >= 0 {
+		t.Fatalf("ambiguous self kind request returned %d", got)
 	}
 }
 

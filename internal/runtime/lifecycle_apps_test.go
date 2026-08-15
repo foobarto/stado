@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
@@ -32,12 +33,21 @@ type lifecycleApplicationBrokerStub struct {
 	identity plugins.RuntimeIdentity
 	manifest plugins.Manifest
 	anchor   pluginruntime.ApplicationAnchor
+	binding  pluginruntime.ApplicationBinding
 }
 
 func (b *lifecycleApplicationBrokerStub) BindApplication(_ context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginruntime.ApplicationBinding, error) {
 	b.identity = identity
 	b.manifest = manifest
-	return pluginruntime.ApplicationBinding{Anchor: b.anchor}, nil
+	binding := b.binding
+	binding.Anchor = b.anchor
+	return binding, nil
+}
+
+type lifecycleEvidenceBridgeStub struct{}
+
+func (*lifecycleEvidenceBridgeStub) CallEvidence(context.Context, string, []byte) ([]byte, error) {
+	return []byte(`{"items":[]}`), nil
 }
 
 func TestLoadVerifiedLifecycleApplicationBindsCanonicalAuthority(t *testing.T) {
@@ -76,6 +86,64 @@ func TestLoadVerifiedLifecycleApplicationBindsCanonicalAuthority(t *testing.T) {
 	}
 	if host.State == nil || host.State.PluginName != identity.Namespace || host.State.Store == nil {
 		t.Fatalf("instance authority was not canonically provisioned: %+v", host.State)
+	}
+}
+
+func TestLifecycleApplicationAttachesEvidenceOnlyForDeclaredAuthority(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	wasm := []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}
+	anchor := pluginruntime.ApplicationAnchor{SessionID: "session-1", SessionGeneration: 1}
+	evidence := &lifecycleEvidenceBridgeStub{}
+	load := func(t *testing.T, capabilities []string, binding pluginruntime.ApplicationBinding) (*LoadedLifecycleApplication, error) {
+		t.Helper()
+		manifest := plugins.Manifest{Name: "evidence-app", Version: "dev", Capabilities: capabilities, Lifecycle: &plugins.LifecycleDef{}}
+		identity, err := plugins.RuntimeIdentityForLocalSource(manifest, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loadVerifiedLifecycleApplication(context.Background(), t.TempDir(), manifest, identity, wasm,
+			LifecycleApplicationLoadOptions{Config: &config.Config{}, Broker: &lifecycleApplicationBrokerStub{anchor: anchor, binding: binding}})
+	}
+
+	declared, err := load(t, []string{"evidence:catalog:artifact"}, pluginruntime.ApplicationBinding{
+		Evidence: pluginruntime.EvidenceBridgeBinding{Bridge: evidence},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = declared.Close(context.Background()) }()
+	if declared.Application.Host.EvidenceBridge != evidence {
+		t.Fatal("declared lifecycle evidence authority was not attached")
+	}
+
+	undeclared, err := load(t, nil, pluginruntime.ApplicationBinding{Evidence: pluginruntime.EvidenceBridgeBinding{Bridge: evidence}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = undeclared.Close(context.Background()) }()
+	if undeclared.Application.Host.EvidenceBridge != nil {
+		t.Fatal("undeclared lifecycle evidence bridge was exposed to the host")
+	}
+
+	if _, err := load(t, []string{"evidence:catalog:artifact"}, pluginruntime.ApplicationBinding{}); err == nil ||
+		!strings.Contains(err.Error(), "no broker binding") {
+		t.Fatalf("declared evidence authority accepted a missing broker binding: %v", err)
+	}
+}
+
+func TestLifecycleApplicationToolMetadataCarriesSignedSessionProjection(t *testing.T) {
+	identity := plugins.RuntimeIdentity{Namespace: "github.com/foobarto/stado-plugins/tasks", Canonical: "github.com/foobarto/stado-plugins/tasks@v0.1.0"}
+	definition := plugins.ToolDef{
+		Name: "tasks", ApplicationSession: &plugins.ApplicationSessionToolDef{PlanVisible: false},
+	}
+	metadata := newLifecycleApplicationTool(nil, identity, "tasks", definition).ToolMetadata()
+	if metadata.LifecycleApplication != identity.Namespace || metadata.ApplicationSession != identity.Namespace || metadata.ApplicationSessionPlan {
+		t.Fatalf("application session metadata=%+v", metadata)
+	}
+	definition.ApplicationSession.PlanVisible = true
+	metadata = newLifecycleApplicationTool(nil, identity, "tasks", definition).ToolMetadata()
+	if !metadata.ApplicationSessionPlan {
+		t.Fatal("signed Plan visibility was not preserved")
 	}
 }
 

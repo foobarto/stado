@@ -2,9 +2,7 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -12,42 +10,51 @@ import (
 
 // TestNewHost_ParsesSessionCapabilities covers the Phase 7.1b
 // manifest-form parsing: `session:observe`, `session:read`,
-// `session:fork`, `llm:invoke[:<budget>]`. An absent capability must
+// `session:fork`, `provider:invoke:<budget>`. An absent capability must
 // leave its flag zero-valued.
 func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 	cases := []struct {
-		name     string
-		caps     []string
-		wantObs  bool
-		wantRead bool
-		wantFork bool
-		wantLLM  int
+		name         string
+		caps         []string
+		wantObs      bool
+		wantRead     bool
+		wantFork     bool
+		wantProvider int
 	}{
 		{
-			name:    "all-four-with-default-budget",
-			caps:    []string{"session:observe", "session:read", "session:fork", "llm:invoke"},
+			name:    "session-and-exact-provider-budget",
+			caps:    []string{"session:observe", "session:read", "session:fork", "provider:invoke:10000"},
 			wantObs: true, wantRead: true, wantFork: true,
-			wantLLM: 10000, // default when no suffix
+			wantProvider: 10000,
 		},
 		{
-			name:    "explicit-budget-overrides-default",
-			caps:    []string{"llm:invoke:50000"},
-			wantLLM: 50000,
+			name:         "explicit-provider-budget",
+			caps:         []string{"provider:invoke:50000"},
+			wantProvider: 50000,
 		},
 		{
-			name:    "zero-budget-rejected-falls-to-default",
-			caps:    []string{"llm:invoke:0"},
-			wantLLM: 10000,
+			name: "bare-capability-rejected",
+			caps: []string{"provider:invoke"},
 		},
 		{
-			name:    "negative-budget-rejected-falls-to-default",
-			caps:    []string{"llm:invoke:-1"},
-			wantLLM: 10000,
+			name: "zero-budget-rejected",
+			caps: []string{"provider:invoke:0"},
 		},
 		{
-			name:    "malformed-budget-falls-to-default",
-			caps:    []string{"llm:invoke:abc"},
-			wantLLM: 10000,
+			name: "negative-budget-rejected",
+			caps: []string{"provider:invoke:-1"},
+		},
+		{
+			name: "malformed-budget-rejected",
+			caps: []string{"provider:invoke:abc"},
+		},
+		{
+			name: "oversized-budget-rejected",
+			caps: []string{"provider:invoke:2000001"},
+		},
+		{
+			name: "legacy-alias-rejected",
+			caps: []string{"llm:invoke:50000"},
 		},
 		{
 			name:     "read-only-plugin",
@@ -55,10 +62,10 @@ func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 			wantRead: true,
 		},
 		{
-			name:    "fs-and-session-mixed",
-			caps:    []string{"fs:read:/tmp", "session:observe", "llm:invoke:5000"},
-			wantObs: true,
-			wantLLM: 5000,
+			name:         "fs-and-session-mixed",
+			caps:         []string{"fs:read:/tmp", "session:observe", "provider:invoke:5000"},
+			wantObs:      true,
+			wantProvider: 5000,
 		},
 		{
 			name: "no-session-caps",
@@ -82,8 +89,8 @@ func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 			if h.SessionFork != c.wantFork {
 				t.Errorf("SessionFork = %v, want %v", h.SessionFork, c.wantFork)
 			}
-			if h.LLMInvokeBudget != c.wantLLM {
-				t.Errorf("LLMInvokeBudget = %d, want %d", h.LLMInvokeBudget, c.wantLLM)
+			if h.ProviderInvokeBudget != c.wantProvider {
+				t.Errorf("ProviderInvokeBudget = %d, want %d", h.ProviderInvokeBudget, c.wantProvider)
 			}
 		})
 	}
@@ -105,13 +112,9 @@ func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 type fakeBridge struct {
 	readCalls   int
 	forkCalls   int
-	llmCalls    int
 	eventCalls  int
 	readResult  []byte
 	forkResult  string
-	llmReply    string
-	llmTokens   int
-	llmErr      error
 	eventResult []byte
 }
 
@@ -129,13 +132,6 @@ func (f *fakeBridge) ReadField(name string) ([]byte, error) {
 func (f *fakeBridge) Fork(ctx context.Context, atTurn, seed string) (string, error) {
 	f.forkCalls++
 	return f.forkResult, nil
-}
-func (f *fakeBridge) InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (string, int, error) {
-	f.llmCalls++
-	if f.llmErr != nil {
-		return "", 0, f.llmErr
-	}
-	return f.llmReply, f.llmTokens, nil
 }
 
 // TestHostImports_DenyWhenNoCapability asserts the capability gates
@@ -155,12 +151,12 @@ func TestHostImports_DenyWhenNoCapability(t *testing.T) {
 	// runtime-side deny paths are exercised end-to-end in the
 	// install-imports smoke test below.
 	h := NewHost(plugins.Manifest{Capabilities: nil}, "/tmp", nil)
-	if h.SessionObserve || h.SessionRead || h.SessionFork || h.LLMInvokeBudget != 0 {
+	if h.SessionObserve || h.SessionRead || h.SessionFork || h.ProviderInvokeBudget != 0 {
 		t.Errorf("no-cap host had non-zero gates: %+v", h)
 	}
 }
 
-// TestInstallHostImports_SessionImportsRegister asserts the four new
+// TestInstallHostImports_SessionImportsRegister asserts the session
 // host imports are registered under the "stado" namespace — i.e. the
 // wazero builder doesn't fail when session-aware plugins link against
 // them. We instantiate a minimal wasm that imports all four; if any
@@ -176,7 +172,7 @@ func TestInstallHostImports_SessionImportsRegister(t *testing.T) {
 	// denials are exercised by the bridge never being called.
 	bridge := &fakeBridge{}
 	host := NewHost(plugins.Manifest{Name: "test", Capabilities: []string{
-		"session:observe", "session:read", "session:fork", "llm:invoke",
+		"session:observe", "session:read", "session:fork", "provider:invoke:10000",
 	}}, "/tmp", nil)
 	host.SessionBridge = bridge
 
@@ -184,18 +180,7 @@ func TestInstallHostImports_SessionImportsRegister(t *testing.T) {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
 	// Gate flags should be flipped because the caps were declared.
-	if !host.SessionObserve || !host.SessionRead || !host.SessionFork || host.LLMInvokeBudget != 10000 {
+	if !host.SessionObserve || !host.SessionRead || !host.SessionFork || host.ProviderInvokeBudget != 10000 {
 		t.Errorf("expected caps set on host after NewHost, got %+v", host)
-	}
-}
-
-// TestSessionBridge_Errors_Wrapped asserts a bridge error bubbles out
-// in a way the host-import can surface. Not a wasm-level test — just
-// a guardrail that the interface doesn't swallow errors.
-func TestSessionBridge_Errors_Wrapped(t *testing.T) {
-	bridge := &fakeBridge{llmErr: errors.New("budget denied upstream")}
-	_, _, err := bridge.InvokeLLM(context.Background(), "x", LLMInvokeOpts{})
-	if err == nil || !strings.Contains(err.Error(), "budget") {
-		t.Errorf("expected budget error to propagate: %v", err)
 	}
 }

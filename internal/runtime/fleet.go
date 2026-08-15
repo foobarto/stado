@@ -109,6 +109,9 @@ type SpawnOptions struct {
 	NarrowTools []string
 	TokenBudget int
 	Execution   string
+	// ChildToolOwner is the authenticated caller package namespace injected by
+	// the WASM Host. Direct native/operator spawns leave it empty.
+	ChildToolOwner string
 }
 
 // Fleet is the in-memory registry of background agents.
@@ -372,6 +375,7 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 	}()
 
 	req := subagent.Request{
+		AgentID:              id,
 		Prompt:               f.entryPrompt(id),
 		Role:                 opts.Role,
 		Mode:                 opts.Mode,
@@ -390,6 +394,7 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 		NarrowTools:          append([]string(nil), opts.NarrowTools...),
 		TokenBudget:          opts.TokenBudget,
 		Execution:            opts.Execution,
+		ChildToolOwner:       opts.ChildToolOwner,
 	}
 
 	// Wire the inbox source so AgentSendMessage delivery actually

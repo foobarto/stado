@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/broker/wal"
-	"github.com/foobarto/stado/internal/plugins"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,9 +79,14 @@ CREATE VIRTUAL TABLE artifact_fts USING fts5(id UNINDEXED, title, text, trigger,
 		if a.Sensitivity == "normal" && a.Authority != AuthorityDeleted {
 			desc, ok := descriptorForArtifact(descriptors, a)
 			if !ok {
-				continue
+				_ = tx.Rollback()
+				return fail(fmt.Errorf("artifact %q has no exact archived kind descriptor", a.ID))
 			}
-			title, text, trigger := projectIndexText(a.Data, desc.Definition.Index)
+			title, text, trigger, projectErr := projectIndexText(a.Data, desc)
+			if projectErr != nil {
+				_ = tx.Rollback()
+				return fail(fmt.Errorf("project artifact %q: %w", a.ID, projectErr))
+			}
 			if _, err = tx.Exec(`INSERT INTO artifact_fts(id,title,text,trigger,tags,groups) VALUES(?,?,?,?,?,?)`, a.ID, title, text, trigger, strings.Join(a.Tags, " "), strings.Join(a.Groups, " ")); err != nil {
 				_ = tx.Rollback()
 				return fail(err)
@@ -186,47 +190,66 @@ func archivedKindDescriptors(records []wal.Record) map[Kind][]KindDescriptor {
 			}
 		}
 	}
-	// Pre-EP-63 logs have no descriptor archive. The legacy reader converts
-	// only memory/lesson records, whose bundled signed definitions are stable.
-	legacy := DefaultKindRegistry()
-	for _, kind := range []Kind{KindMemory, KindLesson} {
-		if len(out[kind]) != 0 {
-			continue
-		}
-		if desc, ok := legacy.Lookup(kind); ok {
-			out[kind] = append(out[kind], desc)
-		}
-	}
 	return out
 }
 
 func descriptorForArtifact(all map[Kind][]KindDescriptor, a Artifact) (KindDescriptor, bool) {
 	for _, desc := range all[a.Kind] {
-		if desc.Schema.SchemaDigest == a.KindSchema.SchemaDigest &&
-			desc.Schema.PluginIdentity == a.KindSchema.PluginIdentity {
+		if desc.Schema == a.KindSchema {
 			return desc, true
 		}
 	}
 	return KindDescriptor{}, false
 }
 
-func projectIndexText(data json.RawMessage, projections []plugins.ArtifactIndexProjection) (string, string, string) {
+const (
+	maxProjectedValueBytes = 8 << 10
+	maxProjectedRoleBytes  = 32 << 10
+)
+
+func projectIndexText(data json.RawMessage, descriptor KindDescriptor) (string, string, string, error) {
+	if err := descriptor.Definition.Validate(); err != nil {
+		return "", "", "", fmt.Errorf("invalid archived descriptor: %w", err)
+	}
+	if err := descriptor.Definition.ValidateData(data); err != nil {
+		return "", "", "", fmt.Errorf("data does not match archived schema: %w", err)
+	}
 	roles := map[string][]string{"title": {}, "text": {}, "trigger": {}}
-	for _, projection := range projections {
+	roleBytes := map[string]int{}
+	appendValue := func(role, value string) error {
+		if len(value) > maxProjectedValueBytes {
+			return fmt.Errorf("%s projection value exceeds %d bytes", role, maxProjectedValueBytes)
+		}
+		roleBytes[role] += len(value)
+		if roleBytes[role] > maxProjectedRoleBytes {
+			return fmt.Errorf("%s projection exceeds %d bytes", role, maxProjectedRoleBytes)
+		}
+		roles[role] = append(roles[role], value)
+		return nil
+	}
+	for _, projection := range descriptor.Definition.Index {
 		value, ok := resolveJSONPointer(data, projection.Pointer)
 		if !ok {
 			continue
 		}
 		switch typed := value.(type) {
 		case string:
-			roles[projection.Role] = append(roles[projection.Role], typed)
+			if err := appendValue(projection.Role, typed); err != nil {
+				return "", "", "", err
+			}
 		case []any:
 			for _, item := range typed {
-				if text, ok := item.(string); ok {
-					roles[projection.Role] = append(roles[projection.Role], text)
+				text, ok := item.(string)
+				if !ok {
+					return "", "", "", fmt.Errorf("%s projection array contains a non-string", projection.Role)
+				}
+				if err := appendValue(projection.Role, text); err != nil {
+					return "", "", "", err
 				}
 			}
+		default:
+			return "", "", "", fmt.Errorf("%s projection is neither a string nor string array", projection.Role)
 		}
 	}
-	return strings.Join(roles["title"], " "), strings.Join(roles["text"], " "), strings.Join(roles["trigger"], " ")
+	return strings.Join(roles["title"], " "), strings.Join(roles["text"], " "), strings.Join(roles["trigger"], " "), nil
 }

@@ -8,23 +8,45 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
 func writeSurfaceApplication(t *testing.T, cfg *config.Config, id, name string) string {
 	t.Helper()
-	dir := filepath.Join(cfg.StateDir(), "plugins", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	stage := filepath.Join(t.TempDir(), id)
+	if err := os.MkdirAll(stage, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{"name":"` + name + `","version":"1.0.0","wasm_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capabilities":[],"tools":[],"lifecycle":{},"commands":[{"name":"watch","description":"watch"}]}`
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Classification deliberately does not verify trust, but LoadFromDir has
 	// one strict installed-package shape and therefore still requires the
 	// signature sidecar to be present.
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stage, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mf, _, err := plugins.LoadFromDir(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(stage, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg.StateDir(), "plugins", record.StoreKey)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"plugin.manifest.json", "plugin.manifest.sig"} {
+		data, _ := os.ReadFile(filepath.Join(stage, filename))
+		if err := os.WriteFile(filepath.Join(dir, filename), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plugins.WriteInstallRecord(dir, record, *mf); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -49,8 +71,8 @@ func TestUnsupportedSurfaceNamesCanonicalApplicationsAndTUIRemedy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeSurfaceApplication(t, cfg, "quality-1.0.0", "quality")
-	cfg.Plugins.Background = []string{"quality-1.0.0"}
+	dir := writeSurfaceApplication(t, cfg, "quality-1.0.0", "quality")
+	cfg.Plugins.Background = []string{filepath.Base(dir)}
 
 	applications, err := ConfiguredLifecycleApplications(cfg, nil)
 	if err != nil || len(applications) != 1 || applications[0].CanonicalID == "" {
@@ -75,8 +97,8 @@ func TestPersonaLifecycleApplicationParticipatesInSurfaceGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeSurfaceApplication(t, cfg, "persona-quality-1.0.0", "persona-quality")
-	if err := RequireLifecycleApplicationSurface(cfg, []string{"persona-quality-1.0.0"}, ApplicationSurfaceRun); err == nil {
+	dir := writeSurfaceApplication(t, cfg, "persona-quality-1.0.0", "persona-quality")
+	if err := RequireLifecycleApplicationSurface(cfg, []string{filepath.Base(dir)}, ApplicationSurfaceRun); err == nil {
 		t.Fatal("persona-selected lifecycle application bypassed unsupported-surface guard")
 	}
 }
@@ -89,8 +111,8 @@ func TestAgentLoopNeverAutoComposesConfiguredLifecycleApplications(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeSurfaceApplication(t, cfg, "quality-1.0.0", "quality")
-	cfg.Plugins.Background = []string{"quality-1.0.0"}
+	dir := writeSurfaceApplication(t, cfg, "quality-1.0.0", "quality")
+	cfg.Plugins.Background = []string{filepath.Base(dir)}
 
 	// This intentionally supplies no broker application admission. Before the
 	// surface boundary, AgentLoop tried to instantiate the configured package
@@ -104,5 +126,16 @@ func TestAgentLoopNeverAutoComposesConfiguredLifecycleApplications(t *testing.T)
 	})
 	if err != nil || final != "done" {
 		t.Fatalf("AgentLoop composed a surface-owned application: final=%q err=%v", final, err)
+	}
+}
+
+func TestTasksHasNoNativeRegistryOrDefaultAutoloadFallback(t *testing.T) {
+	if _, ok := BuildDefaultRegistry(nil).Get("tasks"); ok {
+		t.Fatal("native tasks tool returned to the default registry")
+	}
+	for _, name := range DefaultAutoloadNames() {
+		if name == "tasks" {
+			t.Fatal("tasks returned to native default autoload")
+		}
 	}
 }

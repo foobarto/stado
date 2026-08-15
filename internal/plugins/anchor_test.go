@@ -24,6 +24,17 @@ func TestFetchAnchorPubkey_HappyPath(t *testing.T) {
 	}
 }
 
+func TestFetchAnchorPubkeyRejectsOversizedResponseInsteadOfParsingPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("a", maxAnchorPubkeyBytes+1)))
+	}))
+	defer srv.Close()
+
+	if got, err := FetchAnchorPubkey(context.Background(), srv.URL); err == nil || got != "" || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized anchor = %q, err=%v; want bounded rejection", got, err)
+	}
+}
+
 // TestFetchAnchorPubkey_RespectsContextCancellation verifies that a
 // cancelled context aborts the fetch (the audit-flagged behaviour).
 func TestFetchAnchorPubkey_RespectsContextCancellation(t *testing.T) {

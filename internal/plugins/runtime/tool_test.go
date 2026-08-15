@@ -18,8 +18,9 @@ import (
 func TestNewPluginTool_SchemaDefaults(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	pt, err := NewPluginTool(mod, plugins.ToolDef{
-		Name:        "fetch",
-		Description: "fetch a URL",
+		Name:         "fetch",
+		Description:  "fetch a URL",
+		Capabilities: plugins.CapabilitySubset(),
 		// No Schema — legacy or minimal manifest.
 	})
 	if err != nil {
@@ -64,8 +65,9 @@ func TestDecodeToolSideErrorEnvelope(t *testing.T) {
 func TestNewPluginTool_ClassRoundTrip(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	pt, err := NewPluginTool(mod, plugins.ToolDef{
-		Name:  "execy",
-		Class: "Exec",
+		Name:         "execy",
+		Class:        "Exec",
+		Capabilities: plugins.CapabilitySubset(),
 	})
 	if err != nil {
 		t.Fatalf("NewPluginTool: %v", err)
@@ -83,7 +85,7 @@ func TestNewPluginTool_ReadCapabilityPromotesClass(t *testing.T) {
 			Capabilities: []string{"fs:read:/work"},
 		},
 	}
-	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating"})
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("fs:read:/work")})
 	if err != nil {
 		t.Fatalf("NewPluginTool: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestNewPluginTool_LSPCapabilityKeepsNonMutatingClass(t *testing.T) {
 			Capabilities: []string{"fs:read:.", "lsp:query"},
 		},
 	}
-	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating"})
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("fs:read:.", "lsp:query")})
 	if err != nil {
 		t.Fatalf("NewPluginTool: %v", err)
 	}
@@ -120,13 +122,83 @@ func TestEffectiveToolClass_LSPOnlyDoesNotPromote(t *testing.T) {
 	}
 }
 
+func TestEffectiveToolClass_RegistryCatalogAndSessionSurface(t *testing.T) {
+	search, err := EffectiveToolClass(plugins.ToolDef{Name: "search", Class: "NonMutating"}, []string{"registry:catalog"})
+	if err != nil {
+		t.Fatalf("catalog class: %v", err)
+	}
+	if search != tool.ClassNonMutating {
+		t.Fatalf("catalog search class = %v, want non-mutating", search)
+	}
+
+	activate, err := EffectiveToolClass(plugins.ToolDef{Name: "activate", Class: "NonMutating"}, []string{"registry:catalog", "session:tool-surface"})
+	if err != nil {
+		t.Fatalf("surface class: %v", err)
+	}
+	if activate != tool.ClassStateMutating {
+		t.Fatalf("surface edit class = %v, want state-mutating", activate)
+	}
+}
+
+func TestNewPluginToolUsesPerToolCapabilitiesForClassification(t *testing.T) {
+	manifest := plugins.Manifest{
+		Capabilities: []string{"registry:catalog", "session:tool-surface"},
+	}
+	search := plugins.ToolDef{Name: "tools__search", Class: "NonMutating", Capabilities: plugins.CapabilitySubset("registry:catalog")}
+	activate := plugins.ToolDef{Name: "tools__activate", Class: "StateMutating", Capabilities: plugins.CapabilitySubset("registry:catalog", "session:tool-surface")}
+	mod := &Module{Name: "tool-registry", Manifest: manifest}
+	searchTool, err := NewPluginTool(mod, search)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if searchTool.Class() != tool.ClassNonMutating {
+		t.Fatalf("search class = %v", searchTool.Class())
+	}
+	activateTool, err := NewPluginTool(mod, activate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activateTool.Class() != tool.ClassStateMutating {
+		t.Fatalf("activate class = %v", activateTool.Class())
+	}
+}
+
+func TestEffectiveToolClass_ProviderInvokeIsStateMutating(t *testing.T) {
+	class, err := EffectiveToolClass(plugins.ToolDef{Name: "invoke", Class: "StateMutating"}, []string{"provider:invoke:16384"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if class != tool.ClassStateMutating {
+		t.Fatalf("provider tool class = %v, want state-mutating", class)
+	}
+	unknown, err := EffectiveToolClass(plugins.ToolDef{Name: "future", Class: "NonMutating"}, []string{"provider:future"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown != tool.ClassExec {
+		t.Fatalf("unknown provider capability class = %v, want exec", unknown)
+	}
+}
+
+func TestEffectiveToolClass_ResearchCapabilitiesStayWithinReadAndStateClasses(t *testing.T) {
+	inner, err := EffectiveToolClass(plugins.ToolDef{Name: "research__open", Class: "NonMutating"}, []string{"evidence:open:artifact"})
+	if err != nil || inner != tool.ClassNonMutating {
+		t.Fatalf("evidence helper class=%v err=%v, want non-mutating", inner, err)
+	}
+	outer, err := EffectiveToolClass(plugins.ToolDef{Name: "memory__research", Class: "StateMutating"}, []string{"agent:spawn", "evidence:validate"})
+	if err != nil || outer != tool.ClassStateMutating {
+		t.Fatalf("research orchestrator class=%v err=%v, want state-mutating", outer, err)
+	}
+}
+
 // TestNewPluginTool_SchemaRoundTrip verifies a JSON Schema in the
 // manifest comes back intact via pt.Schema() — this is what the agent
 // loop passes to the provider's TurnRequest.Tools.
 func TestNewPluginTool_SchemaRoundTrip(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	pt, err := NewPluginTool(mod, plugins.ToolDef{
-		Name: "fetch",
+		Name:         "fetch",
+		Capabilities: plugins.CapabilitySubset(),
 		Schema: `{
 			"type": "object",
 			"properties": {"url": {"type": "string"}},
@@ -157,8 +229,9 @@ func TestNewPluginTool_SchemaRoundTrip(t *testing.T) {
 func TestNewPluginTool_BadSchemaRejected(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	_, err := NewPluginTool(mod, plugins.ToolDef{
-		Name:   "bad",
-		Schema: "not json {",
+		Name:         "bad",
+		Schema:       "not json {",
+		Capabilities: plugins.CapabilitySubset(),
 	})
 	if err == nil {
 		t.Fatal("expected schema parse error")
@@ -168,8 +241,9 @@ func TestNewPluginTool_BadSchemaRejected(t *testing.T) {
 func TestNewPluginTool_BadClassRejected(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	_, err := NewPluginTool(mod, plugins.ToolDef{
-		Name:  "bad",
-		Class: "not-a-class",
+		Name:         "bad",
+		Class:        "not-a-class",
+		Capabilities: plugins.CapabilitySubset(),
 	})
 	if err == nil {
 		t.Fatal("expected class parse error")
@@ -184,8 +258,8 @@ func TestLoadPluginTools_FromManifest(t *testing.T) {
 		Manifest: plugins.Manifest{
 			Name: "demo",
 			Tools: []plugins.ToolDef{
-				{Name: "fetch", Description: "fetch a URL"},
-				{Name: "summarise", Description: "summarise text"},
+				{Name: "fetch", Description: "fetch a URL", Capabilities: plugins.CapabilitySubset()},
+				{Name: "summarise", Description: "summarise text", Capabilities: plugins.CapabilitySubset()},
 			},
 		},
 	}

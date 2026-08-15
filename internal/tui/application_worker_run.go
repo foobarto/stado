@@ -15,6 +15,7 @@ type applicationWorkerHandoffKind uint8
 const (
 	applicationWorkerHandoffInitial applicationWorkerHandoffKind = iota
 	applicationWorkerHandoffResume
+	applicationWorkerHandoffCancel
 )
 
 type applicationWorkerRunLookupMsg struct {
@@ -131,6 +132,7 @@ func (m *Model) startApplicationWorkerRun(application *runtime.LoadedLifecycleAp
 		return nil
 	}
 	m.loop = &loopState{prompt: run.Prompt, application: application, workerRun: run, generation: m.nextLoopGeneration()}
+	m.applicationToolProjectionGeneration.Add(1)
 	m.appendBlock(block{kind: "system", body: fmt.Sprintf("application worker started — %s: %q", run.Objective, run.Prompt)})
 	m.renderBlocks()
 	if m.applicationInputDeliveryRunning {
@@ -152,6 +154,35 @@ func onApplicationWorkerRunLookup(m *Model, msg applicationWorkerRunLookupMsg) (
 		return m, nil
 	}
 	m.clearApplicationFailureSource(applicationFailureWorkerHandoff)
+	if msg.kind == applicationWorkerHandoffCancel {
+		if msg.run.Status != runtime.ApplicationWorkerRunCancelled {
+			m.applicationWorkerHandoffRunning = false
+			failure := fmt.Errorf("application worker cancellation returned non-cancelled status %s", msg.run.Status)
+			m.setApplicationFailureSource(applicationFailureWorkerHandoff, failure)
+			m.appendBlock(block{kind: "system", body: failure.Error()})
+			m.renderBlocks()
+			return m, nil
+		}
+		if m.loop != nil && !m.applicationLoopMatches(msg.application, msg.run) {
+			m.applicationWorkerHandoffRunning = false
+			failure := errors.New("cancelled application worker conflicts with a different local recurrence owner")
+			m.setApplicationFailureSource(applicationFailureWorkerHandoff, failure)
+			m.appendBlock(block{kind: "system", body: failure.Error()})
+			m.renderBlocks()
+			return m, nil
+		}
+		if m.loop != nil {
+			m.cancelRunningStream()
+			m.cancelRunningTool()
+			m.clearPendingToolQueue()
+			m.loop = nil
+			m.applicationToolProjectionGeneration.Add(1)
+		}
+		m.applicationWorkerHandoffRunning = false
+		m.applicationWorkerRecoveryPending = false
+		m.clearApplicationFailureSource(applicationFailureWorkerRecovery)
+		return m, m.reconcileApplicationOperatorInput(applicationInputAfterNone)
+	}
 	if msg.run.Status == runtime.ApplicationWorkerRunActive {
 		m.applicationWorkerHandoffRunning = false
 		if m.applicationLoopMatches(msg.application, msg.run) {

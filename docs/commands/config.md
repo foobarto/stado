@@ -27,7 +27,6 @@ The effective config answers:
   prompt template?
 - Which bundled theme and thinking display mode the TUI uses
   (`[tui].theme`, `[tui].thinking_display`)?
-- Whether `[memory]` prompt context is enabled, and its item/token caps.
 - Which `[tools]` filter applies?
 - What `[context]` soft/hard thresholds are active?
 - What `[budget]` caps, if any, are set?
@@ -83,11 +82,6 @@ worktree dir   /home/user/.local/state/stado/worktrees
   thinking_display               preview
   tool_display                   preview
   tool_output_collapsed_height   8
-
-[memory]
-  enabled        true
-  max_items      8
-  budget_tokens  800
 
 [context]
   soft_threshold   0.70
@@ -196,7 +190,7 @@ stado: ignoring "…" from project .stado/config.toml — not honored from a rep
 
 **Still honored from project config:** e.g. `[defaults].model` /
 `.provider` (select among user-defined providers), `[tools].*`,
-`[context].*`, `[memory].*`, `[budget].*`, `[approvals].*`.
+`[context].*`, `[budget].*`, `[approvals].*`.
 
 `[verify]` is intentionally not project-overridable. Configure it in the user
 file only; commands run automatically and therefore cross the repo-to-host

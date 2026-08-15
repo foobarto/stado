@@ -6,6 +6,7 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	stadoruntime "github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -37,6 +38,111 @@ func TestOnStreamError_ContextOverflowRecovers(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("recovery should dispatch a background-plugin tick cmd")
+	}
+}
+
+func TestOnStreamError_ApplicationWorkerOverflowTransfersExactRun(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "continue the exact worker"))
+	m.loop = &loopState{application: &stadoruntime.LoadedLifecycleApplication{}}
+	withAutoCompactPlugin(m)
+
+	_, cmd := onStreamError(m, streamErrorMsg{err: errors.New("400 context_length_exceeded")})
+
+	if cmd == nil || !m.recoveryPluginActive || !m.recoveryApplicationWorker {
+		t.Fatalf("application recovery not admitted: cmd=%v active=%v worker=%v", cmd != nil, m.recoveryPluginActive, m.recoveryApplicationWorker)
+	}
+	if m.loop == nil || m.loop.application == nil {
+		t.Fatal("source recurrence was cleared before the authenticated child handoff")
+	}
+}
+
+func TestContextOverflowRecoveryBindsExactLoadedPluginIdentity(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "recover exactly"))
+	m.backgroundPlugins = []*pluginRuntime.BackgroundPlugin{{
+		Manifest: plugins.Manifest{Name: "auto-compact"},
+		Host:     &pluginRuntime.Host{Identity: plugins.RuntimeIdentity{Canonical: "stado.dev/bundled/auto-compact@0.1.0"}},
+	}}
+
+	_, cmd := onStreamError(m, streamErrorMsg{err: errors.New("maximum context length exceeded")})
+	if cmd == nil || m.recoveryPluginName != "stado.dev/bundled/auto-compact@0.1.0" {
+		t.Fatalf("recovery identity = %q cmd=%v", m.recoveryPluginName, cmd != nil)
+	}
+}
+
+func TestRecoveryTimeoutRestoresPromptAndCancelsApplicationWorker(t *testing.T) {
+	m := scenarioModel(t)
+	run := tuiWorkerRun(stadoruntime.ApplicationWorkerRunActive)
+	cancelled := run
+	cancelled.Status = stadoruntime.ApplicationWorkerRunCancelled
+	cancelled.Version++
+	bridge := &tuiWorkerBridge{response: cancelled}
+	application := tuiWorkerApplication(run, bridge)
+	m.loop = &loopState{prompt: run.Prompt, application: application, workerRun: run}
+	m.recoveryPrompt = run.Prompt
+	m.recoveryPluginName = "stado.dev/bundled/auto-compact@0.1.0"
+	m.recoveryPluginActive = true
+	m.recoveryApplicationWorker = true
+	m.queuedPrompt = "operator follow-up"
+	m.input.SetValue("unsent draft")
+
+	_, cmd := onRecoveryTimeout(m, recoveryTimeoutMsg{})
+	if cmd == nil || m.loop == nil || !m.loop.cancelling {
+		t.Fatalf("timeout did not begin durable worker cancellation: cmd=%v loop=%#v", cmd != nil, m.loop)
+	}
+	if got, want := m.input.Value(), run.Prompt+"\noperator follow-up\nunsent draft"; got != want {
+		t.Fatalf("restored input = %q, want %q", got, want)
+	}
+	if m.queuedPrompt != "" || m.recoveryPrompt != "" || m.recoveryPluginActive || m.recoveryApplicationWorker {
+		t.Fatalf("recovery state not cleared: queued=%q prompt=%q active=%v worker=%v", m.queuedPrompt, m.recoveryPrompt, m.recoveryPluginActive, m.recoveryApplicationWorker)
+	}
+
+	message, ok := cmd().(applicationWorkerRunCancellationMsg)
+	if !ok || message.err != nil {
+		t.Fatalf("cancellation result = %#v", message)
+	}
+	onApplicationWorkerRunCancellation(m, message)
+	if m.loop != nil || len(bridge.operations) != 1 || bridge.operations[0] != "worker.cancel" {
+		t.Fatalf("worker cancellation did not terminalize recurrence: loop=%#v operations=%v", m.loop, bridge.operations)
+	}
+}
+
+func TestRecoveryHandoffRejectionRestoresInputAndCancelsApplicationWorker(t *testing.T) {
+	m := scenarioModel(t)
+	run := tuiWorkerRun(stadoruntime.ApplicationWorkerRunActive)
+	cancelled := run
+	cancelled.Status = stadoruntime.ApplicationWorkerRunCancelled
+	cancelled.Version++
+	bridge := &tuiWorkerBridge{response: cancelled}
+	application := tuiWorkerApplication(run, bridge)
+	m.loop = &loopState{prompt: run.Prompt, application: application, workerRun: run}
+	m.recoveryPrompt = run.Prompt
+	m.recoveryPluginName = "stado.dev/bundled/auto-compact@0.1.0"
+	m.recoveryPluginActive = true
+	m.recoveryApplicationWorker = true
+	m.queuedPrompt = "operator follow-up"
+
+	cmd := m.rejectAutomaticRecoveryHandoff("authenticated child handoff failed", true)
+	if cmd == nil || m.loop == nil || !m.loop.cancelling {
+		t.Fatalf("rejection did not begin durable worker cancellation: cmd=%v loop=%#v", cmd != nil, m.loop)
+	}
+	if got, want := m.input.Value(), run.Prompt+"\noperator follow-up"; got != want || m.queuedPrompt != "" {
+		t.Fatalf("restored input=%q queued=%q, want input=%q and empty queue", got, m.queuedPrompt, want)
+	}
+	if m.applicationFailureSources[applicationFailureSessionHandoff] == nil {
+		t.Fatal("fail-closed handoff rejection did not retain its application fence")
+	}
+
+	message, ok := cmd().(applicationWorkerRunCancellationMsg)
+	if !ok || message.err != nil {
+		t.Fatalf("cancellation result = %#v", message)
+	}
+	onApplicationWorkerRunCancellation(m, message)
+	if m.loop != nil || len(bridge.operations) != 1 || bridge.operations[0] != "worker.cancel" {
+		t.Fatalf("worker rejection cleanup did not terminalize recurrence: loop=%#v operations=%v", m.loop, bridge.operations)
 	}
 }
 

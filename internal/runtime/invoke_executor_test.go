@@ -16,9 +16,6 @@ func TestPinInvokeExecutor_WiresPluginTools(t *testing.T) {
 	var bundled, installed, override int
 	for _, tool := range reg.All() {
 		inner := tool
-		if rt, ok := inner.(*renamedTool); ok {
-			inner = rt.inner
-		}
 		switch v := inner.(type) {
 		case *bundledPluginTool:
 			if v.invokeExec != exec {

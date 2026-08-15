@@ -32,6 +32,10 @@ type applicationWorkerTransitionWire struct {
 	Reason          string `json:"reason,omitempty"`
 }
 
+type applicationVerificationGetWire struct {
+	ID string `json:"id,omitempty"`
+}
+
 func (b *brokerApplicationControllerBridge) CallApplicationController(ctx context.Context, operation string, payload []byte) ([]byte, error) {
 	if b == nil || b.client == nil || b.sessionID == "" || b.controllerToken == "" || b.bindingToken == "" {
 		return nil, errors.New("application controller bridge unavailable")
@@ -67,6 +71,41 @@ func (b *brokerApplicationControllerBridge) CallApplicationController(ctx contex
 		}, &result); err != nil {
 			return nil, err
 		}
+	case "verification.get":
+		var input applicationVerificationGetWire
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return nil, fmt.Errorf("decode verification get: %w", err)
+		}
+		var verification broker.ApplicationVerificationGetResult
+		if err := b.client.Call(ctx, broker.MethodApplicationVerificationGet, broker.ApplicationVerificationGetParams{
+			SessionID: b.sessionID, ControllerToken: b.controllerToken,
+			BindingToken: b.bindingToken, ID: input.ID,
+		}, &verification); err != nil {
+			return nil, err
+		}
+		return json.Marshal(verification)
+	case "verification.claim":
+		var input broker.ApplicationVerificationClaimParams
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return nil, fmt.Errorf("decode verification claim: %w", err)
+		}
+		input.SessionID, input.ControllerToken, input.BindingToken = b.sessionID, b.controllerToken, b.bindingToken
+		var verification application.Verification
+		if err := b.client.Call(ctx, broker.MethodApplicationVerificationClaim, input, &verification); err != nil {
+			return nil, err
+		}
+		return json.Marshal(verification)
+	case "verification.finish":
+		var input broker.ApplicationVerificationFinishParams
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return nil, fmt.Errorf("decode verification finish: %w", err)
+		}
+		input.SessionID, input.ControllerToken, input.BindingToken = b.sessionID, b.controllerToken, b.bindingToken
+		var verification application.Verification
+		if err := b.client.Call(ctx, broker.MethodApplicationVerificationFinish, input, &verification); err != nil {
+			return nil, err
+		}
+		return json.Marshal(verification)
 	default:
 		return nil, fmt.Errorf("unknown application controller operation %q", operation)
 	}

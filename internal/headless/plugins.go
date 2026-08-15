@@ -11,6 +11,7 @@ package headless
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,19 +52,15 @@ type pluginListResult struct {
 // shouldn't run it.
 func (s *Server) pluginList() pluginListResult {
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
-	dirs, err := plugins.ListInstalledDirs(pluginsRoot)
+	packages, err := plugins.ListInstalledPackages(pluginsRoot)
 	if err != nil {
 		return pluginListResult{Plugins: []pluginInfo{}}
 	}
 
-	out := make([]pluginInfo, 0, len(dirs))
-	for _, name := range dirs {
-		info := pluginInfo{ID: name, Tools: []pluginToolInfo{}}
-		mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsRoot, name))
-		if err != nil {
-			out = append(out, info)
-			continue
-		}
+	out := make([]pluginInfo, 0, len(packages))
+	for _, pkg := range packages {
+		info := pluginInfo{ID: pkg.Record.StoreKey, Tools: []pluginToolInfo{}}
+		mf := &pkg.Manifest
 		info.Name = mf.Name
 		info.Version = mf.Version
 		info.Author = mf.Author
@@ -78,7 +75,7 @@ func (s *Server) pluginList() pluginListResult {
 
 type pluginRunParams struct {
 	SessionID string          `json:"sessionId"`
-	ID        string          `json:"id"` // e.g. "auto-compact-0.1.0"
+	ID        string          `json:"id"` // exact canonical source or store key
 	Tool      string          `json:"tool"`
 	Args      json.RawMessage `json:"args,omitempty"`
 }
@@ -115,21 +112,18 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 		sess.mu.Unlock()
 	}()
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
-	dir, err := plugins.InstalledDir(pluginsRoot, p.ID)
+	if p.ID == "." || p.ID == ".." || strings.Contains(p.ID, "../") || strings.Contains(p.ID, `..\`) ||
+		strings.ContainsRune(p.ID, '\x00') || filepath.IsAbs(p.ID) {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "invalid plugin id"}
+	}
+	pkg, err := plugins.ResolveInstalledPackage([]string{pluginsRoot}, p.ID)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: fmt.Sprintf("plugin %q is not installed", p.ID)}
+		}
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
 	}
-	if _, err := os.Stat(dir); err != nil {
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: fmt.Sprintf("plugin %q not installed", p.ID)}
-	}
-	mf, sig, err := plugins.LoadFromDir(dir)
-	if err != nil {
-		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin load: " + err.Error()}
-	}
-	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
-	if err != nil {
-		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin identity: " + err.Error()}
-	}
+	dir, mf, sig, identity := pkg.Dir, &pkg.Manifest, pkg.Signature, pkg.Identity
 	// Classification may reject before trust verification: this branch grants
 	// no authority and instantiates no code. A lifecycle package must never be
 	// treated as an ephemeral tool merely because its signature is bad.
@@ -144,8 +138,7 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin digest: " + err.Error()}
 	}
-	ts := plugins.NewTrustStore(s.Cfg.StateDir())
-	if err := ts.VerifyManifest(mf, sig); err != nil {
+	if err := runtime.VerifyInstalledPlugin(ctx, s.Cfg, dir, mf, sig); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin signature: " + err.Error()}
 	}
 	var tdef *plugins.ToolDef
@@ -177,7 +170,7 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	host := pluginRuntime.NewHostWithIdentity(*mf, identity, dir, nil)
 	host.StateDir = s.Cfg.StateDir()
 	if bridge := s.buildBridge(sess, identity.Canonical); bridge != nil {
-		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
+		if host.SessionObserve || host.SessionRead || host.SessionFork || host.ProviderInvokeBudget > 0 {
 			host.SessionBridge = bridge
 		}
 	}
@@ -196,7 +189,7 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	if err := pluginRuntime.InstallHostImports(runCtx, rt, host); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "host imports: " + err.Error()}
 	}
-	mod, err := rt.Instantiate(runCtx, wasmBytes, *mf)
+	mod, err := rt.InstantiateWithIdentity(runCtx, wasmBytes, *mf, identity)
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "instantiate: " + err.Error()}
 	}
@@ -406,14 +399,11 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 		return bp
 	}
 
-	dir, err := plugins.InstalledDir(pluginsRoot, id)
+	pkg, err := plugins.ResolveInstalledPackage([]string{pluginsRoot}, id)
 	if err != nil {
 		return nil
 	}
-	mf, sig, err := plugins.LoadFromDir(dir)
-	if err != nil {
-		return nil
-	}
+	dir, mf, sig := pkg.Dir, &pkg.Manifest, pkg.Signature
 	// A lifecycle manifest is owned by the persistent EP-0064 composition.
 	// Loading it again through the legacy BackgroundPlugin path would create a
 	// second module with divergent state and a different serialization gate.
@@ -425,14 +415,10 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 	if err != nil {
 		return nil
 	}
-	ts := plugins.NewTrustStore(s.Cfg.StateDir())
-	if err := ts.VerifyManifest(mf, sig); err != nil {
+	if err := runtime.VerifyInstalledPlugin(ctx, s.Cfg, dir, mf, sig); err != nil {
 		return nil
 	}
-	identity, err := runtime.RuntimeIdentityForPluginDir(dir, *mf)
-	if err != nil {
-		return nil
-	}
+	identity := pkg.Identity
 	host := pluginRuntime.NewHostWithIdentity(*mf, identity, dir, nil)
 	host.StateDir = s.Cfg.StateDir()
 	// Background plugins start with no session bridge; tickBackgroundPlugins

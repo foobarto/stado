@@ -1,12 +1,32 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 )
+
+func TestChoiceDrawer_RendersWhenApplicationCommandIsFirstAction(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	resp := make(chan pluginRuntime.ChoiceResponse, 1)
+	_, _ = m.Update(pluginChoiceRequestMsg{
+		req: pluginRuntime.ChoiceRequest{
+			Prompt:  "What should the supervised worker accomplish?",
+			Options: []pluginRuntime.ChoiceOption{{ID: "objective", Input: &pluginRuntime.ChoiceInput{Default: "Ship the guarded feature"}}},
+		},
+		response: resp,
+	})
+
+	view := m.viewString()
+	for _, want := range []string{"What should the supervised worker accomplish?", "Ship the guarded feature"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("first-action choice view missing %q", want)
+		}
+	}
+}
 
 // TestChoiceDrawer_SingleSelect: incoming pluginChoiceRequestMsg
 // opens the drawer; ↓ moves cursor; Enter resolves with the cursor's

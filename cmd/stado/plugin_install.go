@@ -20,6 +20,7 @@ var pluginInstallForce bool
 var pluginInstallAutoload bool
 var pluginInstallLocal bool
 var pluginInstallTrustAnchor bool
+var pluginInstallAcceptTagRewrite bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
 const (
@@ -33,9 +34,9 @@ var pluginInstallCmd = &cobra.Command{
 	Short: "Verify and install a plugin into stado's plugin directory",
 	Long: "Runs the same verification as `stado plugin verify` and, on success,\n" +
 		"copies the plugin directory into $XDG_DATA_HOME/stado/plugins/\n" +
-		"<name>-<version>/. Idempotent — re-installing the same version is a\n" +
-		"no-op advisory; a newer version installs alongside so rollback is a\n" +
-		"directory swap. Pass --local to install into the discovered project's\n" +
+		"under a host-derived source/provenance key. Idempotent — re-installing\n" +
+		"the same exact package is a no-op advisory; a changed or newer package\n" +
+		"installs alongside so rollback remains explicit. Pass --local to install into the discovered project's\n" +
 		".stado/plugins/ directory instead; signer trust remains user-local.\n\n" +
 		"When the plugin's author key isn't pinned, install fails with a hint\n" +
 		"pointing at `stado plugin trust <pubkey>`. Pass --signer <pubkey> to\n" +
@@ -55,20 +56,55 @@ var pluginInstallCmd = &cobra.Command{
 		}
 		src := args[0]
 		remote := looksLikeRemoteIdentity(src)
+		if !remote && pluginInstallAcceptTagRewrite {
+			return fmt.Errorf("install: --accept-tag-rewrite applies only to a remote semver identity")
+		}
+		var remoteID plugins.Identity
+		var sourceRevision string
+		var resolvedCommit string
+		var anchor preparedAnchorTrust
 		// EP-0039: detect remote identity (host/owner/repo@version) and fetch
 		// to a local staging dir before running the install pipeline.
 		if remote {
+			remoteID, err = plugins.ParseIdentity(src)
+			if err != nil {
+				return fmt.Errorf("install: %w", err)
+			}
+			if pluginInstallAcceptTagRewrite && remoteID.IsCommit() {
+				return fmt.Errorf("install: --accept-tag-rewrite is invalid for an immutable commit identity")
+			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "fetching %s...\n", src)
 			fetched, fetchErr := fetchRemotePlugin(src)
 			if fetchErr != nil {
 				return fmt.Errorf("install: %w", fetchErr)
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "fetched to %s\n", fetched)
-			src = fetched
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetched source revision %s at commit %s to %s\n", fetched.SourceRevision, fetched.ResolvedCommit, fetched.Dir)
+			src, sourceRevision, resolvedCommit = fetched.Dir, fetched.SourceRevision, fetched.ResolvedCommit
 		}
 		m, sig, err := plugins.LoadFromDir(src)
 		if err != nil {
 			return err
+		}
+		if err := plugins.CheckManifestHostVersion(m); err != nil {
+			return fmt.Errorf("install: host compatibility: %w", err)
+		}
+		packageNamespace := ""
+		var installRecord plugins.InstallRecord
+		if remote {
+			if _, err := remoteID.PackageVersion(*m); err != nil {
+				return fmt.Errorf("install: %w", err)
+			}
+			if err := remoteID.ValidateSourceRevision(sourceRevision); err != nil {
+				return fmt.Errorf("install: %w", err)
+			}
+			packageNamespace = remoteID.Namespace()
+			if err := checkRemotePackageContinuity(cfg, pluginInstallLocal, remoteID, sourceRevision, resolvedCommit, *m, pluginInstallAcceptTagRewrite); err != nil {
+				return err
+			}
+			installRecord, err = plugins.NewRemoteInstallRecord(remoteID, sourceRevision, resolvedCommit, *m)
+			if err != nil {
+				return fmt.Errorf("install: remote store identity: %w", err)
+			}
 		}
 		// EP-0039 step 4: a remote install must be signed by the OWNER'S anchor
 		// key. Enforce owner anchor trust-on-first-use AND bind it to the
@@ -76,12 +112,36 @@ var pluginInstallCmd = &cobra.Command{
 		// manifest signed by some other globally-trusted key can't install under
 		// this owner's identity. Runs after LoadFromDir so the signer fpr is known.
 		if remote {
-			if id, idErr := plugins.ParseIdentity(args[0]); idErr == nil {
-				if err := enforceAnchorTrust(cmd, cfg, id, m.AuthorPubkeyFpr, pluginInstallTrustAnchor); err != nil {
-					return err
+			anchor, err = prepareAnchorTrust(cmd, cfg, remoteID, m.AuthorPubkeyFpr, pluginInstallTrustAnchor)
+			if err != nil {
+				return err
+			}
+			anchorPub, parseErr := plugins.ParsePubkey(anchor.Pubkey)
+			if parseErr != nil {
+				return fmt.Errorf("install: verified anchor key: %w", parseErr)
+			}
+			if err := m.Verify(anchorPub, sig); err != nil {
+				return fmt.Errorf("install: owner-anchor signature: %w", err)
+			}
+			if pluginInstallSigner != "" {
+				provided, signerErr := plugins.ParsePubkey(strings.TrimSpace(pluginInstallSigner))
+				if signerErr != nil || plugins.Fingerprint(provided) != anchor.Fingerprint {
+					return fmt.Errorf("install: --signer does not match the verified owner anchor")
 				}
 			}
 		}
+		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||
+			strings.ContainsAny(m.Name, "/\\") || strings.ContainsAny(m.Version, "/\\") {
+			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
+		}
+		if !remote {
+			installRecord, err = plugins.NewLocalInstallRecord(src, *m)
+			if err != nil {
+				return fmt.Errorf("install: local store identity: %w", err)
+			}
+			packageNamespace = installRecord.Namespace
+		}
+		dst := filepath.Join(installDir, installRecord.StoreKey)
 		wasmPath := filepath.Join(src, "plugin.wasm")
 		if err := plugins.VerifyWASMDigest(m.WASMSHA256, wasmPath); err != nil {
 			return fmt.Errorf("install: %w", err)
@@ -94,69 +154,92 @@ var pluginInstallCmd = &cobra.Command{
 				return fmt.Errorf("install: tool %q: %w", td.Name, err)
 			}
 		}
-
-		// 2026-05-06 — plugin dep resolution (tester #8). When the
-		// manifest declares `requires`, every entry must already be
-		// installed at a satisfying version. Prevents silent partial-
-		// functionality (composite plugins like exploit-lib + http-session).
 		ts := plugins.NewTrustStore(cfg.StateDir())
-		dependencyDirs := []string{filepath.Join(cfg.StateDir(), "plugins")}
-		if pluginInstallLocal {
-			dependencyDirs = cfg.AllPluginDirs()
-		}
-		if reqErr := plugins.CheckRequiresVerified(m, dependencyDirs, ts); reqErr != nil {
-			return fmt.Errorf("install: %w", reqErr)
-		}
 
-		// Optional TOFU path: pin the caller-provided pubkey only after it
-		// matches and verifies the manifest, so failed installs do not leave
-		// unintended trust-store entries behind.
-		if pluginInstallSigner != "" {
-			entry, err := ts.TrustVerified(pluginInstallSigner, m.Author, m, sig)
-			if err != nil {
-				return fmt.Errorf("install: --signer: %w", err)
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "install: pinned signer %s (author=%s)\n",
-				entry.Fingerprint, m.Author)
-		} else if err := ts.VerifyManifest(m, sig); err != nil {
-			return fmt.Errorf("install: %w", err)
-		}
+		// CRL is part of the verification transaction. An invalid/revoked
+		// package must not leave either owner-anchor or signer trust behind.
 		if cfg.Plugins.CRLURL != "" {
 			if err := consultCRL(cfg, m); err != nil {
 				return fmt.Errorf("install: %w", err)
 			}
 		}
 
-		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||
-			strings.ContainsAny(m.Name, "/\\") || strings.ContainsAny(m.Version, "/\\") {
-			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
+		// Pin only after package/source, digest, signature, and CRL
+		// checks. Remote owner+signer trust commits atomically in one file.
+		if remote {
+			entry, trustErr := ts.TrustVerifiedAnchor(anchor.Pubkey, m.Author, packageNamespace, anchor.OwnerKey, m, sig)
+			if trustErr != nil {
+				return fmt.Errorf("install: anchor signer: %w", trustErr)
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "install: verified owner %s and signer %s atomically\n", anchor.OwnerKey, entry.Fingerprint)
+		} else if pluginInstallSigner != "" {
+			entry, err := ts.TrustVerifiedPackage(pluginInstallSigner, m.Author, packageNamespace, m, sig)
+			if err != nil {
+				return fmt.Errorf("install: --signer: %w", err)
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "install: pinned signer %s (author=%s)\n",
+				entry.Fingerprint, m.Author)
+		} else if err := ts.VerifyManifestPackage(packageNamespace, m, sig); err != nil {
+			return fmt.Errorf("install: %w", err)
 		}
 
-		dst := filepath.Join(installDir, m.Name+"-"+m.Version)
 		if info, err := os.Lstat(dst); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("install: destination is a symlink: %s", dst)
 			}
 			if !pluginInstallForce {
-				// EP-0039: sha256 drift detection. If the wasm sha256 in
-				// the incoming manifest differs from the installed copy,
-				// reinstall automatically rather than skipping.
-				if existing, _, loadErr := plugins.LoadFromDir(dst); loadErr == nil &&
-					existing.WASMSHA256 != m.WASMSHA256 {
-					fmt.Fprintf(cmd.OutOrStdout(), "reinstalling: %s v%s (wasm sha256 changed)\n",
-						m.Name, m.Version)
-					if removeErr := os.RemoveAll(dst); removeErr != nil {
-						return fmt.Errorf("install: remove stale copy: %w", removeErr)
-					}
-					// Fall through to normal install path.
+				existing, existingSig, loadErr := plugins.LoadFromDir(dst)
+				if loadErr != nil {
+					return fmt.Errorf("install: existing copy is unreadable (use --force after review): %w", loadErr)
+				}
+				existingCanonical, canonicalErr := existing.Canonical()
+				if canonicalErr != nil {
+					return fmt.Errorf("install: existing manifest is invalid (use --force after review): %w", canonicalErr)
+				}
+				incomingCanonical, canonicalErr := m.Canonical()
+				if canonicalErr != nil {
+					return fmt.Errorf("install: incoming manifest: %w", canonicalErr)
+				}
+				exactPackage := bytes.Equal(existingCanonical, incomingCanonical) && existingSig == sig
+				if !exactPackage {
+					return fmt.Errorf("install: source-keyed destination %s contains a different signed package; refuse replacement unless --force is used after review", dst)
 				} else {
+					existingRecord, recordErr := plugins.ReadInstallRecord(dst, *existing)
+					if recordErr != nil {
+						return fmt.Errorf("install: existing source-keyed record: %w", recordErr)
+					}
+					if existingRecord != installRecord {
+						return fmt.Errorf("install: existing source-keyed provenance differs from incoming package")
+					}
+					if remote {
+						if err := recordRemotePluginLock(cfg, pluginInstallLocal, remoteID, sourceRevision, resolvedCommit, *m, pluginInstallAcceptTagRewrite); err != nil {
+							return err
+						}
+					}
+					if err := plugins.WriteInstallReceipt(cfg.StateDir(), installDir, existingRecord); err != nil {
+						return fmt.Errorf("install: write exact admission receipt: %w", err)
+					}
+					if remote && pluginInstallAcceptTagRewrite {
+						if err := activateInstalledRecord(installDir, dst, existingRecord, *m); err != nil {
+							_ = plugins.RemoveInstallReceipt(cfg.StateDir(), installDir, existingRecord.StoreKey)
+							return fmt.Errorf("install: activate accepted rewrite: %w", err)
+						}
+					} else if !remote {
+						if err := activateInstalledRecord(installDir, dst, existingRecord, *m); err != nil {
+							_ = plugins.RemoveInstallReceipt(cfg.StateDir(), installDir, existingRecord.StoreKey)
+							return fmt.Errorf("install: activate local package: %w", err)
+						}
+					}
 					fmt.Fprintf(cmd.OutOrStdout(), "skipped: %s v%s already installed at %s\n",
 						m.Name, m.Version, dst)
 					return nil
 				}
 			} else {
-				// --force: remove existing and reinstall.
-				if removeErr := os.RemoveAll(dst); removeErr != nil {
+				// --force: revoke live admission before removing the old bytes.
+				if err := plugins.RemoveInstallReceipt(cfg.StateDir(), installDir, installRecord.StoreKey); err != nil {
+					return fmt.Errorf("install: --force revoke existing receipt: %w", err)
+				}
+				if removeErr := workdirpath.NewUserConfigResolver().RemoveAll(dst); removeErr != nil {
 					return fmt.Errorf("install: --force remove: %w", removeErr)
 				}
 			}
@@ -166,24 +249,39 @@ var pluginInstallCmd = &cobra.Command{
 		if err := copyDir(src, dst); err != nil {
 			return fmt.Errorf("install: copy: %w", err)
 		}
+		if err := plugins.WriteInstallRecord(dst, installRecord, *m); err != nil {
+			_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
+			return fmt.Errorf("install: write source-keyed install record: %w", err)
+		}
 		if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
 			_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
 			return fmt.Errorf("install: verify installed copy: %w", err)
 		}
 		// EP-0039: write lock file entry if this was a remote install (identity present).
-		if looksLikeRemoteIdentity(args[0]) {
-			if id, err := plugins.ParseIdentity(args[0]); err == nil {
-				lockPath := pluginLockPath(cfg, pluginInstallLocal)
-				if err := workdirpath.NewUserConfigResolver().MkdirAll(filepath.Dir(lockPath), 0o755); err == nil {
-					lock, _ := plugins.ReadLock(lockPath)
-					if lock == nil {
-						lock = plugins.NewLock()
-					}
-					lock.Add(plugins.LockEntryFromManifest(id, *m))
-					if err := lock.Write(lockPath); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not write %s: %v\n", lockPath, err)
-					}
-				}
+		if remote {
+			if err := recordRemotePluginLock(cfg, pluginInstallLocal, remoteID, sourceRevision, resolvedCommit, *m, pluginInstallAcceptTagRewrite); err != nil {
+				// A remotely fetched copy without its exact source lock would be
+				// rediscovered as an unrelated local-path identity. Remove the new
+				// copy rather than leaving that fail-open reclassification behind.
+				_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
+				return err
+			}
+		}
+		if err := plugins.WriteInstallReceipt(cfg.StateDir(), installDir, installRecord); err != nil {
+			_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
+			return fmt.Errorf("install: write exact admission receipt: %w", err)
+		}
+		if remote && pluginInstallAcceptTagRewrite {
+			if err := activateInstalledRecord(installDir, dst, installRecord, *m); err != nil {
+				_ = plugins.RemoveInstallReceipt(cfg.StateDir(), installDir, installRecord.StoreKey)
+				_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
+				return fmt.Errorf("install: activate accepted rewrite: %w", err)
+			}
+		} else if !remote {
+			if err := activateInstalledRecord(installDir, dst, installRecord, *m); err != nil {
+				_ = plugins.RemoveInstallReceipt(cfg.StateDir(), installDir, installRecord.StoreKey)
+				_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
+				return fmt.Errorf("install: activate local package: %w", err)
 			}
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
@@ -215,6 +313,16 @@ var pluginInstallCmd = &cobra.Command{
 	},
 }
 
+func activateInstalledRecord(pluginsDir, dir string, record plugins.InstallRecord, manifest plugins.Manifest) error {
+	identity, err := plugins.RuntimeIdentityForInstallRecord(pluginsDir, record, manifest)
+	if err != nil {
+		return err
+	}
+	return plugins.WriteActivePackageMarker(pluginsDir, plugins.InstalledPackage{
+		Dir: dir, Record: record, Manifest: manifest, Identity: identity,
+	})
+}
+
 func pluginInstallBaseDir(cfg *config.Config, local bool) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("install: config is required")
@@ -226,6 +334,86 @@ func pluginInstallBaseDir(cfg *config.Config, local bool) (string, error) {
 		return dir, nil
 	}
 	return "", fmt.Errorf("install: --local requires a project .stado directory in the current directory or an ancestor")
+}
+
+func checkRemotePackageContinuity(cfg *config.Config, local bool, id plugins.Identity, sourceRevision, resolvedCommit string, manifest plugins.Manifest, acceptRewrite bool) error {
+	lock, err := plugins.ReadLock(pluginLockPath(cfg, local))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("install: read existing source lock: %w", err)
+	}
+	return validateRemotePackageContinuity(lock, id, sourceRevision, resolvedCommit, manifest, acceptRewrite)
+}
+
+func validateRemotePackageContinuity(lock *plugins.Lock, id plugins.Identity, sourceRevision, resolvedCommit string, manifest plugins.Manifest, acceptRewrite bool) error {
+	var existing []*plugins.LockEntry
+	seenStoreKeys := make(map[string]struct{})
+	for index := range lock.Entries {
+		entry := &lock.Entries[index]
+		if entry.Identity != id.Canonical() {
+			continue
+		}
+		if entry.StoreKey == "" {
+			return fmt.Errorf("install: legacy source lock for %s has no source-keyed store key; remove it only after reviewing and reinstall the package explicitly", id.Canonical())
+		}
+		if _, duplicate := seenStoreKeys[entry.StoreKey]; duplicate {
+			return fmt.Errorf("install: source lock contains duplicate store key %s for identity %s", entry.StoreKey, id.Canonical())
+		}
+		seenStoreKeys[entry.StoreKey] = struct{}{}
+		existing = append(existing, entry)
+	}
+	if len(existing) == 0 {
+		return nil
+	}
+	manifestDigest, err := manifest.ManifestDigest()
+	if err != nil {
+		return fmt.Errorf("install: canonical manifest digest: %w", err)
+	}
+	for _, entry := range existing {
+		sameSource := entry.SourceRevision == sourceRevision && entry.ResolvedCommit == resolvedCommit
+		samePackage := entry.ManifestDigest == manifestDigest && entry.WASMSHA256 == manifest.WASMSHA256
+		if sameSource && samePackage {
+			return nil
+		}
+	}
+	if acceptRewrite && !id.IsCommit() {
+		return nil
+	}
+	if id.IsCommit() {
+		return fmt.Errorf("install: immutable commit identity %s conflicts with its existing source lock", id.Canonical())
+	}
+	entry := existing[len(existing)-1]
+	sameSource := entry.SourceRevision == sourceRevision && entry.ResolvedCommit == resolvedCommit
+	if !sameSource {
+		return fmt.Errorf("install refused: tag rewrite detected for %s: locked %s at %s, fetched %s at %s; verify the rewrite out of band, then retry with --accept-tag-rewrite", id.Canonical(), entry.SourceRevision, entry.ResolvedCommit, sourceRevision, resolvedCommit)
+	}
+	return fmt.Errorf("install refused: signed package rewrite detected for %s at unchanged %s commit %s: locked manifest %s / wasm %s, fetched manifest %s / wasm %s; verify the replacement out of band, then retry with --accept-tag-rewrite", id.Canonical(), sourceRevision, resolvedCommit, entry.ManifestDigest, entry.WASMSHA256, manifestDigest, manifest.WASMSHA256)
+}
+
+func recordRemotePluginLock(cfg *config.Config, local bool, id plugins.Identity, sourceRevision, resolvedCommit string, manifest plugins.Manifest, acceptRewrite bool) error {
+	lockPath := pluginLockPath(cfg, local)
+	if err := workdirpath.NewUserConfigResolver().MkdirAll(filepath.Dir(lockPath), 0o755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("install: create lock directory: %w", err)
+	}
+	entry, err := plugins.LockEntryFromResolvedManifest(id, sourceRevision, resolvedCommit, manifest)
+	if err != nil {
+		return fmt.Errorf("install: canonical manifest digest: %w", err)
+	}
+	if err := plugins.UpdateLock(lockPath, func(lock *plugins.Lock) error {
+		// This recheck is authoritative. The earlier read avoids expensive trust
+		// and copy work in the ordinary conflict case, but only validation under
+		// the same cross-process lock as Add closes the concurrent rewrite race.
+		if err := validateRemotePackageContinuity(lock, id, sourceRevision, resolvedCommit, manifest, acceptRewrite); err != nil {
+			return err
+		}
+		lock.Add(entry)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("install: write lock: %w", err)
+	}
+	return nil
 }
 
 // copyDir copies files + regular dirs from src to dst. Symlinks and

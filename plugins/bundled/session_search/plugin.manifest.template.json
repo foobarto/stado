@@ -1,0 +1,21 @@
+{
+  "name": "stado-builtin-tool-session_search",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["session:read"],
+  "tools": [
+    {
+      "name": "session__search",
+      "description": "Search the current session's message history for a substring (default) or regex (is_regex=true). Returns matched messages with role, index, and a context snippet. Useful for recalling earlier discussion in long sessions without rebuilding context manually.",
+      "export": "session_search",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"case_sensitive\":{\"description\":\"Case-sensitive matching (default false = case-insensitive).\",\"type\":\"boolean\"},\"is_regex\":{\"description\":\"Treat query as a Go RE2 regex (default false = substring).\",\"type\":\"boolean\"},\"max_results\":{\"description\":\"Cap on returned matches (default 50, max 1000).\",\"type\":\"integer\"},\"query\":{\"description\":\"Substring or regex to search for.\",\"type\":\"string\"},\"roles\":{\"description\":\"Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"snippet_chars\":{\"description\":\"Total chars of context around each match (default 80, max 400).\",\"type\":\"integer\"}},\"required\":[\"query\"],\"type\":\"object\"}",
+      "capabilities": ["session:read"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-session_search"
+}

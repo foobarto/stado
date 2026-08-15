@@ -32,6 +32,12 @@ history:
 
 # EP-46: Verify-Work Phase — command-gate and LLM-judge verification
 
+> **Implementation status:** Ordered sandboxed command gates, bounded retry,
+> evidence, TUI/run controls, and the generic lifecycle verification-facts
+> bridge are implemented. The independent fresh-context semantic judge remains
+> deferred, so this EP is Partial. All enforcement is turn/token based; cost is
+> observational telemetry.
+
 ## Problem
 
 The agentic loop has three phases: **gather context → take action →
@@ -39,7 +45,7 @@ verify work → repeat**. stado's `AgentLoop`
 (`internal/runtime/agentloop.go`) implements the first, second, and
 fourth richly — append-only history, deferred-tool search (EP-37),
 pre/post LLM and tool hooks (EP-9), fork-based subagents (EP-38),
-compaction and cost/turn caps (EP-7, EP-36). It has **no verify-work
+compaction and token/turn caps (EP-7, EP-36). It has **no verify-work
 phase at all**.
 
 Today, when the model produces a response with no tool calls, the loop
@@ -70,9 +76,9 @@ isn't, send it back."
   **command-gate** (deterministic: lint/test/build/typecheck/custom
   script, pass-by-exit-code) and **LLM-judge** (a secondary model pass
   against a rubric, returning a structured verdict).
-- Bound the phase: a `max_verify_rounds` cap and the existing cost/token
-  caps, with a clear termination reason when the cap is hit, so
-  verification can never wedge or bankrupt the loop.
+- Bound the phase: a `max_verify_rounds` cap and the existing turn/token caps,
+  with a clear termination reason when a cap is hit, so verification can never
+  wedge or exhaust the loop. Currency cost remains observational telemetry.
 - Reuse existing stado machinery — the sandboxed exec path for command
   gates, a subagent (EP-38) for the judge, the EP-44 trust boundary for
   project-supplied check commands — rather than a parallel mechanism.
@@ -121,9 +127,10 @@ model returns no tool calls          # candidate "done"
 ```
 
 Each verify round that sends the model back counts as a normal turn for
-`MaxTurns`, and every command/judge invocation counts against
-`CostCapUSD`/`TokenCap` — verification lives inside the existing budget,
-it doesn't get a private one.
+`MaxTurns`, and every provider invocation counts against the cumulative token
+and per-direction token caps. Verification lives inside the existing budget;
+it does not get a private one. Provider cost remains observational telemetry,
+never an enforcement cap.
 
 This is a new loop phase, not a new EP-9 hook decision; but it composes
 with hooks (a `pre_tool` deny still fires inside a verify-triggered
@@ -262,9 +269,9 @@ and shell injection — one trust story, not a second.
   `max_verify_rounds`; the loop returns `verify_exhausted` with the last
   critique so the operator takes over, rather than burning turns
   forever.
-- **Cost blow-up** from judge rounds — every round counts against the
-  existing `CostCapUSD`/`TokenCap`; a verify round that would cross a cap
-  exits on the cap (existing behavior) rather than running.
+- **Token blow-up** from judge rounds — every round counts against the existing
+  turn and token ceilings; a verify round that would cross a token cap exits on
+  the cap rather than running. Reported currency cost remains observational.
 - **Over-eager judge** (false negatives sending good work back) —
   mitigated by opt-in, a tunable rubric, judge-only-after-gates-pass
   ordering, and `max_verify_rounds` as the floor on damage.
@@ -286,8 +293,9 @@ and shell injection — one trust story, not a second.
 - **Trust**: untrusted project `[verify] commands` are stripped and do
   not run; trusted project / user / per-run config runs. Pin against
   EP-44's existing trust tests.
-- **Budget**: verify rounds count toward `MaxTurns` and cost/token caps;
-  a cap crossed mid-verify exits on the cap.
+- **Budget**: verify rounds count toward `MaxTurns` and token caps; cost is
+  observational telemetry only. A token cap crossed mid-verify exits on the
+  cap.
 - **TUI E2E** (pty-bridge, per CLAUDE.md, inside `distrobox enter kali`):
   a verify round renders its own block; `/verify` toggles the phase;
   `verify_exhausted` surfaces a distinct end state.
@@ -369,21 +377,22 @@ and shell injection — one trust story, not a second.
 ### D5. Opt-in, bounded, inside the existing budget
 
 - **Decided:** verification is off until configured; rounds are capped by
-  `max_verify_rounds` and counted against the existing `MaxTurns`/cost/
-  token caps; exhaustion yields a distinct `verify_exhausted` reason.
+  `max_verify_rounds` and counted against the existing `MaxTurns` and token
+  caps; exhaustion yields a distinct `verify_exhausted` reason. Cost remains
+  observational telemetry.
 - **Alternatives:** on-by-default (surprises every existing session and
   can loop/cost unexpectedly); a private verify budget (two budgets to
   reason about, easier to blow real spend).
-- **Why:** a verification loop that can wedge or bankrupt the session is
-  worse than none; bounding it inside the budget already in place keeps
-  one cost story and a predictable exit.
+- **Why:** a verification loop that can wedge or exhaust the session is worse
+  than none; bounding it inside the token/turn budget already in place keeps
+  one enforcement story and a predictable exit.
 
 ## Related
 
 - [EP-9: Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md) — the lifecycle-hook seam this phase composes with (and the informational `post_turn` cousin it upgrades).
 - [EP-38: ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) — the subagent runner the LLM-judge runs on.
 - [EP-44: Repo-config trust boundary](./0044-repo-config-trust-boundary.md) — the gate project-supplied verify commands bind to.
-- [EP-7: Conversation State and Compaction](./0007-conversation-state-and-compaction.md) and [EP-36: Loop, monitor, and schedule](./0036-loop-monitor-schedule.md) — the turn/cost/token caps verification lives inside.
+- [EP-7: Conversation State and Compaction](./0007-conversation-state-and-compaction.md) and [EP-36: Loop, monitor, and schedule](./0036-loop-monitor-schedule.md) — the turn/token caps verification lives inside; provider cost is observational telemetry.
 - [EP-37: Tool dispatch and operator surface](./0037-tool-dispatch-and-operator-surface.md) — command gates run through the sandboxed exec path.
 - [EP-45: Model-Invocable Skills](./0045-model-invocable-skills.md) — the sibling "feature to borrow," sharing the EP-44 trust treatment.
 - [Claude Agent SDK — How the agent loop works](https://code.claude.com/docs/en/agent-sdk/agent-loop) and the gather/act/**verify**/repeat agentic loop — the borrow target.

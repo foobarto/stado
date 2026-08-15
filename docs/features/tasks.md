@@ -1,111 +1,85 @@
-# Shared Tasks
+# Tasks Lifecycle Application
 
-stado has a shared task store for work that should be visible to both
-the user and the agent. The TUI exposes it as a browser/editor, and the
-model sees the same store through the `tasks` tool whenever tools are
-enabled.
+Persistent tasks are owned by the explicit official `tasks` WASM lifecycle
+application. Core stado has no task store, model tool, picker, MCP registration,
+or default autoload. Installing a package does not activate it: the operator
+must opt its exact installed store key into the TUI lifecycle-application set.
+The unpublished development source is staged at `tasks/` in the official plugin
+repository; signing and publication remain release work.
 
-The tool is part of the default model-facing tool surface. stado's default
-agent instructions treat the store as a deferred-work inbox: when a user sends
-an unrelated request during active work, the agent records it instead of
-silently replacing the current task, then revisits open tasks after the active
-task finishes. Automatic continuation is limited to task IDs deferred by that
-conversation; agents do not claim arbitrary items from the global store.
-Requests that correct, constrain, or directly extend the active work remain
-part of that work.
+Once admitted, the same persistent application instance owns:
 
-When state-mutating tools are unavailable, including Plan mode and `--no-tools`,
-or a task-store write fails, the default instructions require the agent to
-identify the request as an unpersisted deferred item and disclose that it could
-not write the shared store.
+- the dynamic `/tasks` operator command;
+- the `tasks` model tool on ordinary Do-mode turns for that exact session;
+- the plugin-defined global `task` artifact namespace.
 
-## What It Stores
+The tool is deliberately absent from Plan and BTW, other lifecycle
+applications, worker children, `stado run`, headless, ACP, and MCP. Global
+enabled/disabled and per-session disables remain ceilings. If the application
+is absent or its callback fails, stado does not fall back to native behavior.
 
-Each task has:
+## Data and operations
 
-- `id`
-- `title`
-- optional `body`
-- `status`: `open`, `in_progress`, or `done`
-- created and updated timestamps
+Each artifact version stores a bounded data object with `title`, optional
+`body`, `status` (`open`, `in_progress`, or `done`), and `deleted`. The broker
+envelope owns the ID, version, timestamps, provenance, and global principal
+binding. Delete is a versioned logical tombstone (`deleted: true`), never a
+physical removal or JSON-file write.
 
-The store lives under stado state:
+The model tool supports `create`, `list`, `read`, `update` / `edit`, and
+`delete`. `create` requires a bounded caller-selected `idempotency_key`; the
+same logical retry must reuse the same key. Reuse with different data fails
+closed. Lists select only live heads, are bounded to 1,000 tasks, and return at
+most 50 entries. Updates that normalize to the current data return the current
+version instead of minting a no-op version after reply loss.
 
-```sh
-$XDG_STATE_HOME/stado/tasks/tasks.json
-```
-
-If `XDG_STATE_HOME` is unset, stado uses the platform default from the
-config loader.
-
-## TUI
-
-Open the task manager with:
+The command surface is:
 
 ```text
 /tasks
-Ctrl+X K
+/tasks list
+/tasks add --key <idempotency-key> <title>
+/tasks read <id>
+/tasks delete <id>
 ```
 
-The task manager lets you browse, filter/search, view detail, create,
-edit, delete, and change status without leaving the TUI.
+Bare `/tasks` uses the generic `stado_ui_choose` bridge. It asks for an explicit
+idempotency key before an interactive create. There is no fixed task keybinding
+or static palette row; the command appears dynamically only while the signed
+application is admitted. `/todo <title>` remains a separate session-local
+sidebar note and does not persist a task.
 
-You can also create a quick task from the input:
+## One-way legacy import
 
-```text
-/tasks add Review release notes
-```
+On first admitted use, the application examines only
+`cfg:state_dir/tasks/tasks.json`. Missing is not an error. Any unreadable,
+malformed, concurrently changing, non-regular, or oversized source fails
+closed. The generic guest read ceiling is exactly 16 MiB; larger legacy files
+are never read, truncated, overwritten, archived-as-success, or silently
+dropped and must be copied aside for manual recovery.
 
-## Agent Tool
+For a valid legacy array, the application:
 
-When tools are enabled, the model can call the `tasks` tool with:
+1. proposes every item as a global `task` artifact with a digest-bound stable
+   broker idempotency key and migration tag;
+2. re-queries and byte-compares every exact immutable artifact ID/version;
+3. writes the exact original bytes to `tasks.json.archive-<sha256>` and reads
+   the archive back;
+4. re-reads the source immediately to detect a concurrent legacy writer;
+5. replaces `tasks.json` with a strict receipt binding the source digest,
+   archive, count, and every exact artifact ID/version/data digest, then reads
+   that receipt back.
 
-- `create`
-- `list`
-- `read`
-- `update` / `edit`
-- `delete`
+A crash before the receipt leaves the original source available for an
+idempotent retry. A completed receipt revalidates the archive and immutable
+artifact versions; later ordinary edits and tombstones do not invalidate that
+migration proof. There is no dual write, and the deleted native writer cannot
+be reactivated.
 
-`tasks` is a state-mutating tool. It updates the shared task store and
-writes trace metadata for audit, but it does not create a worktree tree
-commit because the task file is external state, not a repo change.
+## See also
 
-Plan mode only exposes non-mutating tools, so `tasks` is hidden there.
-Use Do mode when the model should manage tasks.
-
-This is behavioral guidance rather than a scheduler: the store does not yet
-associate tasks with a repository or session, inject the backlog into every
-turn, or dispatch tasks automatically when a model loop ends.
-
-The accepted `/supervise` application adds a stronger path for high-assurance
-work: prompts received during an active run enter a broker-owned durable inbox,
-a fresh watchdog classifies them under application policy at a safe boundary,
-and unrelated/uncertain prompts are written here with deduplication before the
-inbox item is acknowledged. The store itself remains global CRUD rather than a
-project scheduler. EP-0064 migration from the earlier native workflow is in
-flight.
-
-## Bounds And Safety
-
-The task store is intentionally bounded:
-
-- task id: 128 bytes
-- title: 256 bytes
-- body: 16 KiB
-- total tasks: 1000
-- store file: 128 MiB
-- model-facing `list`: capped at 50 summaries by default
-- model-facing task output: capped before entering model context
-
-Writes use a process mutex plus a lock file next to the store to avoid
-lost updates across concurrent TUI/tool/MCP calls. Persisted task files
-are validated on load, so oversized or malformed data is rejected before
-it can be returned to the model.
-
-## See Also
-
-- [commands/tui.md](../commands/tui.md) - TUI keybinds and slash commands
-- [features/slash-commands.md](slash-commands.md) - command palette entries
-- [features/supervise.md](supervise.md) - application-owned single-focus policy with broker-enforced prompt deferral
-- [commands/run.md](../commands/run.md) - enabling tools from scripts
-- [commands/mcp-server.md](../commands/mcp-server.md) - exposing the tool to MCP clients
+- [Lifecycle hooks and applications](lifecycle-hooks.md)
+- [Slash commands](slash-commands.md)
+- [Plugin authoring](plugin-authoring.md)
+- [EP-0063: plugin-defined harness artifacts](../eps/0063-plugin-defined-harness-artifacts.md)
+- [EP-0064: WASM lifecycle applications](../eps/0064-wasm-lifecycle-applications.md)

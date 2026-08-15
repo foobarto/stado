@@ -16,7 +16,7 @@ var sessionCompactCmd = &cobra.Command{
 		"session-aware plugin against it with:\n\n" +
 		"  stado tool run --session <id> <tool> [json-args]\n\n" +
 		"The example auto-compact plugin in plugins/bundled/auto-compact/\n" +
-		"uses session:read + llm:invoke + session:fork to create a compacted\n" +
+		"uses session:read + provider:invoke:30000 + session:fork to create a compacted\n" +
 		"child session without mutating the parent.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

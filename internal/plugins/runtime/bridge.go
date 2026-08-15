@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
@@ -31,7 +30,7 @@ type SessionBridgeImpl struct {
 	Session     *stadogit.Session
 	Provider    agent.Provider
 	Model       string
-	PluginName  string                 // canonical runtime identity for audit trailers
+	PluginName  string                 // deprecated compatibility field; provider audit uses Host.Identity
 	MessagesFn  func() []agent.Message // snapshot of current conversation
 	TokensFn    func() int             // current input-token count
 	LastTurnRef func() string          // ref like refs/sessions/<id>/turns/N
@@ -138,104 +137,6 @@ func (b *SessionBridgeImpl) Fork(ctx context.Context, atTurnRef, seedMessage str
 		return "", errors.New("session_fork: no ForkFn wired on bridge")
 	}
 	return b.ForkFn(ctx, atTurnRef, seedMessage)
-}
-
-// InvokeLLM implements SessionBridge. One-shot completion: builds a
-// minimal TurnRequest with the plugin's prompt as a single user
-// message, drains the provider's event stream into an aggregated
-// reply, and returns (reply, tokens, err). Tokens are estimated from
-// reported usage when the provider emits it; falls back to a byte
-// count / 4 heuristic when not reported so budget enforcement still
-// pushes back on runaway plugins.
-//
-// On success, commits a trace-ref record with a `Plugin:` trailer
-// attributing the call to PluginName — DESIGN invariant 3
-// ("plugin-triggered actions are audited"). Commit failures are
-// logged via stadogit's OnCommit hook but do not fail the call — a
-// degraded audit trail is preferable to a plugin that can't invoke
-// the model at all.
-func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (string, int, error) {
-	if b.Provider == nil {
-		return "", 0, errors.New("llm_invoke: no provider on bridge")
-	}
-	model := b.Model
-	if opts.Model != "" {
-		model = opts.Model
-	}
-	req := agent.TurnRequest{
-		Model:    model,
-		Messages: []agent.Message{agent.Text(agent.RoleUser, prompt)},
-		System:   opts.System, // persona resolution lives one layer up; bridge takes the raw system body
-	}
-	if opts.MaxTokens > 0 {
-		req.MaxTokens = opts.MaxTokens
-	}
-	if opts.Temperature > 0 {
-		t := opts.Temperature
-		req.Temperature = &t
-	}
-	ch, err := b.Provider.StreamTurn(ctx, req)
-	if err != nil {
-		return "", 0, fmt.Errorf("llm_invoke: %w", err)
-	}
-	var reply, tokens, inTokens, outTokens = "", 0, 0, 0
-	for ev := range ch {
-		switch ev.Kind {
-		case agent.EvTextDelta:
-			reply += ev.Text
-		case agent.EvUsage:
-			if ev.Usage != nil {
-				inTokens = ev.Usage.InputTokens
-				outTokens = ev.Usage.OutputTokens
-				tokens = inTokens + outTokens
-			}
-		case agent.EvDone:
-			// stream-complete marker — nothing to do, loop will exit
-		}
-	}
-	if tokens == 0 {
-		// Fallback estimate: ~4 bytes/token is the rule of thumb for
-		// English prose. Enough to push back on runaway loops; real
-		// providers report exact numbers via EvUsage.
-		tokens = (len(prompt) + len(reply) + 3) / 4
-		inTokens = (len(prompt) + 3) / 4
-		outTokens = tokens - inTokens
-	}
-
-	// Trace-audit the invocation. Best-effort: errors are swallowed
-	// because the LLM call itself already succeeded, and a
-	// conversation-level failure shouldn't kill the plugin.
-	if b.Session != nil && b.PluginName != "" {
-		_, _ = b.Session.CommitToTrace(stadogit.CommitMeta{
-			Tool:      "llm_invoke",
-			ShortArg:  trimForCommit(prompt, 40),
-			Summary:   "plugin LLM call",
-			TokensIn:  inTokens,
-			TokensOut: outTokens,
-			Model:     b.Model,
-			Agent:     "plugin:" + b.PluginName,
-			Plugin:    b.PluginName,
-			Turn:      b.Session.Turn(),
-		})
-	}
-
-	return reply, tokens, nil
-}
-
-// trimForCommit truncates a string for the commit title's ShortArg
-// column. Single-line, runes-bounded, ellipsis-terminated — matches
-// the style of other shortArgOf callers so `git log --oneline`
-// alignment stays sane.
-func trimForCommit(s string, max int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	if max < 1 {
-		return "…"
-	}
-	return string(r[:max-1]) + "…"
 }
 
 // marshalHistory flattens the live conversation into a compact JSON

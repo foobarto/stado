@@ -45,17 +45,69 @@ External MCP tools are a different category: stado adapts a tool implemented by
 an operator-enabled external server. The adapter remains broker-, sandbox-,
 taint-, audit-, and schema-bounded. “External” is not an authority exemption.
 
-## Current migration debt
+## Completed native application cutovers
 
-The source tree still contains native model-visible behavior from the earlier
-migration. These are tracked deletions, not accepted exceptions:
+The native model-visible migration allowlist is empty. Tasks completed the
+remaining cutover: the JSON store, native model tool, TUI picker/key/static
+command, MCP registration, and default autoload were deleted. The explicit
+official lifecycle application owns dynamic `/tasks`, its ordinary Do-turn
+tool, and global plugin-defined broker artifacts; publication remains release
+work, never a reason to restore a native fallback.
 
-- registry meta-tools (`tools.*`, `plugin.load`, `plugin.unload`);
-- `skills.load`;
-- memory/session research dispatchers;
-- the `tasks` tool;
-- native guidance composition;
-- native supervise tools, detectors, prompts, and workflow services.
+Guidance is no longer part of this list. Native stado exposes a bounded
+opaque-binding session-context projection, volatile TUI quality facts, the live
+registry ceiling, and a 16 KiB append-only contribution validator. The explicit
+official `guidance` lifecycle application owns classifiers, thresholds,
+ordering, and wording. It is TUI-only; no run/headless/ACP/subagent
+native prompt fallback exists.
+
+Supervise is no longer part of this list. Its native command, model tools,
+detectors, prompts, workflow service, evaluator, and fallback path were removed;
+the official lifecycle application source lives in `foobarto/stado-plugins`.
+Its offline-key signature and publication are release work, not permission to
+restore a native implementation.
+
+Research is no longer native migration debt. The unsigned development source
+for `memory__research` and `session__research` lives in the explicit official
+`research` WASM package and spawns ordinary broker-created read-only child
+AgentLoops. It is not a shipped installed surface until that package is signed,
+published, installed, and release-verified. The six signed
+`agent_child_only` helpers appear only under an exact child `narrow_tools`
+projection owned by the loader-verified signed spawning package namespace and have exact
+per-tool evidence capabilities. Native Stado retains
+only authenticated corpus scope, immutable session ranges, bounded
+catalog/search/open operations, durable read receipts and budgets, and
+mechanical citation validation. The private provider loop, native tool
+registrations, direct corpus adapters, and CLI/TUI WAL bridges are removed.
+
+Registry discovery is no longer part of this list either. Native stado exposes
+only a bounded loader-bound catalog projection and a digest-fenced atomic
+session-surface edit. Search, grouping, formatting, describe-and-activate, and
+whole-package workflow live in the official `tool-registry` WASM package. Its
+eight tools are explicitly installed and autoloaded by the operator; stado does
+not silently bundle or make them non-disableable.
+
+Model-invocable skills are no longer part of this list. Native stado exposes
+only operation/kind-scoped, digest-fenced context facts with model visibility,
+scope/provenance, immutable identity, and exact allowed-tool ceilings. Search,
+matching, open, result formatting, and activation requests live in the
+explicitly installed official `skills` WASM package. The opened body remains a
+tool result; native prompt listings, exact-name handlers, and synthetic user
+messages have no fallback. Explicit operator `/skill`, slash, and `--skill`
+gestures remain native because they accurately represent operator input.
+
+Provider invocation is no longer part of the native-application debt. Native
+stado exposes only `stado_provider_invoke`: provider construction and
+credentials, loader-authenticated identity, cancellation, exact manifest token
+ceilings, accounting, and bounded facts. Prompt/request shape, output policy,
+and the model-facing `llm__invoke` contract live in the explicit-opt-in
+official WASM source. The MCP server retains only the adapter for tools actually
+implemented by an operator-enabled external MCP server.
+
+Bundled core tools are no longer part of this debt. Each module now owns a
+source-adjacent embedded manifest, and one verified loader derives its model
+name, description, schema, class, categories, capabilities, and ABI export.
+There is no native fallback or per-tool implementation switch.
 
 The architecture guard carries a shrinking allowlist for these paths. It may
 shrink; it may not grow. The target before v1 is empty.

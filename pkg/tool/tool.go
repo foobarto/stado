@@ -127,23 +127,37 @@ type WritePathGuard interface {
 	CheckWritePath(path string) error
 }
 
-// ToolActivator is an optional Host extension. When tools.describe /
-// tools.activate / plugin.load is called, the host activates the
-// described tool schemas into the current session's tool surface so
-// the model can call them in subsequent turns (EP-0037 §E). Hosts that
-// don't implement this silently no-op the activation calls — the
-// architectural-reset lazy-load surface is then unrealized.
-type ToolActivator interface {
-	ActivateTool(name string)
+// ToolSurfaceEdit is one atomic change to a session's model-visible tool
+// surface. It is intentionally workflow-neutral: native code neither knows
+// nor infers whether a signed application arrived at the change through a
+// search, a description lookup, a phase transition, or another policy.
+type ToolSurfaceEdit struct {
+	Activate   []string
+	Deactivate []string
 }
 
-// ToolDeactivator is an optional Host extension paired with
-// ToolActivator. When tools.deactivate / plugin.unload is called, the
-// named tool is removed from the per-session surface; subsequent
-// turns no longer see it (until re-activated). Hosts implementing
-// ToolActivator should also implement ToolDeactivator for symmetry.
-type ToolDeactivator interface {
-	DeactivateTool(name string)
+// ToolSurfaceController is the generic session-scoped enforcement seam used
+// by the registry catalog host imports. Allows is the current session ceiling;
+// Apply must validate the complete edit before changing any name.
+type ToolSurfaceController interface {
+	AllowsToolSurface(name string) bool
+	ApplyToolSurface(ToolSurfaceEdit) error
+}
+
+type toolSurfaceControllerContextKey struct{}
+
+// WithToolSurfaceController binds the exact session surface owned by the
+// current provider/tool turn. The binding stays in host memory; WASM receives
+// only bounded catalog facts and typed edit results.
+func WithToolSurfaceController(ctx context.Context, controller ToolSurfaceController) context.Context {
+	return context.WithValue(ctx, toolSurfaceControllerContextKey{}, controller)
+}
+
+// ToolSurfaceControllerFrom returns the controller bound to this exact tool
+// dispatch. One-shot invocations and non-session surfaces normally have none.
+func ToolSurfaceControllerFrom(ctx context.Context) (ToolSurfaceController, bool) {
+	controller, ok := ctx.Value(toolSurfaceControllerContextKey{}).(ToolSurfaceController)
+	return controller, ok && controller != nil
 }
 
 // AgentFleetProvider is an optional Host extension. When implemented, bundled

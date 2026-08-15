@@ -61,6 +61,9 @@ func TestParseIdentity_FloatingVersionsRejected(t *testing.T) {
 		"github.com/foo/bar@HEAD",
 		"github.com/foo/bar@develop",
 		"github.com/foo/bar",
+		"github.com/foo/bar/../other@v1.0.0",
+		"github.com/foo/bar//other@v1.0.0",
+		"github.com/foo%2fbar/repo@v1.0.0",
 	}
 	for _, raw := range bad {
 		if _, err := plugins.ParseIdentity(raw); err == nil {
@@ -86,5 +89,20 @@ func TestIdentityCanonical(t *testing.T) {
 	want := "github.com/foo/bar/sub@v1.0.0"
 	if id.Canonical() != want {
 		t.Errorf("Canonical() = %q, want %q", id.Canonical(), want)
+	}
+}
+
+func TestMonorepoIdentityPrefersPackageTagAndBoundsFallback(t *testing.T) {
+	id, err := plugins.ParseIdentity("github.com/foobarto/stado-plugins/research/reader@v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := id.SourceRevisions()
+	want := []string{"research/reader/v1.2.3", "v1.2.3"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("source revisions = %#v, want %#v", got, want)
+	}
+	if err := id.ValidateSourceRevision("reader/v1.2.3"); err == nil {
+		t.Fatal("source revision outside the exact package tag namespace was accepted")
 	}
 }

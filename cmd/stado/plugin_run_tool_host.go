@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -36,6 +39,8 @@ type pluginRunToolHost struct {
 	workdir             string
 	runner              sandbox.Runner
 	allowPrivateNetwork bool
+	providerFactory     func() (agent.Provider, error)
+	defaultModel        string
 }
 
 // newPluginRunToolHost forwards the manifest's net:http_request_private
@@ -44,8 +49,8 @@ type pluginRunToolHost struct {
 // cap for stado_http_request but the tool.Host the bundled tool sees
 // would return false, so the dial guard rejects loopback / RFC1918
 // even when the plugin should reach them.
-func newPluginRunToolHost(workdir string, runner sandbox.Runner, allowPrivateNetwork bool) tool.Host {
-	return pluginRunToolHost{workdir: workdir, runner: runner, allowPrivateNetwork: allowPrivateNetwork}
+func newPluginRunToolHost(workdir string, runner sandbox.Runner, allowPrivateNetwork bool) *pluginRunToolHost {
+	return &pluginRunToolHost{workdir: workdir, runner: runner, allowPrivateNetwork: allowPrivateNetwork}
 }
 
 func (h pluginRunToolHost) Workdir() string { return h.workdir }
@@ -63,3 +68,10 @@ func (h pluginRunToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 }
 
 func (h pluginRunToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
+
+func (h pluginRunToolHost) PluginProviderBridge(identityCanonical string) (pluginRuntime.ProviderBridge, error) {
+	if identityCanonical == "" || h.providerFactory == nil {
+		return nil, fmt.Errorf("tool run provider bridge unavailable")
+	}
+	return pluginRuntime.NewOwnedProviderBridge(h.providerFactory, h.defaultModel), nil
+}

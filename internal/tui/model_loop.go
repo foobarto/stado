@@ -101,11 +101,6 @@ func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "loop: application worker owns recurrence; use /loop stop before starting an operator loop"})
 		return nil
 	}
-	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
-		m.appendBlock(block{kind: "system", body: "loop: unavailable while supervised work owns worker turns"})
-		return nil
-	}
-
 	// Try to parse a leading duration token.
 	var interval time.Duration
 	var prompt string
@@ -138,15 +133,6 @@ func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 // loopIterate queues the next loop prompt if the model is idle.
 func (m *Model) loopIterate() tea.Cmd {
 	if m.loop == nil {
-		return nil
-	}
-	if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
-		if m.loop.application != nil {
-			return m.cancelApplicationLoop("supervised work owns worker turns", false)
-		}
-		m.loop = nil
-		m.appendBlock(block{kind: "system", body: "loop stopped - supervised work owns worker turns"})
-		m.renderBlocks()
 		return nil
 	}
 	if m.state == stateStreaming {

@@ -1,7 +1,9 @@
 package plugins
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -73,6 +75,128 @@ func TestManifestExtensionsRejectDuplicatesAndBadProjections(t *testing.T) {
 	}
 }
 
+func TestToolCapabilitiesAreExactPackageSubsets(t *testing.T) {
+	manifest := Manifest{
+		Capabilities: []string{
+			"context:resource:catalog:skill",
+			"context:resource:open:skill",
+			"registry:catalog",
+			"session:tool-surface",
+		},
+		Tools: []ToolDef{
+			{Name: "skills__search", Capabilities: CapabilitySubset("context:resource:catalog:skill")},
+			{Name: "skills__load", Capabilities: CapabilitySubset("context:resource:catalog:skill", "context:resource:open:skill", "registry:catalog", "session:tool-surface")},
+		},
+	}
+	if err := manifest.ValidateExtensions(); err != nil {
+		t.Fatalf("ValidateExtensions: %v", err)
+	}
+	search, err := manifest.EffectiveToolCapabilities(manifest.Tools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(search) != 1 || search[0] != "context:resource:catalog:skill" {
+		t.Fatalf("search capabilities = %v", search)
+	}
+	load, err := manifest.EffectiveToolCapabilities(manifest.Tools[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(load) != 4 {
+		t.Fatalf("load capabilities = %v", load)
+	}
+
+	for _, test := range []struct {
+		name string
+		caps []string
+		want string
+	}{
+		{name: "undeclared", caps: []string{"context:resource:open:skill", "provider:invoke:1"}, want: "not declared by the package"},
+		{name: "duplicate", caps: []string{"registry:catalog", "registry:catalog"}, want: "duplicate tool capability"},
+		{name: "empty", caps: []string{""}, want: "non-empty exact value"},
+		{name: "whitespace", caps: []string{" registry:catalog"}, want: "non-empty exact value"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := manifest
+			candidate.Tools = []ToolDef{{Name: "bad", Capabilities: CapabilitySubset(test.caps...)}}
+			if err := candidate.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateExtensions error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestOrdinaryToolCapabilitiesPreserveExplicitEmptyAgainstOmission(t *testing.T) {
+	manifest := Manifest{Capabilities: []string{"registry:catalog"}, Tools: []ToolDef{{Name: "zero", Capabilities: CapabilitySubset()}}}
+	capabilities, err := manifest.EffectiveToolCapabilities(manifest.Tools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(capabilities) != 0 {
+		t.Fatalf("explicit empty capabilities inherited package authority: %v", capabilities)
+	}
+	if _, err := manifest.EffectiveToolCapabilities(ToolDef{Name: "omitted"}); err == nil {
+		t.Fatal("omitted ordinary tool capabilities inherited package authority")
+	}
+	explicitCanonical, err := manifest.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	omitted := manifest
+	omitted.Tools = []ToolDef{{Name: "zero"}}
+	omittedCanonical, err := omitted.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(explicitCanonical, omittedCanonical) || !bytes.Contains(explicitCanonical, []byte(`"capabilities":[]`)) {
+		t.Fatalf("explicit empty did not remain signature-distinct:\nexplicit=%s\nomitted=%s", explicitCanonical, omittedCanonical)
+	}
+	var roundTrip Manifest
+	if err := json.Unmarshal(explicitCanonical, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Tools[0].Capabilities == nil || len(*roundTrip.Tools[0].Capabilities) != 0 {
+		t.Fatalf("explicit empty capabilities did not survive JSON round trip: %#v", roundTrip.Tools[0].Capabilities)
+	}
+	if err := roundTrip.ValidateExtensions(); err != nil {
+		t.Fatalf("explicit empty capabilities rejected after JSON round trip: %v", err)
+	}
+	if err := omitted.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "must explicitly declare capabilities") {
+		t.Fatalf("removing signed empty capability field did not change admission semantics: %v", err)
+	}
+}
+
+func TestLifecycleToolCapabilitiesMustBeOmittedAndInheritSharedHost(t *testing.T) {
+	manifest := Manifest{Lifecycle: &LifecycleDef{}, Capabilities: []string{"session:read"}, Tools: []ToolDef{{Name: "status"}}}
+	capabilities, err := manifest.EffectiveToolCapabilities(manifest.Tools[0])
+	if err != nil || len(capabilities) != 1 || capabilities[0] != "session:read" {
+		t.Fatalf("lifecycle capabilities = %v, err=%v", capabilities, err)
+	}
+	manifest.Tools[0].Capabilities = CapabilitySubset()
+	if err := manifest.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "lifecycle application tools must omit") {
+		t.Fatalf("present lifecycle tool capabilities error = %v", err)
+	}
+}
+
+func TestLifecycleToolsRejectAgentChildOnly(t *testing.T) {
+	manifest := Manifest{
+		Lifecycle: &LifecycleDef{},
+		Tools: []ToolDef{{
+			Name:           "quality__private_helper",
+			AgentChildOnly: true,
+		}},
+	}
+	if err := manifest.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "agent_child_only is not valid for lifecycle application tools") {
+		t.Fatalf("lifecycle agent_child_only error = %v", err)
+	}
+
+	manifest.Tools[0].AgentChildOnly = false
+	manifest.Tools[0].ApplicationWorker = &ApplicationWorkerToolDef{PlanVisible: false}
+	if err := manifest.ValidateExtensions(); err != nil {
+		t.Fatalf("lifecycle application_worker must remain valid: %v", err)
+	}
+}
+
 func TestArtifactCapabilitiesAreManifestBound(t *testing.T) {
 	manifest := Manifest{
 		ArtifactKinds: []ArtifactKindDef{validArtifactKind()},
@@ -105,6 +229,49 @@ func TestArtifactCapabilitiesAreManifestBound(t *testing.T) {
 		candidate.Capabilities = []string{capability}
 		if _, err := candidate.ParseArtifactCapabilities(); err == nil {
 			t.Errorf("invalid capability %q accepted", capability)
+		}
+	}
+}
+
+func TestArtifactCapabilitiesResolveExactDeclaredSelfKind(t *testing.T) {
+	manifest := Manifest{
+		Name: "reviewer", Version: "v1.0.0",
+		ArtifactKinds: []ArtifactKindDef{validArtifactKind()},
+		Capabilities: []string{
+			"artifact:propose:review-contract",
+			"artifact:read:self#review-contract",
+			"artifact:observe:self#review-contract",
+		},
+	}
+	caps, err := manifest.ParseArtifactCapabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := RuntimeIdentityForLocalSource(manifest, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := caps.ResolveSelf(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := identity.QualifiedKind("review-contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.AllowsRead(want) || !resolved.AllowsObserve(want) || resolved.AllowsRead("self#review-contract") {
+		t.Fatalf("self grants were not identity-bound: %+v", resolved)
+	}
+
+	for _, capability := range []string{
+		"artifact:read:self#unknown",
+		"artifact:read:self#*",
+		"artifact:observe:self#review-*",
+	} {
+		candidate := manifest
+		candidate.Capabilities = []string{capability}
+		if _, err := candidate.ParseArtifactCapabilities(); err == nil {
+			t.Errorf("invalid self capability %q accepted", capability)
 		}
 	}
 }
@@ -170,6 +337,27 @@ func TestLifecycleCapabilitiesMustMatchSubscriptions(t *testing.T) {
 	}
 }
 
+func TestLifecycleContributeIsAppendOnlyPreLLMAuthority(t *testing.T) {
+	manifest := Manifest{
+		Lifecycle: &LifecycleDef{Points: []string{"pre_llm"}},
+		Capabilities: []string{
+			"lifecycle:observe:pre_llm",
+			"lifecycle:contribute:pre_llm",
+		},
+	}
+	caps, err := manifest.ParseLifecycleCapabilities()
+	if err != nil || !caps.CanObserve("pre_llm") || !caps.CanContribute("pre_llm") || caps.CanDecide("pre_llm") {
+		t.Fatalf("caps=%+v err=%v", caps, err)
+	}
+	for _, capability := range []string{"lifecycle:contribute:post_llm", "lifecycle:contribute:timer.due"} {
+		candidate := manifest
+		candidate.Capabilities = []string{"lifecycle:observe:pre_llm", capability}
+		if _, err := candidate.ParseLifecycleCapabilities(); err == nil {
+			t.Fatalf("invalid contribution capability %q accepted", capability)
+		}
+	}
+}
+
 func TestApplicationCommandValidation(t *testing.T) {
 	valid := Manifest{Commands: []CommandDef{{Name: "supervise", Description: "Manage supervised work", Usage: "[start|pause|resume|stop]", TimeoutMS: 15 * 60 * 1000}}}
 	if err := valid.ValidateExtensions(); err != nil {
@@ -227,5 +415,102 @@ func TestManifestDigestCoversApplicationDeclarations(t *testing.T) {
 	}
 	if third == fourth {
 		t.Fatalf("manifest digest did not bind command timeout: %q", fourth)
+	}
+}
+
+func TestApplicationWorkerDeclarationIsStrictAndLifecycleBound(t *testing.T) {
+	const prefix = `{"name":"quality","version":"1.0.0","author":"test","author_pubkey_fpr":"fpr","wasm_sha256":"digest","capabilities":[],"tools":[{"name":"quality__progress","description":"progress","application_worker":`
+	const suffix = `}],"lifecycle":{"points":["post_turn"]},"min_stado_version":"0.80.0","timestamp_utc":"2026-08-14T00:00:00Z","nonce":"n"}`
+
+	for name, declaration := range map[string]string{
+		"missing plan_visible": `{}`,
+		"wrong type":           `{"plan_visible":"yes"}`,
+		"unknown field":        `{"plan_visible":true,"future_policy":true}`,
+		"trailing value":       `{"plan_visible":true} {}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var manifest Manifest
+			if err := json.Unmarshal([]byte(prefix+declaration+suffix), &manifest); err == nil {
+				t.Fatal("malformed application_worker declaration accepted")
+			}
+		})
+	}
+
+	for _, visible := range []bool{false, true} {
+		raw := prefix + fmt.Sprintf(`{"plan_visible":%t}`, visible) + suffix
+		var manifest Manifest
+		if err := json.Unmarshal([]byte(raw), &manifest); err != nil {
+			t.Fatalf("valid application_worker declaration: %v", err)
+		}
+		if manifest.Tools[0].ApplicationWorker == nil || manifest.Tools[0].ApplicationWorker.PlanVisible != visible {
+			t.Fatalf("decoded declaration = %#v", manifest.Tools[0].ApplicationWorker)
+		}
+		canonical, err := manifest.Canonical()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(canonical, []byte(fmt.Sprintf(`"application_worker":{"plan_visible":%t}`, visible))) {
+			t.Fatalf("canonical manifest omitted signed false/true value: %s", canonical)
+		}
+	}
+
+	withoutLifecycle := Manifest{Tools: []ToolDef{{Name: "quality__progress", ApplicationWorker: &ApplicationWorkerToolDef{PlanVisible: false}}}}
+	if err := withoutLifecycle.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "requires a lifecycle") {
+		t.Fatalf("non-lifecycle opt-in error = %v", err)
+	}
+	duplicate := Manifest{Lifecycle: &LifecycleDef{}, Tools: []ToolDef{{Name: "same"}, {Name: "same"}}}
+	if err := duplicate.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "duplicate tool") {
+		t.Fatalf("duplicate tool error = %v", err)
+	}
+}
+
+func TestApplicationSessionDeclarationIsStrictLifecycleOnlyAndExclusive(t *testing.T) {
+	const prefix = `{"name":"tasks","version":"1.0.0","author":"test","author_pubkey_fpr":"fpr","wasm_sha256":"digest","capabilities":[],"tools":[{"name":"tasks","description":"tasks","application_session":`
+	const suffix = `}],"lifecycle":{},"min_stado_version":"0.80.0","timestamp_utc":"2026-08-14T00:00:00Z","nonce":"n"}`
+	for name, declaration := range map[string]string{
+		"missing plan_visible": `{}`,
+		"wrong type":           `{"plan_visible":"yes"}`,
+		"unknown field":        `{"plan_visible":false,"future_policy":true}`,
+		"trailing value":       `{"plan_visible":false} {}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var manifest Manifest
+			if err := json.Unmarshal([]byte(prefix+declaration+suffix), &manifest); err == nil {
+				t.Fatal("malformed application_session declaration accepted")
+			}
+		})
+	}
+	for _, visible := range []bool{false, true} {
+		raw := prefix + fmt.Sprintf(`{"plan_visible":%t}`, visible) + suffix
+		var manifest Manifest
+		if err := json.Unmarshal([]byte(raw), &manifest); err != nil {
+			t.Fatalf("valid application_session declaration: %v", err)
+		}
+		if manifest.Tools[0].ApplicationSession == nil || manifest.Tools[0].ApplicationSession.PlanVisible != visible {
+			t.Fatalf("decoded declaration = %#v", manifest.Tools[0].ApplicationSession)
+		}
+		canonical, err := manifest.Canonical()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(canonical, []byte(fmt.Sprintf(`"application_session":{"plan_visible":%t}`, visible))) {
+			t.Fatalf("canonical manifest omitted signed false/true value: %s", canonical)
+		}
+	}
+
+	withoutLifecycle := Manifest{Tools: []ToolDef{{Name: "tasks", ApplicationSession: &ApplicationSessionToolDef{PlanVisible: false}, Capabilities: CapabilitySubset()}}}
+	if err := withoutLifecycle.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "requires a lifecycle") {
+		t.Fatalf("non-lifecycle application_session error = %v", err)
+	}
+	for name, definition := range map[string]ToolDef{
+		"worker": {Name: "tasks", ApplicationSession: &ApplicationSessionToolDef{PlanVisible: false}, ApplicationWorker: &ApplicationWorkerToolDef{PlanVisible: false}},
+		"child":  {Name: "tasks", ApplicationSession: &ApplicationSessionToolDef{PlanVisible: false}, AgentChildOnly: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			manifest := Manifest{Lifecycle: &LifecycleDef{}, Tools: []ToolDef{definition}}
+			if err := manifest.ValidateExtensions(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+				t.Fatalf("exclusive declaration error = %v", err)
+			}
+		})
 	}
 }

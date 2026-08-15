@@ -9,6 +9,15 @@ implemented-in: v0.1.0
 see-also: ["EP-0002", "EP-0005", "EP-0010", "EP-0011", "EP-0012", "EP-0039"]
 extended-by: ["EP-0039"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    version: v0.80.0
+    note: >
+      Provider access was narrowed to exact provider:invoke:<positive-tokens>
+      and strict stado_provider_invoke facts. The former optional/default
+      llm:invoke capability and application-shaped host import are retired;
+      provider credentials and enforcement remain native while model-facing
+      request/output policy remains in signed WASM.
   - date: 2026-04-23
     status: Accepted
     note: Retrofitted from the shipped plugin authoring, trust, override, and background-runtime surfaces around v0.0.1 to v0.1.0.
@@ -65,7 +74,8 @@ trust store instead of treating download as trust.
 
 Execution happens inside wazero. The host-import model is narrow by
 design: plugins receive only the capability-gated imports required for
-filesystem, networking, session, approval, logging, or LLM access.
+filesystem, networking, session, approval, logging, or authenticated,
+token-bounded provider access.
 Plugins do not receive raw syscalls or implicit repository access.
 
 The shipped runtime supports three plugin modes:
@@ -77,7 +87,7 @@ The shipped runtime supports three plugin modes:
 Tool overrides and background modes are part of the same runtime rather
 than separate extension systems. Session-aware plugins use explicit
 capabilities such as `session:read`, `session:observe`, `session:fork`,
-and `llm:invoke`, which keeps extension power visible in the manifest
+and exact `provider:invoke:<positive-tokens>`, which keeps extension power visible in the manifest
 and auditable in the runtime.
 
 ## Decision log

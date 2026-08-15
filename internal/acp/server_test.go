@@ -14,30 +14,56 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/personas"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-func installACPLifecycleFixture(t *testing.T, cfg *config.Config, id string) {
+func installACPLifecycleFixture(t *testing.T, cfg *config.Config, id string) string {
 	t.Helper()
-	dir := filepath.Join(cfg.StateDir(), "plugins", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	source := filepath.Join(t.TempDir(), id)
+	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{"name":"quality","version":"1.0.0","wasm_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","capabilities":[],"tools":[],"lifecycle":{}}`
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	mf, _, err := plugins.LoadFromDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg.StateDir(), "plugins", record.StoreKey)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"plugin.manifest.json", "plugin.manifest.sig"} {
+		data, readErr := os.ReadFile(filepath.Join(source, filename))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := os.WriteFile(filepath.Join(dir, filename), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plugins.WriteInstallRecord(dir, record, *mf); err != nil {
+		t.Fatal(err)
+	}
+	return record.StoreKey
 }
 
 func TestACPSessionRejectsPersonaLifecycleApplicationBeforeBrokerWork(t *testing.T) {
 	cfg := isolatedACPConfig(t)
-	installACPLifecycleFixture(t, cfg, "quality-1.0.0")
+	installedID := installACPLifecycleFixture(t, cfg, "quality-1.0.0")
 	srv := NewServer(cfg, nil)
-	srv.DefaultPersona = &personas.Persona{Name: "quality", Plugins: []string{"quality-1.0.0"}}
+	srv.DefaultPersona = &personas.Persona{Name: "quality", Plugins: []string{installedID}}
 	applications, err := runtime.ConfiguredLifecycleApplications(cfg, srv.DefaultPersona.Plugins)
 	if err != nil || len(applications) != 1 {
 		t.Fatalf("application classification = %#v, %v", applications, err)

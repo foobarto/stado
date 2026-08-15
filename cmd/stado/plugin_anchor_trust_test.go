@@ -1,9 +1,16 @@
 package main
 
 import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/spf13/cobra"
 )
 
 // EP-0039: decideAnchor is the pure trust decision — anchor TOFU bound to the
@@ -48,25 +55,63 @@ func TestDecideAnchor(t *testing.T) {
 	}
 }
 
-// TestAnchorStore_Remove: a cleared pin returns to first-sight (empty
-// fingerprint), so a post-rotation reinstall can re-TOFU.
-func TestAnchorStore_Remove(t *testing.T) {
-	store := plugins.NewAnchorTrustStore(t.TempDir())
-	const owner = "github.com/acme"
-	if err := store.Trust(owner, "FP-1", plugins.AnchorTrustOwner); err != nil {
+func TestPrepareAnchorTrustFirstInstallOfflineReuseAndRotation(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg := &config.Config{}
+	id, err := plugins.ParseIdentity("github.com/acme/stado-plugins/supervise@v1.0.0")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fp, _ := store.Fingerprint(owner); fp != "FP-1" {
-		t.Fatalf("pre-remove fingerprint = %q; want FP-1", fp)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := store.Remove(owner); err != nil {
-		t.Fatalf("Remove: %v", err)
+	pubHex := hex.EncodeToString(pub)
+	fpr := plugins.Fingerprint(pub)
+	originalFetch := fetchOwnerAnchorPubkey
+	t.Cleanup(func() { fetchOwnerAnchorPubkey = originalFetch })
+	fetchOwnerAnchorPubkey = func(context.Context, string) (string, error) { return pubHex, nil }
+	cmd := &cobra.Command{}
+
+	prepared, err := prepareAnchorTrust(cmd, cfg, id, fpr, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if fp, _ := store.Fingerprint(owner); fp != "" {
-		t.Fatalf("post-remove fingerprint = %q; want empty (first sight)", fp)
+	if !prepared.FirstSight || prepared.Pubkey != pubHex {
+		t.Fatalf("prepared first sight = %#v", prepared)
 	}
-	// Idempotent: removing again is not an error.
-	if err := store.Remove(owner); err != nil {
-		t.Fatalf("second Remove should be no-op; got %v", err)
+	store := plugins.NewTrustStore(cfg.StateDir())
+	if entries, err := store.Load(); err != nil || len(entries) != 0 {
+		t.Fatalf("preparation mutated trust: entries=%#v err=%v", entries, err)
+	}
+	m := &plugins.Manifest{Name: "supervise", Version: "1.0.0", AuthorPubkeyFpr: fpr}
+	sig, err := m.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TrustVerifiedAnchor(prepared.Pubkey, "official", id.Namespace(), prepared.OwnerKey, m, sig); err != nil {
+		t.Fatal(err)
+	}
+
+	fetchOwnerAnchorPubkey = func(context.Context, string) (string, error) { return "", errors.New("offline") }
+	offline, err := prepareAnchorTrust(cmd, cfg, id, fpr, false)
+	if err != nil {
+		t.Fatalf("offline cached anchor: %v", err)
+	}
+	if offline.Pubkey != pubHex || offline.FirstSight {
+		t.Fatalf("offline candidate = %#v", offline)
+	}
+
+	rotatedPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetchOwnerAnchorPubkey = func(context.Context, string) (string, error) { return hex.EncodeToString(rotatedPub), nil }
+	if _, err := prepareAnchorTrust(cmd, cfg, id, plugins.Fingerprint(rotatedPub), true); err == nil {
+		t.Fatal("anchor rotation unexpectedly bypassed the existing owner pin")
+	}
+	anchored, ok, err := store.AnchorSigner(id.OwnerKey())
+	if err != nil || !ok || anchored.Fingerprint != fpr {
+		t.Fatalf("rotation changed trust: entry=%#v ok=%v err=%v", anchored, ok, err)
 	}
 }

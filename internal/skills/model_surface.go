@@ -4,14 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
-
-// maxModelListingBytes caps the rendered listing. It's a byte budget
-// (compared against strings.Builder.Len), not a rune count — the final
-// hard truncation backs up to a UTF-8 boundary so a multibyte rune is
-// never split mid-sequence.
-const maxModelListingBytes = 4000
 
 // Scope records where a skill was discovered. Project skills come from the
 // cwd walk (.stado/skills/); persona skills from a persona's skills: list.
@@ -24,17 +17,6 @@ const (
 
 // Skill is one parsed skill file.
 // (Fields extended in skills.go — this file holds model-surface helpers.)
-
-// ModelVisible returns skills the model may discover (not disable-model-invocation).
-func ModelVisible(sks []Skill) []Skill {
-	out := make([]Skill, 0, len(sks))
-	for _, sk := range sks {
-		if !sk.DisableModelInvocation {
-			out = append(out, sk)
-		}
-	}
-	return out
-}
 
 // UserVisible returns skills the operator may invoke via /skill or slash:.
 func UserVisible(sks []Skill) []Skill {
@@ -78,69 +60,9 @@ func (sk Skill) AllowedToolsEffective() bool {
 	return sk.Scope == ScopePersona && len(sk.AllowedTools) > 0
 }
 
-// FormatModelListing builds the budget-capped skills catalog appended to the
-// system prompt (EP-0045 progressive disclosure).
-func FormatModelListing(sks []Skill) string {
-	visible := ModelVisible(sks)
-	if len(visible) == 0 {
-		return ""
-	}
-	type entry struct {
-		name string
-		desc string
-	}
-	entries := make([]entry, 0, len(visible))
-	for _, sk := range visible {
-		desc := sk.ListingDescription()
-		if desc == "" {
-			desc = "(no description — write description for model matching)"
-		}
-		entries = append(entries, entry{name: sk.Name, desc: desc})
-	}
-	const header = "Available skills (load with skills__load when relevant):\n"
-	const placeholder = "(description truncated — use skills__load for full body)"
-	renderedBytes := len(header)
-	shortenOrder := make([]int, 0, len(entries))
-	for i, e := range entries {
-		renderedBytes += len("- ") + len(e.name) + len(": ") + len(e.desc) + len("\n")
-		if len(e.desc) > len(placeholder) {
-			shortenOrder = append(shortenOrder, i)
-		}
-	}
-	sort.Slice(shortenOrder, func(i, j int) bool {
-		return len(entries[shortenOrder[i]].desc) > len(entries[shortenOrder[j]].desc)
-	})
-	for _, i := range shortenOrder {
-		if renderedBytes <= maxModelListingBytes {
-			break
-		}
-		renderedBytes -= len(entries[i].desc) - len(placeholder)
-		entries[i].desc = placeholder
-	}
-	var b strings.Builder
-	b.Grow(min(renderedBytes, maxModelListingBytes))
-	b.WriteString(header)
-	for _, e := range entries {
-		fmt.Fprintf(&b, "- %s: %s\n", e.name, e.desc)
-	}
-	out := strings.TrimRight(b.String(), "\n")
-	if len(out) > maxModelListingBytes {
-		// Back the cut up to a UTF-8 rune boundary so we never split a
-		// multibyte rune. Reserve the ellipsis bytes inside the budget rather
-		// than appending them after a maxModelListingBytes slice.
-		ellipsis := "…"
-		cut := maxModelListingBytes - len(ellipsis)
-		for cut > 0 && !utf8.RuneStart(out[cut]) {
-			cut--
-		}
-		out = out[:cut] + ellipsis
-	}
-	return out
-}
-
 // InertSkills returns the names of skills that can never be invoked: both
-// disable-model-invocation (hidden from the model listing + rejected by
-// skills__load) AND user-invocable: false (hidden from /skill and slash:).
+// disable-model-invocation (omitted from the model resource catalog) AND
+// user-invocable: false (hidden from /skill and slash:).
 // Such a skill is dead config — neither initiator can reach it — so callers
 // surface it as a load-time warning rather than letting it sit silently.
 func InertSkills(sks []Skill) []string {
@@ -191,7 +113,7 @@ func Find(sks []Skill, name string) *Skill {
 // bad entry (oversize, symlink, unreadable). Effective keeps that partial
 // catalog and still merges persona skills, propagating the warning rather than
 // returning nil — a single bad skill file must not black-hole every valid
-// project + persona skill from the model listing and skills__load.
+// project + persona skill from operator gestures or context-resource facts.
 func Effective(cwd string, personaSkills []string, personaDir string) ([]Skill, error) {
 	base, err := Load(cwd)
 	if len(personaSkills) == 0 || strings.TrimSpace(personaDir) == "" {

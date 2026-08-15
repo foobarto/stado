@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 type transitionTestRoot struct {
@@ -161,6 +163,19 @@ func TestSessionTransitionRotatesPeerAndIsolatesPluginBindings(t *testing.T) {
 	}
 }
 
+func TestLifecycleHostDoesNotExposeTypedNilFleetBridge(t *testing.T) {
+	m := newPickerTestModel(t, "stub")
+	m.providerName = "stub"
+	m.buildProvider = func() (agent.Provider, error) { return nil, errors.New("provider unavailable") }
+	host := m.newPluginHostAdapter(plugins.Manifest{Capabilities: []string{"agent:spawn"}})
+	if host.fleetBridge != nil {
+		t.Fatalf("fleet bridge = %#v, want unavailable", host.fleetBridge)
+	}
+	if got := host.AgentFleetBridge(); got != nil {
+		t.Fatalf("AgentFleetBridge() = %#v, want a nil interface", got)
+	}
+}
+
 func TestSessionTransitionPrefersExactDurableLogicalSubject(t *testing.T) {
 	m, _, _ := newSessionSwitchModel(t)
 	root := &logicalTransitionTestRoot{transitionTestRoot: &transitionTestRoot{}}
@@ -172,8 +187,19 @@ func TestSessionTransitionPrefersExactDurableLogicalSubject(t *testing.T) {
 	if controller == nil || !owned {
 		t.Fatalf("controller=%T owned=%v", controller, owned)
 	}
-	if root.lastSubject != m.session.ID || root.lastCWD != m.cwd {
-		t.Fatalf("logical transition subject/cwd=%q/%q want=%q/%q", root.lastSubject, root.lastCWD, m.session.ID, m.cwd)
+	if root.lastSubject != m.session.ID || root.lastCWD != m.session.Sidecar.UserRepoRoot {
+		t.Fatalf("logical transition subject/cwd=%q/%q want=%q/%q", root.lastSubject, root.lastCWD, m.session.ID, m.session.Sidecar.UserRepoRoot)
+	}
+	firstCWD := root.lastCWD
+	// `session resume` launches from inside this worktree, whereas the first
+	// TUI commonly launched at the repository root. Both must present the same
+	// durable broker subject/cwd tuple.
+	m.cwd = m.session.WorktreePath
+	if _, _, err := m.openSessionBroker(context.Background(), m.session); err != nil {
+		t.Fatal(err)
+	}
+	if root.lastCWD != firstCWD {
+		t.Fatalf("resume changed durable logical cwd from %q to %q", firstCWD, root.lastCWD)
 	}
 }
 
@@ -207,24 +233,44 @@ func TestSessionTransitionLifecycleAdmissionFailureRollsBackAndReapsCandidate(t 
 	m, cfg, ids := newSessionSwitchModel(t)
 	root := &transitionTestRoot{}
 	firstPeer := attachTransitionTestPeer(t, m, root)
-	pluginID := "quality-gate-1.0.0"
-	pluginDir := filepath.Join(cfg.StateDir(), "plugins", pluginID)
-	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+	source := filepath.Join(t.TempDir(), "quality-gate")
+	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := []byte(`{"name":"quality-gate","version":"1.0.0","capabilities":[],"tools":[],"lifecycle":{}}`)
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "plugin.manifest.sig"), []byte("invalid-but-present"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mf, _, err := plugins.LoadFromDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := plugins.NewLocalInstallRecord(source, *mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := filepath.Join(cfg.StateDir(), "plugins", record.StoreKey)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.manifest.json"), manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.manifest.sig"), []byte("invalid-but-present"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Plugins.Background = []string{pluginID}
+	if err := plugins.WriteInstallRecord(pluginDir, record, *mf); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Plugins.Background = []string{record.StoreKey}
 	oldSession, oldExecutor := m.session, m.executor
 	oldApplication := &runtime.LoadedLifecycleApplication{Dir: "session-a"}
 	m.lifecycleApplications = []*runtime.LoadedLifecycleApplication{oldApplication}
 
-	err := m.switchToSession(ids.second)
+	err = m.switchToSession(ids.second)
 	if err == nil || !strings.Contains(err.Error(), "broker admission unavailable") {
 		t.Fatalf("switch error = %v, want lifecycle admission failure", err)
 	}

@@ -1,6 +1,7 @@
 package artifacts
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -49,7 +50,7 @@ type Service struct {
 }
 
 func NewService(w Appender, grants *authority.Consumer) *Service {
-	return NewServiceWithKinds(w, grants, DefaultKindRegistry())
+	return NewServiceWithKinds(w, grants, NewKindRegistry())
 }
 
 func NewServiceWithKinds(w Appender, grants *authority.Consumer, kinds *KindRegistry) *Service {
@@ -79,16 +80,19 @@ func (s *Service) Create(ctx context.Context, item Artifact, principal, actor, i
 	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if item.ID == "" {
-		item.ID = mintID()
-	}
 	item.Version = 1
 	item.Authority = AuthorityCandidate
-	item.CreatedAt, item.UpdatedAt = s.now().UTC(), s.now().UTC()
 	desc, err := s.prepare(&item, principal)
 	if err != nil {
 		return Artifact{}, err
 	}
+	if prior, found, err := priorCreate(s.wal.Records(), idem, item, principal); found || err != nil {
+		return prior, err
+	}
+	if item.ID == "" {
+		item.ID = mintID()
+	}
+	item.CreatedAt, item.UpdatedAt = s.now().UTC(), s.now().UTC()
 	if _, ok, err := s.showLocked(item.ID); err != nil {
 		return Artifact{}, err
 	} else if ok {
@@ -107,6 +111,12 @@ func (s *Service) Edit(ctx context.Context, id string, expected uint64, replacem
 	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := normalizeEditRetryInput(&replacement); err != nil {
+		return Artifact{}, err
+	}
+	if prior, found, err := priorEdit(s.wal.Records(), idem, id, expected, replacement, principal); found || err != nil {
+		return prior, err
+	}
 	current, ok, err := s.showLocked(id)
 	if err != nil {
 		return Artifact{}, err
@@ -137,6 +147,122 @@ func (s *Service) Edit(ctx context.Context, id string, expected uint64, replacem
 	events = append(events, wal.Event{Store: artifactStore, Type: "artifact.edit", Data: data})
 	_, err = s.wal.Append(transactionEvents(principal, actor, idem, events))
 	return replacement, err
+}
+
+func normalizeEditRetryInput(item *Artifact) error {
+	var err error
+	item.Tags, err = normalizeLabels(item.Tags, maxTags)
+	if err != nil {
+		return err
+	}
+	item.Groups, err = normalizeGroups(item.Groups)
+	if err != nil {
+		return err
+	}
+	item.EvidenceRefs, err = normalizeRefs(item.EvidenceRefs, 64, "evidence reference")
+	if err != nil {
+		return err
+	}
+	item.Sensitivity = normalizedSensitivity(item.Sensitivity)
+	return validateProvenance(item.Provenance)
+}
+
+// priorCreate and priorEdit make broker transport retries return the exact
+// result that was durably committed. WAL idempotency alone cannot do that:
+// artifact IDs, transaction IDs, and timestamps are host-minted, so rebuilding
+// a transaction after a lost response would correctly look different to the
+// WAL and report a conflict. These helpers compare only caller-controlled
+// mutation input, reject logical-key reuse with different input, and return the
+// immutable result recorded by the first transaction.
+func priorCreate(records []wal.Record, idem string, requested Artifact, principal string) (Artifact, bool, error) {
+	if idem == "" {
+		return Artifact{}, false, nil
+	}
+	for _, record := range records {
+		if record.Transaction.IdempotencyKey != idem {
+			continue
+		}
+		if record.Transaction.Principal != principal {
+			return Artifact{}, true, wal.ErrConflict
+		}
+		for _, event := range record.Transaction.Events {
+			if event.Store != artifactStore || event.Type != "artifact.create" {
+				continue
+			}
+			var committed createEvent
+			if err := json.Unmarshal(event.Data, &committed); err != nil {
+				return Artifact{}, true, err
+			}
+			if !sameCreateInput(committed.Artifact, requested) {
+				return Artifact{}, true, wal.ErrConflict
+			}
+			return committed.Artifact, true, nil
+		}
+		return Artifact{}, true, wal.ErrConflict
+	}
+	return Artifact{}, false, nil
+}
+
+func priorEdit(records []wal.Record, idem, id string, expected uint64, requested Artifact, principal string) (Artifact, bool, error) {
+	if idem == "" {
+		return Artifact{}, false, nil
+	}
+	for _, record := range records {
+		if record.Transaction.IdempotencyKey != idem {
+			continue
+		}
+		if record.Transaction.Principal != principal {
+			return Artifact{}, true, wal.ErrConflict
+		}
+		for _, event := range record.Transaction.Events {
+			if event.Store != artifactStore || event.Type != "artifact.edit" {
+				continue
+			}
+			var committed replaceEvent
+			if err := json.Unmarshal(event.Data, &committed); err != nil {
+				return Artifact{}, true, err
+			}
+			if committed.ID != id || committed.ExpectedVersion != expected || !sameEditInput(committed.Artifact, requested) {
+				return Artifact{}, true, wal.ErrConflict
+			}
+			return committed.Artifact, true, nil
+		}
+		return Artifact{}, true, wal.ErrConflict
+	}
+	return Artifact{}, false, nil
+}
+
+func sameCreateInput(committed, requested Artifact) bool {
+	return committed.Kind == requested.Kind && committed.Scope == requested.Scope &&
+		committed.Binding == requested.Binding && slicesEqual(committed.Tags, requested.Tags) &&
+		slicesEqual(committed.Groups, requested.Groups) && slicesEqual(committed.EvidenceRefs, requested.EvidenceRefs) &&
+		committed.Sensitivity == normalizedSensitivity(requested.Sensitivity) &&
+		bytes.Equal(committed.Data, requested.Data) && committed.ExpiresAt.Equal(requested.ExpiresAt)
+}
+
+func sameEditInput(committed, requested Artifact) bool {
+	return slicesEqual(committed.Tags, requested.Tags) && slicesEqual(committed.Groups, requested.Groups) &&
+		slicesEqual(committed.EvidenceRefs, requested.EvidenceRefs) && committed.Sensitivity == normalizedSensitivity(requested.Sensitivity) &&
+		bytes.Equal(committed.Data, requested.Data) && committed.ExpiresAt.Equal(requested.ExpiresAt)
+}
+
+func normalizedSensitivity(value string) string {
+	if value == "" {
+		return "normal"
+	}
+	return value
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) SetAuthority(ctx context.Context, id string, expected uint64, next Authority, grantID, principal, actor, idem string) (Artifact, error) {
@@ -240,13 +366,77 @@ func (s *Service) showLocked(id string) (Artifact, bool, error) {
 func (s *Service) Query(q Query) ([]Artifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items, err := fold(s.wal.Records())
+	out, err := s.queryMatchesLocked(q)
 	if err != nil {
 		return nil, err
 	}
 	max := q.MaxItems
 	if max <= 0 {
 		max = 50
+	}
+	// Exact-reference queries are bounded by the number of requested immutable
+	// refs, never by the default recency page. This prevents a valid selected
+	// object from disappearing merely because newer unrelated artifacts exist.
+	if len(q.Refs) > 0 && max < len(q.Refs) {
+		max = len(q.Refs)
+	}
+	if len(out) > max {
+		out = out[:max]
+	}
+	return out, nil
+}
+
+// QueryPage returns one bounded page plus a digest of the complete matching
+// (artifact id, version) projection. A caller fences every later offset with
+// that digest, so concurrent edits cannot silently produce skipped or repeated
+// rows. The broker owns request validation and the maximum page size; this
+// service method keeps the snapshot calculation and fold under one lock.
+func (s *Service) QueryPage(q Query, offset, limit int) (ArtifactPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if offset < 0 || limit <= 0 {
+		return ArtifactPage{}, errors.New("artifact page offset and limit are invalid")
+	}
+	out, err := s.queryMatchesLocked(q)
+	if err != nil {
+		return ArtifactPage{}, err
+	}
+	if offset > len(out) {
+		return ArtifactPage{}, errors.New("artifact page offset exceeds the matching projection")
+	}
+	refs := make([]ArtifactRef, len(out))
+	for i := range out {
+		refs[i] = ArtifactRef{ID: out[i].ID, Version: out[i].Version}
+	}
+	digestBytes, err := json.Marshal(refs)
+	if err != nil {
+		return ArtifactPage{}, err
+	}
+	sum := sha256.Sum256(digestBytes)
+	page := ArtifactPage{Digest: "sha256:" + hex.EncodeToString(sum[:])}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	page.Items = append([]Artifact(nil), out[offset:end]...)
+	page.Complete = end == len(out)
+	if !page.Complete {
+		page.NextOffset = end
+	}
+	return page, nil
+}
+
+type ArtifactPage struct {
+	Items      []Artifact
+	Digest     string
+	NextOffset int
+	Complete   bool
+}
+
+func (s *Service) queryMatchesLocked(q Query) ([]Artifact, error) {
+	items, err := fold(s.wal.Records())
+	if err != nil {
+		return nil, err
 	}
 	allowedKinds := map[Kind]bool{}
 	for _, k := range q.Kinds {
@@ -266,6 +456,9 @@ func (s *Service) Query(q Query) ([]Artifact, error) {
 	}
 	var out []Artifact
 	for _, a := range items {
+		if q.ExcludeSecret && a.Sensitivity == "secret" {
+			continue
+		}
 		if len(allowedRefs) > 0 && allowedRefs[a.ID] != a.Version {
 			continue
 		}
@@ -283,21 +476,12 @@ func (s *Service) Query(q Query) ([]Artifact, error) {
 		}
 		out = append(out, a)
 	}
-	// Exact-reference queries are bounded by the number of requested immutable
-	// refs, never by the default recency page. This prevents a valid selected
-	// object from disappearing merely because newer unrelated artifacts exist.
-	if len(q.Refs) > 0 && max < len(q.Refs) {
-		max = len(q.Refs)
-	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
 			return out[i].UpdatedAt.After(out[j].UpdatedAt)
 		}
 		return out[i].ID < out[j].ID
 	})
-	if len(out) > max {
-		out = out[:max]
-	}
 	return out, nil
 }
 
@@ -418,21 +602,52 @@ func validRelation(r RelationType) bool {
 
 func fold(records []wal.Record) (map[string]Artifact, error) {
 	items := map[string]Artifact{}
+	migrationStages := map[int]migrationStage{}
+	migrationComplete := false
 	for _, rec := range records {
 		for _, ev := range rec.Transaction.Events {
 			if ev.Store != artifactStore {
 				continue
 			}
 			switch ev.Type {
+			case legacyMigrationStage:
+				if migrationComplete {
+					return nil, errors.New("legacy migration stage appeared after completion")
+				}
+				var stage migrationStage
+				if err := strictLegacyJSON(ev.Data, &stage); err != nil {
+					return nil, err
+				}
+				if _, duplicate := migrationStages[stage.Index]; duplicate {
+					return nil, errors.New("duplicate legacy migration stage")
+				}
+				if err := validateMigrationStage(stage); err != nil {
+					return nil, err
+				}
+				migrationStages[stage.Index] = stage
+			case legacyCompletedEvent:
+				if migrationComplete {
+					return nil, errors.New("multiple completed legacy migrations")
+				}
+				var marker migrationCompleted
+				if err := strictLegacyJSON(ev.Data, &marker); err != nil {
+					return nil, err
+				}
+				projected, err := applyCompletedMigration(items, migrationStages, marker)
+				if err != nil {
+					return nil, err
+				}
+				items = projected
+				migrationComplete = true
 			case "artifact.create":
-				var p createEvent
-				if err := json.Unmarshal(ev.Data, &p); err != nil {
+				p, err := decodeArtifactCreateEvent(ev.Data)
+				if err != nil {
 					return nil, err
 				}
 				items[p.Artifact.ID] = p.Artifact
 			case "artifact.edit":
-				var p replaceEvent
-				if err := json.Unmarshal(ev.Data, &p); err != nil {
+				p, err := decodeArtifactEditEvent(ev.Data)
+				if err != nil {
 					return nil, err
 				}
 				cur, ok := items[p.ID]
@@ -504,6 +719,14 @@ func (s *Service) prepare(a *Artifact, principal string) (KindDescriptor, error)
 		return KindDescriptor{}, err
 	}
 	a.Supersedes, err = normalizeRefs(a.Supersedes, 64, "superseded artifact id")
+	if err != nil {
+		return KindDescriptor{}, err
+	}
+	a.Provenance.Origins, err = normalizeRefs(a.Provenance.Origins, 32, "provenance origin")
+	if err != nil {
+		return KindDescriptor{}, err
+	}
+	a.Provenance.Refs, err = normalizeRefs(a.Provenance.Refs, 32, "provenance reference")
 	if err != nil {
 		return KindDescriptor{}, err
 	}
@@ -650,8 +873,6 @@ func validTransition(from, to Authority) bool {
 		return to == AuthorityActive || to == AuthorityRejected
 	case AuthorityActive:
 		return to == AuthorityCandidate || to == AuthoritySuperseded || to == AuthorityRetired
-	case AuthorityLegacyActive:
-		return to == AuthorityCandidate || to == AuthorityActive || to == AuthorityRetired
 	}
 	return false
 }

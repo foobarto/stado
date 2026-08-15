@@ -109,8 +109,7 @@ The still-powerful project keys are now **always-stripped** rather than gated by
 a per-project trust store: `mcp.servers` (a `[mcp.servers.x] command=…` is a
 subprocess-exec vector), `inference` (`[inference.presets.x] endpoint +
 api_key_env` is an API-key exfil vector), `sandbox` (a repo must never weaken
-the containment posture), and `runtime` (`use_wasm` flips native↔wasm tool
-implementations). `defaults.model`/`defaults.provider` still apply from project
+the containment posture). `defaults.model`/`defaults.provider` still apply from project
 config — they only *select among USER-defined providers*, so a repo can suggest
 a model but not define an exfil endpoint.
 
@@ -132,7 +131,9 @@ future enhancement if real demand appears.
   shadowed the bundled/user persona silently. The `personas.Resolver` now honors
   the `{CWD}/.stado/personas/` dir only when `AllowProject` is set, plumbed from
   the opt-in `[defaults] allow_project_persona` (default false) at the
-  cfg-bearing surfaces (TUI/headless/acp); llmtool/subagent default off. The
+  cfg-bearing surfaces (TUI/headless/acp); agent-spawn default off. The former
+  native MCP `llm.invoke` application and its persona override have since been
+  deleted in favor of a generic provider primitive plus opt-in WASM policy. The
   opt-in key is itself in the project-config strip-list so a repo can't
   self-enable it. (Vector 2 — `[defaults].persona` from project config — was
   already closed in phase 1.)
@@ -154,9 +155,10 @@ future enhancement if real demand appears.
   audit blobs — added a caveat to `docs/features/lifecycle-hooks.md` that a
   `post_tool` mutate is context-hygiene, not secret-erasure. (A future
   `NoAuditBlob` opt-out remains possible per the mutation-provenance spec.)
-- **#126 (SHIPPED)** cross-repo memory via a repo-committed `.stado/user-repo` —
-  the pin is now honored only when it is an ancestor/descendant of the workdir
-  (`internal/memory/context.go` `pinRelatedToWorkdir`).
+- **#126 (historical, retired with native memory)** cross-repo memory via a
+  repo-committed `.stado/user-repo` was constrained to an ancestor/descendant
+  workdir. The later broker-artifact/lifecycle cutover deleted that native
+  memory reader and path; core stado has no replacement fallback.
 
 ## Test strategy
 - Phase 1/2: `TestProjectOverlayStripsSecuritySensitiveKeys` — every stripped

@@ -12,9 +12,6 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/dotenv"
-	"github.com/foobarto/stado/internal/plugins"
-	"github.com/foobarto/stado/internal/plugins/bundled"
-	"github.com/foobarto/stado/internal/plugins/userbundled"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 )
@@ -30,27 +27,9 @@ func (e *exitCodeError) Error() string { return e.Err.Error() }
 func (e *exitCodeError) Unwrap() error { return e.Err }
 
 // formatVersion builds the version string shown by `stado version` and
-// `stado --version`. When a user-bundled payload is loaded, it appends a
-// "(custom: N plugins, bundler=XXXXXXXX)" marker; when signature
-// verification was skipped it appends "[unsafe-skip-verify]".
+// `stado --version`.
 func formatVersion() string {
-	base := collectBuildInfo().Version
-	if userbundled.Bundler != nil {
-		fpr := plugins.Fingerprint(userbundled.Bundler)
-		var n int
-		for _, info := range bundled.List() {
-			if info.WasmSource != nil {
-				n++
-			}
-		}
-		if n > 0 {
-			base += fmt.Sprintf(" (custom: %d plugins, bundler=%s)", n, fpr[:8])
-		}
-	}
-	if userbundled.SkipVerifyApplied {
-		base += " [unsafe-skip-verify]"
-	}
-	return base
+	return collectBuildInfo().Version
 }
 
 // rootProvider / rootModel mirror --provider / --model on the root
@@ -155,8 +134,6 @@ var configPathCmd = &cobra.Command{
 	},
 }
 
-var unsafeSkipBundleVerify bool
-
 // noSandbox is the v1 sandbox opt-out, persistent across every entry point
 // (TUI, run, run --headless, acp, mcp-server, session tree) — all of which resolve
 // their posture through brokerProfileFromFlags(). Previously --no-sandbox was a
@@ -169,8 +146,6 @@ func init() {
 		"Provider override (anthropic, openai, google, ollama-cloud, litellm, or any configured preset). Beats defaults.provider in config.toml for this invocation.")
 	rootCmd.PersistentFlags().StringVar(&rootModel, "model", "",
 		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
-	rootCmd.PersistentFlags().BoolVar(&unsafeSkipBundleVerify, "unsafe-skip-bundle-verify", false,
-		"Skip runtime verification of the appended user-bundled payload (loses tamper-evidence)")
 	rootCmd.PersistentFlags().BoolVar(&noSandbox, "no-sandbox", false,
 		"Opt out of the v1 default sandbox: disable bwrap + Landlock. The agent operates on your actual filesystem with no namespace isolation. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
 	rootCmd.AddCommand(versionCmd, configPathCmd, secretsCmd)

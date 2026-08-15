@@ -11,10 +11,11 @@ import (
 )
 
 type epFrontmatter struct {
-	EP     string
-	Title  string
-	Status string
-	Type   string
+	EP            string
+	Title         string
+	Status        string
+	Type          string
+	ImplementedIn string
 }
 
 type catalogueEntry struct {
@@ -88,6 +89,18 @@ func TestLiveStandardsEPsAreIntegrated(t *testing.T) {
 		}
 		if (doc.meta.Status == "Accepted" || doc.meta.Status == "Partial") && !strings.Contains(plan, label) {
 			t.Errorf("%s is %s and must remain explicitly referenced in PLAN.md", label, doc.meta.Status)
+		}
+	}
+}
+
+func TestImplementedStandardsEPsNameRelease(t *testing.T) {
+	eps := loadEPFrontmatter(t)
+	for number, doc := range eps {
+		if doc.meta.Type != "Standards" || doc.meta.Status != "Implemented" {
+			continue
+		}
+		if doc.meta.ImplementedIn == "" {
+			t.Errorf("EP-%s is Implemented but has no implemented-in release", number)
 		}
 	}
 }
@@ -179,6 +192,8 @@ func parseEPFrontmatter(data []byte) (epFrontmatter, error) {
 			meta.Status = value
 		case "type":
 			meta.Type = value
+		case "implemented-in":
+			meta.ImplementedIn = value
 		}
 	}
 	if meta.EP == "" || meta.Title == "" || meta.Status == "" || meta.Type == "" {

@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/foobarto/stado/internal/plugins"
 )
 
 // TestDebounceLoop_CoalescesEvents: 5 events fired within the
@@ -100,19 +102,60 @@ func TestDebounceLoop_ExitsOnContextCancel(t *testing.T) {
 // loop and immediately cancelling its context should cause it to
 // remove the dev install dir + marker via deferred cleanup.
 //
-// This test does NOT exercise a real build — it simulates a state
-// where PinActiveDev has run (creating the marker) and verifies
-// CleanupDev fires on shutdown.
+// This test does NOT exercise a real build — it simulates the exact
+// source-keyed dev install selected by plugin dev's initial install and
+// verifies CleanupDev fires on shutdown.
 func TestRunDevWatchLoop_CleansUpOnContextCancel(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.template.json"),
-		[]byte(`{"name":"testplugin","version":"0.0.1"}`), 0o644); err != nil {
+	manifest := plugins.Manifest{
+		Name: "testplugin", Version: plugins.DevSentinelVersion,
+		WASMSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	canonical, err := manifest.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.template.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("test-only"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	stateDir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", stateDir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pluginsDir := filepath.Join(stateDir, "stado", "plugins")
+	record, err := plugins.NewLocalInstallRecord(dir, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installedDir := filepath.Join(pluginsDir, record.StoreKey)
+	if err := os.MkdirAll(installedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"plugin.manifest.json", "plugin.manifest.sig"} {
+		data, readErr := os.ReadFile(filepath.Join(dir, filename))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := os.WriteFile(filepath.Join(installedDir, filename), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := plugins.WriteInstallRecord(installedDir, record, manifest); err != nil {
+		t.Fatal(err)
+	}
+	pkg := plugins.InstalledPackage{
+		Dir: installedDir, Record: record, Manifest: manifest,
+		Identity: plugins.RuntimeIdentity{Namespace: record.Namespace},
+	}
+	if err := plugins.WriteActivePackageMarker(pluginsDir, pkg); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -123,11 +166,10 @@ func TestRunDevWatchLoop_CleansUpOnContextCancel(t *testing.T) {
 		_ = runDevWatchLoop(ctx, dir, &stdout, &stderr)
 	}()
 
-	// Wait for PinActiveDev to land.
+	// Wait for the watcher to start while the initial exact marker remains.
 	deadline := time.Now().Add(500 * time.Millisecond)
-	markerPath := filepath.Join(stateDir, "stado", "plugins", "active", "testplugin")
 	for {
-		if _, err := os.Stat(markerPath); err == nil {
+		if marker, present, _ := plugins.ReadActivePackageStoreKey(pluginsDir, record.Namespace); present && marker == record.StoreKey {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -139,7 +181,10 @@ func TestRunDevWatchLoop_CleansUpOnContextCancel(t *testing.T) {
 	cancel()
 	<-done
 
-	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
-		t.Errorf("marker should be cleaned up after cancel; stat err = %v", err)
+	if marker, present, err := plugins.ReadActivePackageStoreKey(pluginsDir, record.Namespace); err != nil || present {
+		t.Errorf("marker should be cleaned up after cancel; got %q present=%v err=%v", marker, present, err)
+	}
+	if _, err := os.Stat(installedDir); !os.IsNotExist(err) {
+		t.Errorf("dev package should be cleaned up after cancel; stat err = %v", err)
 	}
 }

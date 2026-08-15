@@ -155,6 +155,9 @@ func TestClassifyCapability(t *testing.T) {
 		{"fs:read:.", requireWorkdir, "workdir-rooted"},
 		{"fs:read:./notes", requireWorkdir, "workdir-rooted"},
 		{"fs:write:.", requireWorkdir, "workdir-rooted"},
+		{"cfg:state_dir", requireNothing, "state-directory fact"},
+		{"fs:read:cfg:state_dir/tasks", requireNothing, "state-directory rooted"},
+		{"fs:write:cfg:state_dir/tasks", requireNothing, "state-directory rooted"},
 		{"fs:read:/abs/path", requireNothing, "absolute path"},
 		{"fs:write:/abs/path", requireNothing, "absolute path"},
 		{"net:http_request", requireNothing, "stado_http_request primitive"},
@@ -168,14 +171,26 @@ func TestClassifyCapability(t *testing.T) {
 		{"exec:search", requireToolHost, "bundled-tool import"},
 		{"exec:ast_grep", requireToolHost, "bundled-tool import"},
 		{"lsp:query", requireToolHost, "bundled-tool import (LSP)"},
+		{"registry:catalog", requireToolHost, "registry projection"},
+		{"context:resource:catalog:skill", requireFullAgentLoop, "context-bearing agent loop"},
+		{"context:resource:open:skill", requireFullAgentLoop, "context-bearing agent loop"},
+		{"evidence:catalog:session", requireSession, "evidence capability"},
+		{"evidence:validate", requireSession, "evidence capability"},
 		{"session:read", requireSession, "session-aware"},
 		{"session:fork", requireSession, "session-aware"},
-		{"llm:invoke", requireSession, "session-aware"},
-		{"llm:invoke:50000", requireSession, "session-aware"},
-		{"memory:propose", requireSession, "session-aware"},
-		{"memory:read", requireSession, "session-aware"},
-		{"memory:write", requireSession, "session-aware"},
-		{"ui:approval", requireUIApproval, "approval bridge"},
+		{"provider:invoke", requireUnsupported, "positive signed token ceiling"},
+		{"provider:invoke:0", requireUnsupported, "declare exact provider:invoke:<positive-token-ceiling-at-most-2000000>"},
+		{"provider:invoke:nope", requireUnsupported, "declare exact provider:invoke:<positive-token-ceiling-at-most-2000000>"},
+		{"provider:invoke:2000001", requireUnsupported, "declare exact provider:invoke:<positive-token-ceiling-at-most-2000000>"},
+		{"provider:invoke:50000", requireToolHost, "provider-enabled tool host"},
+		{"ui:approval", requireUIApproval, "operator UI bridge"},
+		{"ui:choice", requireUIApproval, "operator UI bridge"},
+		{"ui:print", requireUIApproval, "operator UI bridge"},
+		{"ui:render", requireUIApproval, "operator UI bridge"},
+		{"artifact:read:self#contract", requireSession, "artifact capability"},
+		{"agent:spawn", requireSession, "agent capability"},
+		{"timer:schedule", requireSession, "timer capability"},
+		{"lifecycle:observe:pre_llm", requireFullAgentLoop, "interactive TUI"},
 	}
 	for _, c := range cases {
 		got := classifyCapability(c.cap)
@@ -187,6 +202,33 @@ func TestClassifyCapability(t *testing.T) {
 			t.Errorf("classifyCapability(%q).note = %q, want contains %q",
 				c.cap, got.note, c.descMatch)
 		}
+	}
+}
+
+func TestBuildPluginDoctorReportLifecycleApplicationIsTUIOnly(t *testing.T) {
+	mf := &plugins.Manifest{
+		Name: "supervise", Version: "0.80.0",
+		Lifecycle: &plugins.LifecycleDef{Points: []string{"pre_llm"}},
+		Capabilities: []string{
+			"artifact:read:self#supervision-contract", "session:schedule",
+			"timer:schedule", "agent:spawn", "ui:choice", "ui:print",
+			"ui:render", "lifecycle:observe:pre_llm",
+		},
+	}
+	report, err := buildPluginDoctorReport(mf, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"✓ interactive TUI (`stado`)", "✗ stado run", "✗ stado headless", "✗ stado ACP",
+		"✗ stado tool run", "Suggested invocation:\n  stado",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("lifecycle report missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "unrecognised capability") || strings.Contains(report, "stado run / TUI") {
+		t.Fatalf("lifecycle report contains stale surface/capability advice:\n%s", report)
 	}
 }
 

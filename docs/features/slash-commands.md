@@ -44,7 +44,7 @@ taking over the screen.
 | `/clear` | | Wipe conversation state; cancels any in-flight stream |
 | `/exit` | `Ctrl+D` | Quit stado cleanly |
 | `/btw` | `Ctrl+X Ctrl+B` | Toggle off-band BTW mode for side questions |
-| `/supervise [objective]` | — | Start harness-enforced planned work; `status`, `resume`, and `cancel` manage its durable lifecycle |
+| `/supervise [objective]` | — | Dynamically owned by an explicitly enabled signed `supervise` lifecycle application; `status`, `resume`, and `cancel` manage its durable run. No native fallback; official package publication is pending. |
 
 ## Session
 
@@ -69,8 +69,8 @@ taking over the screen.
 | `/cancel` | Cancel the in-flight turn or tool (alias: `/stop`); keeps any queued prompt |
 | `/compact` | Summarise the conversation and replace prior turns (requires y/n confirmation) |
 | `/context` | One-stop session state: session id, cost, budget caps, loaded instructions, skills, hook |
-| `/memory [on\|off\|status]` | Show or toggle approved-memory retrieval for this session |
-| `/learn [focus]` | Review the completed trajectory; `candidates`, `show <id>`, and `approve <id>` manage evidence-backed lessons |
+| `/memory [on\|off\|status]` | Future dynamic command of the staged unsigned memory lifecycle package; core has no native fallback |
+| `/learn [focus]` | Future candidate-only dynamic command of the staged unsigned memory lifecycle package; fresh activation is deliberately unavailable |
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp), including load/start hints when a runner has no models ready |
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |
@@ -85,11 +85,10 @@ taking over the screen.
 | `/loop` | Repeat a prompt automatically: `/loop [duration] <prompt>` or `/loop stop` |
 | `/monitor` | Stream process stdout as session notifications: `/monitor <cmd>` or `/monitor stop` |
 | `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
-| `/tasks` | Open the shared task manager (`Ctrl+X K`); `/tasks add <title>` creates a quick task |
-| `/todo <title>` | Add a todo item without opening the task manager; no title opens the picker |
+| `/todo <title>` | Add a session-local sidebar todo; it is not a persistent task |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
 | `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.); `--clear` removes it |
-| `/budget` | Show current cost + caps; `/budget ack` continues past the hard cap |
+| `/budget` | Show token usage and caps; `/budget ack` continues past the hard token cap |
 | `/verify` | Show or toggle completion verification (`/verify on\|off\|status`) |
 | `/skill` | List `.stado/skills/*.md`; `/skill:<name>` injects a skill body as a user prompt |
 | `/retry` | Regenerate the last assistant turn from the same user prompt |
@@ -125,10 +124,10 @@ taking over the screen.
 - **Session manager.** `/switch` opens the same TUI manager as
   `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
   inactive sessions, or create a fresh session.
-- **Task manager.** `/tasks` opens the same shared task browser as
-  `Ctrl+X K`. It edits the state-backed task store used by the model's
-  `tasks` tool in Do mode. `/tasks add <title>` creates an open task
-  without opening the browser.
+- **Tasks application.** `/tasks` is not built in. It is discovered
+  dynamically only when the explicit signed `tasks` lifecycle application is
+  admitted, and shares that application's global broker-artifact namespace
+  with its Do-turn model tool.
 - **Session switching safety.** Switch, new, and fork actions are
   blocked while a queued prompt, stream, approval, compaction, or tool
   is active, so prompts and writes do not silently land in the wrong
@@ -181,6 +180,6 @@ place).
 ## See also
 
 - [features/budget.md](./budget.md) — the `/budget` gate
-- [features/tasks.md](./tasks.md) — shared user/agent task store
+- [features/tasks.md](./tasks.md) — optional explicit tasks lifecycle application
 - [features/skills.md](./skills.md) — `/skill` loader
 - [commands/session.md](../commands/session.md) — every session subcommand mirrors a slash-or-not variant

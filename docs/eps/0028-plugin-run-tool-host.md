@@ -2,12 +2,22 @@
 ep: 0028
 title: stado plugin run --with-tool-host + HOME-rooted MkdirAll
 author: Bartosz Ptaszynski
-status: Partial
+status: Implemented
+implemented-in: v0.26.3
 type: Standards
 created: 2026-05-04
 extended-by: ["EP-0065"]
 see-also: ["EP-0005", "EP-0006", "EP-0027", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    version: v0.26.3
+    note: >
+      Final audit confirmed that the surviving HOME/XDG trust-anchor contract
+      is implemented by UserConfigResolver and the Fedora Atomic multi-probe
+      regression. EP-0038 retired the historical --with-tool-host surface and
+      stado plugin run; the removed memory callers and their tests are not
+      current implementation dependencies.
   - date: 2026-08-14
     status: Partial
     note: >
@@ -60,7 +70,11 @@ history:
 > takes the tool name only, not a plugin-id). The `--with-tool-host`
 > flag became the default — the tool host is now attached on every
 > `stado tool run` (EP-0038). The text below is preserved as the
-> original EP-0028 design record.
+> original EP-0028 design record. Its `internal/memory` and
+> `plugin_run_tool_host_test.go` paths describe the initial rollout and have
+> since been deleted. The surviving path contract lives in
+> `internal/workdirpath.UserConfigResolver`, its unit tests, and
+> `hack/test-on-fedora-atomic.sh`.
 
 ## Problem
 
@@ -209,7 +223,7 @@ Algorithm:
 `OpenRootUnderUserConfig` mirrors the same anchor logic for opening
 existing trees.
 
-Updated 13 call sites:
+The initial rollout updated 13 call sites:
 
 - `internal/config/config.go`, `write_defaults.go` (config dir)
 - `internal/runtime/session.go` (worktree dir, ×2)
@@ -275,7 +289,7 @@ green because their fixture paths fall outside any trust anchor.
   fallback strict path applies. Same failure mode the strict
   walker had.
 
-## Test strategy
+## Test strategy (historical rollout)
 
 - New unit test `TestPluginRunToolHost_Surface` in
   `cmd/stado/plugin_run_tool_host_test.go` asserts the host

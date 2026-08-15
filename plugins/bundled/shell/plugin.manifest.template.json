@@ -1,0 +1,121 @@
+{
+  "name": "stado-builtin-tool-shell",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["exec:proc", "exec:proc:/bin/bash", "exec:proc:/bin/sh", "exec:proc:/usr/bin/zsh", "exec:pty"],
+  "tools": [
+    {
+      "name": "shell__bash",
+      "description": "Execute a shell command via /bin/bash -c, return combined stdout+stderr.",
+      "export": "bash",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"command\":{\"description\":\"Shell command to run\",\"type\":\"string\"},\"timeout_ms\":{\"description\":\"Timeout in milliseconds (default 30000)\",\"type\":\"integer\"}},\"required\":[\"command\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:proc:/bin/bash"]
+    },
+    {
+      "name": "shell__destroy",
+      "description": "Kill a PTY session and free its resources. Args: id.",
+      "export": "destroy",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__exec",
+      "description": "Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
+      "export": "exec",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"command\":{\"description\":\"Shell command to run\",\"type\":\"string\"},\"timeout_ms\":{\"description\":\"Timeout in milliseconds (default 30000)\",\"type\":\"integer\"}},\"required\":[\"command\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:proc:/bin/sh"]
+    },
+    {
+      "name": "shell__list",
+      "description": "List all active PTY shell sessions (broad — shows every session so orphans stay visible): id, cmd, description, alive, started_at, buffered, dropped, exit_code. Use the description + cmd to tell which sessions are live work vs stale; shell.destroy cleans them up.",
+      "export": "list",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__read",
+      "description": "Get output from a PTY session and return immediately. mode (default \"auto\"): returns the rendered screen when a full-screen program is active (vim, htop, less, an installer — anything that repaints the screen), otherwise the raw incremental byte stream. \"stream\" forces the raw bytes (ANSI escapes and all); \"screen\" forces the rendered vt100 screen. The response carries a kind discriminator: {kind:\"stream\", data_b64, n} or {kind:\"screen\", text, cols, rows, cursor, title, svg?}. To block until a specific prompt/pattern appears (rather than returning what's buffered now), use shell.read_until.",
+      "export": "read",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"integer\"},\"max_bytes\":{\"type\":\"integer\"},\"mode\":{\"description\":\"auto (default) | stream | screen\",\"type\":\"string\"},\"svg_cell_h\":{\"description\":\"(screen) SVG cell pixel height (default 17)\",\"type\":\"number\"},\"svg_cell_w\":{\"description\":\"(screen) SVG cell pixel width (default 8)\",\"type\":\"number\"},\"svg_font_px\":{\"description\":\"(screen) SVG font-size px (default 13)\",\"type\":\"integer\"},\"timeout_ms\":{\"type\":\"integer\"},\"with_svg\":{\"description\":\"(screen) include rendered SVG of the screen (default false; ~30-60 KB)\",\"type\":\"boolean\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__read_until",
+      "description": "Read the raw byte stream from a PTY session until one of the given patterns matches, the timeout elapses, or the process exits — the one-call replacement for a read-and-check loop. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Matching operates on the raw byte stream; for full-screen TUIs use shell.read mode:screen instead.",
+      "export": "read_until",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"integer\"},\"patterns\":{\"description\":\"1..16 patterns. With regex=true, each is RE2.\",\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"regex\":{\"description\":\"Compile patterns as RE2 (default false; substring matching).\",\"type\":\"boolean\"},\"timeout_ms\":{\"description\":\"Total wait budget in ms (default 30000; 0 = check buffer only).\",\"type\":\"integer\"}},\"required\":[\"id\",\"patterns\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__resize",
+      "description": "Resize a PTY session. Args: id, cols, rows. Out-of-band — no attach required.",
+      "export": "resize",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"cols\":{\"type\":\"integer\"},\"id\":{\"type\":\"integer\"},\"rows\":{\"type\":\"integer\"}},\"required\":[\"id\",\"cols\",\"rows\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__sh",
+      "description": "Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
+      "export": "sh",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"command\":{\"description\":\"Shell command to run\",\"type\":\"string\"},\"timeout_ms\":{\"description\":\"Timeout in milliseconds (default 30000)\",\"type\":\"integer\"}},\"required\":[\"command\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:proc:/bin/sh"]
+    },
+    {
+      "name": "shell__signal",
+      "description": "Send a POSIX signal to a PTY session. Args: id, sig (e.g. 'SIGINT', 'SIGTERM', 9). Out-of-band — no attach required.",
+      "export": "signal",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"id\":{\"type\":\"integer\"},\"sig\":{}},\"required\":[\"id\",\"sig\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__spawn",
+      "description": "Open a persistent shell session. Use this — not one-shot bash — for interactive programs (REPLs, ssh, db clients), full-screen TUIs (vim, htop), anything that prompts, and long-running processes you monitor. Returns {id}; drive it with shell.read / shell.write / shell.destroy (no attach step). Persists across tool calls. Provide a `description` of what the session is for — it shows in shell.list so sessions are easy to identify and clean up later. Args: argv? (default ['/bin/bash']), description?, env?, cwd?, cols?, rows?, buffer_bytes?",
+      "export": "spawn",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"argv\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"buffer_bytes\":{\"description\":\"ring buffer size in bytes for captured output (default 65536; clamped 4096–4194304)\",\"type\":\"integer\"},\"cols\":{\"type\":\"integer\"},\"cwd\":{\"type\":\"string\"},\"description\":{\"description\":\"what this shell is for (shown in shell.list; helps identify/clean up sessions)\",\"type\":\"string\"},\"env\":{\"items\":{\"type\":\"string\"},\"type\":\"array\"},\"rows\":{\"type\":\"integer\"}},\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__write",
+      "description": "Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes).",
+      "export": "write",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"data\":{\"type\":\"string\"},\"data_b64\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:pty", "exec:proc"]
+    },
+    {
+      "name": "shell__zsh",
+      "description": "Execute a shell command via /usr/bin/zsh -c, return combined stdout+stderr.",
+      "export": "zsh",
+      "class": "Exec",
+      "schema": "{\"properties\":{\"command\":{\"description\":\"Shell command to run\",\"type\":\"string\"},\"timeout_ms\":{\"description\":\"Timeout in milliseconds (default 30000)\",\"type\":\"integer\"}},\"required\":[\"command\"],\"type\":\"object\"}",
+      "categories": ["shell"],
+      "capabilities": ["exec:proc:/usr/bin/zsh"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-shell"
+}

@@ -21,6 +21,15 @@ operator-specific policy or further narrowing; do not append a generic reminder
 on every `pre_llm`, because it consumes context without responding to current
 host facts.
 
+A TUI lifecycle application may hold the narrower signed capability
+`lifecycle:contribute:pre_llm`. It can append one bounded system section but
+cannot deny, replace the model/system, or rewrite history. Enabled applications
+run after Lua hooks in canonical signed-identity order. A failure-open
+contributor that traps or returns malformed output contributes nothing even if
+Lua's global `fail_closed` option is enabled. This application composition is
+TUI-only in v0.80/v1; the five Lua points themselves continue to work on both
+TUI and non-interactive agent-loop surfaces.
+
 ## Why Lua (and why not JavaScript)
 
 The substrate is [gopher-lua](https://github.com/yuin/gopher-lua) — an

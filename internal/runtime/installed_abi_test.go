@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
 )
 
 func TestVerifyInstalledPluginsABI_NilCfg(t *testing.T) {
@@ -16,6 +17,18 @@ func TestVerifyInstalledPluginsABI_NilCfg(t *testing.T) {
 	}
 	if len(issues) != 0 {
 		t.Fatalf("issues = %v, want none", issues)
+	}
+}
+
+func TestInstalledABIUsesSignedExportInsteadOfModelName(t *testing.T) {
+	mf := &plugins.Manifest{Tools: []plugins.ToolDef{{Name: "friendly__lookup", Export: "lookup_v2"}}}
+	got := requiredInstalledPluginExports(mf)
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "stado_tool_lookup_v2") {
+		t.Fatalf("required exports = %v", got)
+	}
+	if strings.Contains(joined, "stado_tool_friendly__lookup") {
+		t.Fatalf("ABI preflight retained name-derived export: %v", got)
 	}
 }
 

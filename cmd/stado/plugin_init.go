@@ -265,7 +265,7 @@ stado tool run greet '{"name":"world"}'
   ` + "`stado_free`" + `, ` + "`stado_tool_<name>`" + `) stays stable across tools.
 - Edit ` + "`plugin.manifest.template.json`" + ` to declare your tool's schema
   and any capabilities you need (` + "`fs:read:<path>`" + `, ` + "`session:read`" + `,
-  ` + "`memory:propose`" + `, ` + "`llm:invoke:<budget>`" + `, etc. — see DESIGN.md for
+  ` + "`artifact:propose:<declared-kind>`" + `, ` + "`provider:invoke:<positive-budget>`" + `, etc. — see DESIGN.md for
   the full set).
 - Bump the manifest's ` + "`version`" + ` when you change anything; stado's
   rollback guard rejects installs that go backwards.

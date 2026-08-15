@@ -1,9 +1,9 @@
-// auto-compact — Phase 7.1b validating plugin. Exercises all four
-// session/LLM host imports end-to-end:
+// auto-compact — Phase 7.1b validating plugin. Exercises the session and
+// provider primitives end-to-end:
 //
 //	session:observe    → poll background-plugin lifecycle events
 //	session:read       → read token_count, history, last_turn_ref
-//	llm:invoke:30000   → ask the active model to summarise the history
+//	provider:invoke:30000 → ask the active provider to summarise the history
 //	session:fork       → fork at the last turn with the summary as seed
 //
 // Invocation pattern (matches DESIGN §"Plugin extension points for
@@ -18,8 +18,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
 	"strconv"
 	"sync"
 	"unsafe"
@@ -41,10 +44,8 @@ func stadoSessionNextEvent(bufPtr, bufCap uint32) int32
 //go:wasmimport stado stado_session_fork
 func stadoSessionFork(atPtr, atLen, seedPtr, seedLen, outPtr, outCap uint32) int32
 
-// args is JSON: {prompt, persona?, model?, system?, max_tokens?, temperature?}.
-//
-//go:wasmimport stado stado_llm_invoke
-func stadoLLMInvoke(argsPtr, argsLen, outPtr, outCap uint32) int32
+//go:wasmimport stado stado_provider_invoke
+func stadoProviderInvoke(argsPtr, argsLen, outPtr, outCap uint32) int32
 
 // ---- helpers ----------------------------------------------------------
 
@@ -91,53 +92,164 @@ func readField(name string) []byte {
 	return buf[:n]
 }
 
-// invokeLLM calls stado_llm_invoke with prompt. Returns reply bytes
-// or nil when the host denied / budget exceeded / provider errored.
-//
-// args is JSON. We hand-build the envelope to avoid pulling
-// encoding/json into this minimal plugin (keeps wasm size lean).
-func invokeLLM(prompt string) []byte {
-	args := []byte(`{"prompt":` + jsonQuote(prompt) + `}`)
-	buf := make([]byte, 128*1024) // 128 KiB is more than enough for a summary
-	n := stadoLLMInvoke(
+const (
+	providerFactsSchema  = "stado.dev/provider-invoke-facts/v1"
+	providerTokenCeiling = 30000
+)
+
+type providerMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type providerRequest struct {
+	Messages []providerMessage `json:"messages"`
+}
+
+type providerUsage struct {
+	InputTokens      int  `json:"input_tokens"`
+	OutputTokens     int  `json:"output_tokens"`
+	CacheReadTokens  int  `json:"cache_read_tokens"`
+	CacheWriteTokens int  `json:"cache_write_tokens"`
+	TotalTokens      int  `json:"total_tokens"`
+	Estimated        bool `json:"estimated"`
+}
+
+type providerDiagnostic struct {
+	Kind        string `json:"kind"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type providerFacts struct {
+	Schema     string              `json:"schema"`
+	Status     string              `json:"status"`
+	Text       string              `json:"text,omitempty"`
+	Provider   string              `json:"provider,omitempty"`
+	Model      string              `json:"model,omitempty"`
+	Usage      providerUsage       `json:"usage"`
+	Diagnostic *providerDiagnostic `json:"diagnostic,omitempty"`
+	Cleanup    *providerDiagnostic `json:"cleanup,omitempty"`
+}
+
+// invokeProvider supplies the prompt-shaping policy owned by this plugin and
+// consumes only host-observed provider facts. Provider selection, credentials,
+// authenticated plugin identity, and the manifest token ceiling never enter
+// guest memory.
+func invokeProvider(prompt string) ([]byte, string) {
+	args, err := json.Marshal(providerRequest{Messages: []providerMessage{{Role: "user", Content: prompt}}})
+	if err != nil {
+		return nil, "provider request encoding failed"
+	}
+	buf := make([]byte, 1<<20)
+	n := stadoProviderInvoke(
 		uint32(uintptr(unsafe.Pointer(&args[0]))), uint32(len(args)),
 		uint32(uintptr(unsafe.Pointer(&buf[0]))), uint32(len(buf)),
 	)
 	if n < 0 {
-		return nil
+		return nil, "provider bridge denied, unavailable, or budget exhausted"
 	}
-	return buf[:n]
+	if int64(n) > int64(len(buf)) {
+		return nil, "provider bridge returned facts beyond the declared buffer"
+	}
+	facts, err := decodeProviderFacts(buf[:n])
+	if err != nil {
+		return nil, "provider bridge returned invalid facts"
+	}
+	if facts.Cleanup != nil {
+		// Cleanup is operational diagnostics, not a semantic failure. In
+		// particular it must never discard a completed summary.
+		logAt("warn", "auto-compact: provider cleanup diagnostic "+facts.Cleanup.Kind+" "+facts.Cleanup.Fingerprint)
+	}
+	switch facts.Status {
+	case "completed":
+		if facts.Text == "" {
+			return nil, "provider completed without summary text"
+		}
+		return []byte(facts.Text), ""
+	case "failed", "cancelled":
+		return nil, "provider " + facts.Status + ": " + facts.Diagnostic.Kind + " " + facts.Diagnostic.Fingerprint
+	default:
+		return nil, "provider bridge returned an unknown status"
+	}
 }
 
-// jsonQuote escapes a string into a JSON-quoted literal (with
-// surrounding double-quotes). Handles the small set of control chars
-// json requires escaped; full unicode escaping is overkill here since
-// our prompts come from session text we already emit cleanly.
-func jsonQuote(s string) string {
-	out := make([]byte, 0, len(s)+2)
-	out = append(out, '"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"':
-			out = append(out, '\\', '"')
-		case '\\':
-			out = append(out, '\\', '\\')
-		case '\n':
-			out = append(out, '\\', 'n')
-		case '\r':
-			out = append(out, '\\', 'r')
-		case '\t':
-			out = append(out, '\\', 't')
-		default:
-			if c < 0x20 {
-				continue
-			}
-			out = append(out, c)
-		}
+func decodeProviderFacts(raw []byte) (providerFacts, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var facts providerFacts
+	if err := decoder.Decode(&facts); err != nil {
+		return providerFacts{}, err
 	}
-	out = append(out, '"')
-	return string(out)
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return providerFacts{}, fmt.Errorf("trailing provider facts")
+	}
+	if facts.Schema != providerFactsSchema {
+		return providerFacts{}, fmt.Errorf("unknown provider facts schema")
+	}
+	if len(facts.Provider) > 512 || len(facts.Model) > 512 || len(facts.Text) > (1<<20)-(16<<10) {
+		return providerFacts{}, fmt.Errorf("oversized provider facts field")
+	}
+	if facts.Usage.InputTokens < 0 || facts.Usage.OutputTokens < 0 ||
+		facts.Usage.CacheReadTokens < 0 || facts.Usage.CacheWriteTokens < 0 ||
+		facts.Usage.TotalTokens < 0 {
+		return providerFacts{}, fmt.Errorf("negative provider usage")
+	}
+	if facts.Usage.TotalTokens != compactSaturatingTokenSum(facts.Usage.InputTokens, facts.Usage.OutputTokens) {
+		return providerFacts{}, fmt.Errorf("inconsistent provider usage")
+	}
+	if facts.Usage.TotalTokens > providerTokenCeiling {
+		return providerFacts{}, fmt.Errorf("provider usage exceeds signed token ceiling")
+	}
+	if err := validateProviderDiagnostic(facts.Cleanup, true); err != nil {
+		return providerFacts{}, err
+	}
+	switch facts.Status {
+	case "completed":
+		if facts.Diagnostic != nil {
+			return providerFacts{}, fmt.Errorf("completed provider facts have semantic diagnostic")
+		}
+	case "failed", "cancelled":
+		if err := validateProviderDiagnostic(facts.Diagnostic, false); err != nil {
+			return providerFacts{}, err
+		}
+	default:
+		return providerFacts{}, fmt.Errorf("unknown provider status")
+	}
+	return facts, nil
+}
+
+func compactSaturatingTokenSum(input, output int) int {
+	if output > math.MaxInt-input {
+		return math.MaxInt
+	}
+	return input + output
+}
+
+func validateProviderDiagnostic(diagnostic *providerDiagnostic, cleanup bool) error {
+	if diagnostic == nil {
+		if cleanup {
+			return nil
+		}
+		return fmt.Errorf("missing provider diagnostic")
+	}
+	allowed := map[string]bool{
+		"provider_construct": true, "provider_unavailable": true,
+		"token_budget": true, "response_limit": true,
+		"provider_stream": true, "context_cancelled": true,
+		"provider_stream_incomplete": true,
+	}
+	if cleanup {
+		allowed = map[string]bool{"provider_close": true}
+	}
+	if !allowed[diagnostic.Kind] {
+		return fmt.Errorf("unknown provider diagnostic kind")
+	}
+	const sha256Prefix = "sha256:"
+	if len(diagnostic.Fingerprint) != len(sha256Prefix)+64 || diagnostic.Fingerprint[:len(sha256Prefix)] != sha256Prefix {
+		return fmt.Errorf("invalid provider diagnostic fingerprint")
+	}
+	return nil
 }
 
 // forkAt calls stado_session_fork. Returns the new session ID or ""
@@ -241,9 +353,9 @@ func runCompactMode(threshold int, force bool) compactResult {
 	prompt := buildSummarisePrompt(history)
 	logAt("info", fmt.Sprintf("auto-compact: summarising %d bytes of history", len(history)))
 
-	reply := invokeLLM(prompt)
+	reply, providerErr := invokeProvider(prompt)
 	if reply == nil {
-		return compactResult{Status: "error", Reason: "llm:invoke denied / failed / budget exhausted"}
+		return compactResult{Status: "error", Reason: providerErr}
 	}
 
 	child := forkAt(lastTurn, string(reply))

@@ -2,19 +2,74 @@
 ep: 2
 title: All Tools as WASM Plugins
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-22
+implemented-in: v0.80.0
 extended-by: ["EP-0038", "EP-0066"]
 see-also: ["EP-0005", "EP-0006", "EP-0037", "EP-0038"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    version: v0.80.0
+    note: >
+      C60 removed the final native stado-owned model tool. Tasks now live in an
+      explicit official WASM lifecycle application backed by plugin-defined
+      global broker artifacts; the JSON writer, tool, picker, key, static
+      command, MCP registration, and default autoload were deleted. The native
+      model-registration debt allowlist is empty. Signing/publication remains
+      release work and does not restore a fallback.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Native model-invocable skill registration, prompt listing, exact-name
+      handlers, and synthetic user-role injection were deleted. Generic
+      operation/kind-scoped context-resource facts retain native visibility,
+      provenance, and ceiling enforcement; official opt-in WASM owns search,
+      open, formatting, and activation requests. Native research/tasks/guidance
+      keep the EP Partial.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Native llm.invoke, its MCP registration/persona option, and the policy-
+      bearing host ABI were deleted. Exact provider:invoke:<tokens> now gates
+      only native provider construction, credentials, cancellation, accounting,
+      and bounded facts; official opt-in WASM owns the model-facing contract.
+      Native skills/research/tasks/guidance work then kept the EP Partial; the
+      later skill correction above shrank that list again.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      The eight native registry discovery/activation tools, their native types,
+      direct CLI bypass, and exact-name result interceptors were deleted. A
+      bounded loader-bound catalog projection and atomic session-surface edit
+      are generic host primitives; the official opt-in tool-registry WASM
+      package owns search, formatting, grouping, and activation workflow.
+      Native skills/research/tasks/guidance work keeps the EP Partial.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Native supervise commands, model tools, workflow policy, and evaluator
+      were removed in favor of the official stado-plugins lifecycle
+      application. The EP remains Partial for native skills/research/tasks,
+      guidance, and provider-tool surfaces.
+  - date: 2026-08-14
+    status: Partial
+    note: >
+      Bundled core tools now load exclusively from verified source-adjacent
+      embedded manifests. The generic loader is the sole owner of model name,
+      description, schema, class, categories, capabilities, and ABI export;
+      native fallback switches and duplicated Go metadata were deleted. The EP
+      remains Partial for the separately tracked native meta, research, task,
+      guidance, and llm.invoke surfaces.
   - date: 2026-08-14
     status: Partial
     note: >
       Corrected a false Implemented marker during the PR-257 architecture audit.
       Stado still exposes native registry meta-tools, skills/research/tasks, and
-      native supervise tools. The shrinking native-surface guard defines the
-      remaining debt; this EP returns to Implemented only when it reaches zero.
+      guidance/model-invocation policy. The shrinking native-surface guard
+      defines the remaining debt; this EP returns to Implemented only when it
+      reaches zero.
   - date: 2026-04-22
     status: Draft
     note: Initial draft — converted from brainstorming session on tools-to-plugins migration.
@@ -37,12 +92,9 @@ history:
   - date: 2026-05-05
     status: Implemented
     note: >
-      Invariant restored by EP-0038. Wasm plugins for fs/shell/rg/readctx/agent now ship
-      as real wasm modules in internal/bundledplugins/wasm/. Per-tool parity flags
-      ([runtime.use_wasm.*]) gate the migration; ApplyWasmMigration swaps native
-      registrations for wasm-backed ones when a flag is set. Parity tests pass for
-      fs (read/glob) and shell (exec). The native wrapper facade (newBundledPluginTool)
-      remains for tools not yet migrated but is no longer the primary path.
+      EP-0038 introduced real wasm modules for fs/shell/rg/readctx/agent and a
+      temporary per-family parity rollout. That transitional dual path has since
+      been deleted; the 2026-08-14 entry above records the current architecture.
 ---
 
 > **Relationships:** **Extended by:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md) · **See also:** [EP-0005](./0005-capability-based-sandboxing.md), [EP-0006](./0006-signed-wasm-plugin-runtime.md), [EP-0037](./0037-tool-dispatch-and-operator-surface.md), [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md)

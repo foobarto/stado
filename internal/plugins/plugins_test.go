@@ -74,7 +74,7 @@ func TestTrustStore_TrustAndVerify(t *testing.T) {
 
 	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: entry.Fingerprint}
 	sig, _ := m.Sign(priv)
-	if err := ts.VerifyManifest(m, sig); err != nil {
+	if err := ts.VerifyManifestPackage(testTrustNamespace(m), m, sig); err != nil {
 		t.Errorf("VerifyManifest: %v", err)
 	}
 }
@@ -116,12 +116,15 @@ func TestTrustStore_VerifyRejectsUnpinned(t *testing.T) {
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
 	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub)}
 	sig, _ := m.Sign(priv)
-	err := ts.VerifyManifest(m, sig)
+	err := ts.VerifyManifestPackage(testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Error("expected verify to fail for unpinned author")
 	}
 	if !strings.Contains(err.Error(), "not pinned") {
 		t.Errorf("error wrong: %v", err)
+	}
+	if !strings.Contains(err.Error(), "stado plugin trust <pubkey>") || strings.Contains(err.Error(), "--signer") {
+		t.Errorf("unpinned guidance must name the explicit trust command and no removed verify flag: %v", err)
 	}
 }
 
@@ -143,7 +146,7 @@ func TestTrustStore_VerifyRejectsPubkeyFingerprintMismatch(t *testing.T) {
 
 	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: trustedFPR}
 	sig, _ := m.Sign(attackerPriv)
-	err := ts.VerifyManifest(m, sig)
+	err := ts.VerifyManifestPackage(testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("VerifyManifest should reject a pubkey stored under the wrong fingerprint")
 	}
@@ -160,13 +163,13 @@ func TestTrustStore_RollbackProtection(t *testing.T) {
 	// Install v2.0.0 first.
 	m2 := &Manifest{Name: "p", Version: "2.0.0", AuthorPubkeyFpr: Fingerprint(pub)}
 	sig2, _ := m2.Sign(priv)
-	if err := ts.VerifyManifest(m2, sig2); err != nil {
+	if err := ts.VerifyManifestPackage(testTrustNamespace(m2), m2, sig2); err != nil {
 		t.Fatal(err)
 	}
 	// Now try to install v1.0.0 — should be blocked.
 	m1 := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub)}
 	sig1, _ := m1.Sign(priv)
-	err := ts.VerifyManifest(m1, sig1)
+	err := ts.VerifyManifestPackage(testTrustNamespace(m1), m1, sig1)
 	if err == nil {
 		t.Error("rollback 1.0.0 < 2.0.0 should be blocked")
 	}
@@ -185,15 +188,18 @@ func TestTrustStore_TrustPreservesRollbackState(t *testing.T) {
 
 	mHigh := &Manifest{Name: "p", Version: "2.0.0", AuthorPubkeyFpr: entry.Fingerprint}
 	sigHigh, _ := mHigh.Sign(priv)
-	if err := ts.VerifyManifest(mHigh, sigHigh); err != nil {
+	if err := ts.VerifyManifestPackage(testTrustNamespace(mHigh), mHigh, sigHigh); err != nil {
 		t.Fatal(err)
 	}
 	retrusted, err := ts.Trust(hex.EncodeToString(pub), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retrusted.LastVersion != "2.0.0" {
-		t.Fatalf("re-trust LastVersion = %q, want 2.0.0", retrusted.LastVersion)
+	if got := retrusted.VersionFloors[testTrustNamespace(mHigh)]; got != "2.0.0" {
+		t.Fatalf("re-trust package floor = %q, want 2.0.0", got)
+	}
+	if retrusted.LastVersion != "" {
+		t.Fatalf("re-trust mutated inert legacy floor to %q", retrusted.LastVersion)
 	}
 	if retrusted.Author != "alice" {
 		t.Fatalf("re-trust Author = %q, want alice", retrusted.Author)
@@ -201,7 +207,7 @@ func TestTrustStore_TrustPreservesRollbackState(t *testing.T) {
 
 	mLow := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: entry.Fingerprint}
 	sigLow, _ := mLow.Sign(priv)
-	err = ts.VerifyManifest(mLow, sigLow)
+	err = ts.VerifyManifestPackage(testTrustNamespace(mLow), mLow, sigLow)
 	if err == nil || !strings.Contains(err.Error(), "rollback") {
 		t.Fatalf("VerifyManifest after re-trust = %v, want rollback rejection", err)
 	}
@@ -214,7 +220,7 @@ func TestTrustStore_TrustVerifiedDoesNotPinMismatchedSigner(t *testing.T) {
 	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub1)}
 	sig, _ := m.Sign(priv1)
 
-	_, err := ts.TrustVerified(hex.EncodeToString(pub2), "mallory", m, sig)
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub2), "mallory", testTrustNamespace(m), m, sig)
 	if err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("TrustVerified mismatch error = %v", err)
 	}
@@ -232,7 +238,7 @@ func TestTrustStore_TrustVerifiedDoesNotPinInvalidSignature(t *testing.T) {
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
 	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub)}
 
-	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", m, strings.Repeat("A", 88))
+	_, err := ts.TrustVerifiedPackage(hex.EncodeToString(pub), "alice", testTrustNamespace(m), m, strings.Repeat("A", 88))
 	if err == nil {
 		t.Fatal("TrustVerified should reject invalid signature")
 	}
@@ -252,13 +258,13 @@ func TestTrustStore_RollbackProtectionUsesSemverOrdering(t *testing.T) {
 
 	mHigh := &Manifest{Name: "p", Version: "1.10.0", AuthorPubkeyFpr: Fingerprint(pub)}
 	sigHigh, _ := mHigh.Sign(priv)
-	if err := ts.VerifyManifest(mHigh, sigHigh); err != nil {
+	if err := ts.VerifyManifestPackage(testTrustNamespace(mHigh), mHigh, sigHigh); err != nil {
 		t.Fatal(err)
 	}
 
 	mLow := &Manifest{Name: "p", Version: "1.2.0", AuthorPubkeyFpr: Fingerprint(pub)}
 	sigLow, _ := mLow.Sign(priv)
-	err := ts.VerifyManifest(mLow, sigLow)
+	err := ts.VerifyManifestPackage(testTrustNamespace(mLow), mLow, sigLow)
 	if err == nil {
 		t.Fatal("rollback 1.2.0 < 1.10.0 should be blocked")
 	}
@@ -274,7 +280,7 @@ func TestTrustStore_VerifyRejectsInvalidSemverVersion(t *testing.T) {
 
 	m := &Manifest{Name: "p", Version: "build-20260425", AuthorPubkeyFpr: Fingerprint(pub)}
 	sig, _ := m.Sign(priv)
-	err := ts.VerifyManifest(m, sig)
+	err := ts.VerifyManifestPackage(testTrustNamespace(m), m, sig)
 	if err == nil {
 		t.Fatal("invalid semver manifest version should be rejected")
 	}
@@ -558,6 +564,15 @@ func TestToolDef_ClassValue(t *testing.T) {
 		if err == nil {
 			t.Fatalf("ClassValue(%q) should fail", tc.class)
 		}
+	}
+}
+
+func TestToolDef_ExportName(t *testing.T) {
+	if got := (ToolDef{Name: "fs__read", Export: "read"}).ExportName(); got != "read" {
+		t.Fatalf("explicit export = %q", got)
+	}
+	if got := (ToolDef{Name: "legacy"}).ExportName(); got != "legacy" {
+		t.Fatalf("default export = %q", got)
 	}
 }
 

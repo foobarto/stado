@@ -89,6 +89,23 @@ func TestFleetBridgeAdapter_Spawn_AsyncReturnsRunningImmediately(t *testing.T) {
 	}
 }
 
+func TestFleetBridgeAdapter_Spawn_DefaultsExecutionToWaitBeforeTerminalFacts(t *testing.T) {
+	got := make(chan subagent.Request, 1)
+	a := newAdapterWithSpawner(t, requestCapturingSpawner{got: got})
+	result, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{Prompt: "review", Async: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-got:
+		if req.AgentID != result.ID || req.Execution != "wait" {
+			t.Fatalf("normalized request = %+v, result=%+v", req, result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("spawner did not receive normalized request")
+	}
+}
+
 func TestFleetBridgeAdapter_Spawn_IdempotentReplaySurvivesAdapterRebind(t *testing.T) {
 	sp := &fakeSpawner{res: subagent.Result{Text: "done"}, delay: 50 * time.Millisecond}
 	firstAdapter := newAdapterWithSpawner(t, sp)
@@ -228,20 +245,23 @@ func (s *forkPointSpawnerStub) PinSpawnForkPoint(_ context.Context, point SpawnF
 func TestFleetBridgeAdapter_Spawn_ForwardsAttenuatedRequest(t *testing.T) {
 	got := make(chan subagent.Request, 1)
 	a := newAdapterWithSpawner(t, requestCapturingSpawner{got: got})
-	_, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
+	spawned, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
 		Prompt: "work", Provider: "anthropic", Model: "configured", Async: true,
 		Thinking: "on", ThinkingBudgetTokens: 7000, ReasoningEffort: "high",
 		Role: "worker", Mode: "workspace_write", Ownership: "parser",
 		WriteScope: []string{"internal/parser/**"}, MaxTurns: 7, TimeoutSeconds: 300,
 		Source:  &pluginRuntime.AgentSource{SessionID: "old", At: "turns/2"},
 		Persona: "worker", ToolProfile: "worker_safe", NarrowTools: []string{"fs__read"},
-		TokenBudget: 9000, Execution: "wait",
+		TokenBudget: 9000, Execution: "wait", ChildToolOwner: "github.com/acme/reviewer",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case req := <-got:
+		if req.AgentID == "" || req.AgentID != spawned.ID {
+			t.Fatalf("host control identity was not propagated: request=%q result=%q", req.AgentID, spawned.ID)
+		}
 		if req.Role != "worker" || req.Mode != "workspace_write" || req.Ownership != "parser" || req.MaxTurns != 7 || req.TimeoutSeconds != 300 || req.TokenBudget != 9000 || req.Execution != "wait" {
 			t.Fatalf("request fields were dropped: %#v", req)
 		}
@@ -250,6 +270,9 @@ func TestFleetBridgeAdapter_Spawn_ForwardsAttenuatedRequest(t *testing.T) {
 		}
 		if req.Provider != "anthropic" || req.Model != "configured" || req.Thinking != "on" || req.ThinkingBudgetTokens != 7000 || req.ReasoningEffort != "high" {
 			t.Fatalf("provider profile was dropped: %#v", req)
+		}
+		if req.ChildToolOwner != "github.com/acme/reviewer" {
+			t.Fatalf("child tool owner was dropped: %#v", req)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("spawner did not receive request")

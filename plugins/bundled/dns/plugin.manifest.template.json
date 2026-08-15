@@ -1,0 +1,22 @@
+{
+  "name": "stado-builtin-tool-dns",
+  "version": "0.1.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": ["dns:resolve"],
+  "tools": [
+    {
+      "name": "dns__resolve",
+      "description": "DNS lookup: A/AAAA (default), TXT, MX, NS, PTR. Args: name, qtype?, server?, timeout_ms?. Returns {records, error?}.",
+      "export": "resolve",
+      "class": "NonMutating",
+      "schema": "{\"properties\":{\"name\":{\"type\":\"string\"},\"qtype\":{\"enum\":[\"A\",\"AAAA\",\"TXT\",\"MX\",\"NS\",\"PTR\"],\"type\":\"string\"},\"server\":{\"type\":\"string\"},\"timeout_ms\":{\"type\":\"integer\"}},\"required\":[\"name\"],\"type\":\"object\"}",
+      "categories": ["dns", "network"],
+      "capabilities": ["dns:resolve"]
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-08-14T00:00:00Z",
+  "nonce": "bundled-dns"
+}

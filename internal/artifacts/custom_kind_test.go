@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/broker/authority"
@@ -17,7 +18,7 @@ func customIdentity(t *testing.T, version string, manifest plugins.Manifest) plu
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeID, err := plugins.RuntimeIdentityForInstalled(id, manifest, "")
+	runtimeID, err := plugins.RuntimeIdentityForInstalled(id, manifest, strings.Repeat("a", 40))
 	if err != nil {
 		t.Fatal(err)
 	}

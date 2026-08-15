@@ -33,9 +33,10 @@ func buildTestPluginWithCaps(t *testing.T, priv ed25519.PrivateKey, pub ed25519.
 		WASMSHA256:      hex.EncodeToString(sum[:]),
 		Capabilities:    caps,
 		Tools: []plugins.ToolDef{{
-			Name:        "anything",
-			Description: "test stub",
-			Schema:      `{"type":"object"}`,
+			Name:         "anything",
+			Description:  "test stub",
+			Schema:       `{"type":"object"}`,
+			Capabilities: plugins.CapabilitySubset(caps...),
 		}},
 		TimestampUTC: time.Now().UTC().Format(time.RFC3339),
 	}

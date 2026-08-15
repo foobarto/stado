@@ -1,137 +1,159 @@
 package runtime
 
 import (
-	"context"
-	"encoding/json"
+	"strings"
 	"testing"
 
+	pluginruntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/skills"
-	pkgtool "github.com/foobarto/stado/pkg/tool"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
-type skillActivateHost struct {
-	activated []string
-}
+type skillContextCeiling map[string]bool
 
-func (h *skillActivateHost) Approve(context.Context, pkgtool.ApprovalRequest) (pkgtool.Decision, error) {
-	return pkgtool.DecisionAllow, nil
-}
-func (h *skillActivateHost) Workdir() string { return "/tmp" }
-func (h *skillActivateHost) PriorRead(pkgtool.ReadKey) (pkgtool.PriorReadInfo, bool) {
-	return pkgtool.PriorReadInfo{}, false
-}
-func (h *skillActivateHost) RecordRead(pkgtool.ReadKey, pkgtool.PriorReadInfo) {}
-func (h *skillActivateHost) ActivateTool(name string) {
-	h.activated = append(h.activated, name)
-}
+func (c skillContextCeiling) AllowsToolSurface(name string) bool          { return c[name] }
+func (c skillContextCeiling) ApplyToolSurface(tool.ToolSurfaceEdit) error { return nil }
 
-func TestMetaSkillLoad_InjectsBody(t *testing.T) {
-	catalog := []skills.Skill{{
-		Name:        "refactor",
-		Description: "refactor code",
-		Body:        "Do the refactor.",
-		Scope:       skills.ScopeProject,
-	}}
-	ctx := WithSkillCatalog(context.Background(), catalog)
-	tool := &metaSkillLoad{}
-	res, err := tool.Run(ctx, json.RawMessage(`{"name":"refactor"}`), &skillActivateHost{})
+func TestSkillContextResourcesEnforceVisibilityTrustAndExactCeiling(t *testing.T) {
+	access := NewSkillContextResourceAccess([]skills.Skill{
+		{Name: "hidden", Body: "operator only", DisableModelInvocation: true, Scope: skills.ScopeProject},
+		{Name: "project", Body: "project body", Scope: skills.ScopeProject, AllowedTools: []string{"fs__read"}},
+		{Name: "persona", Description: "inspect code", WhenToUse: "during review", Body: "persona body", Scope: skills.ScopePersona, AllowedTools: []string{"fs__read", "globally_disabled", "unknown__tool"}},
+	})
+	snapshot, err := access.Catalog("skill", skillContextCeiling{"fs__read": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Error != "" {
-		t.Fatalf("unexpected error: %s", res.Error)
+	if len(snapshot.Resources) != 2 {
+		t.Fatalf("resources = %+v, want public project + persona only", snapshot.Resources)
 	}
-	body, trimmed := AbsorbSkillLoad(res.Content)
-	if body != "Do the refactor." {
-		t.Fatalf("body = %q", body)
-	}
-	if trimmed == res.Content {
-		t.Fatal("expected trimmed tool result")
-	}
-}
-
-func TestMetaSkillLoad_RespectsDisableModelInvocation(t *testing.T) {
-	catalog := []skills.Skill{{
-		Name:                   "deploy",
-		DisableModelInvocation: true,
-		Body:                   "ship",
-	}}
-	ctx := WithSkillCatalog(context.Background(), catalog)
-	tool := &metaSkillLoad{}
-	res, err := tool.Run(ctx, json.RawMessage(`{"name":"deploy"}`), &skillActivateHost{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Error == "" {
-		t.Fatal("expected error for disable-model-invocation skill")
-	}
-}
-
-// TestSkillModelInvocationEnabled gates the model-facing surface (listing +
-// skills__load autoload) on: ≥1 model-visible skill AND skills__load still
-// registered. Denying the tool (EP-0045 rule 3) flips it false, which
-// suppresses the listing too — model invocation off wholesale.
-func TestSkillModelInvocationEnabled(t *testing.T) {
-	reg := BuildDefaultRegistry(nil)
-	modelSkill := []skills.Skill{{Name: "refactor", Description: "x", Body: "y"}}
-
-	if !SkillModelInvocationEnabled(reg, modelSkill) {
-		t.Error("want true: model-visible skill + skills__load registered")
-	}
-	if SkillModelInvocationEnabled(reg, nil) {
-		t.Error("want false: no skills")
-	}
-	hidden := []skills.Skill{{Name: "deploy", DisableModelInvocation: true, Body: "z"}}
-	if SkillModelInvocationEnabled(reg, hidden) {
-		t.Error("want false: only disable-model-invocation skills")
-	}
-	if SkillModelInvocationEnabled(nil, modelSkill) {
-		t.Error("want false: nil registry")
-	}
-
-	// Deny skills__load → gate false even with a model-visible skill.
-	denied := BuildDefaultRegistry(nil)
-	denied.Unregister("skills__load")
-	if SkillModelInvocationEnabled(denied, modelSkill) {
-		t.Error("want false: skills__load denied/unregistered disables model invocation")
-	}
-}
-
-func TestSkillLoadAllowedTools(t *testing.T) {
-	raw := `{"name":"recon","body":"x","allowed_tools":["fs__read","fs__grep"],"loaded":true}`
-	got := SkillLoadAllowedTools(raw)
-	want := []string{"fs__read", "fs__grep"}
-	if len(got) != len(want) {
-		t.Fatalf("allowed = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("allowed = %v, want %v", got, want)
+	byName := map[string]pluginruntime.ContextResource{}
+	for _, resource := range snapshot.Resources {
+		byName[resource.Name] = resource
+		if !resource.ModelVisible {
+			t.Fatalf("model-hidden resource escaped native projection: %+v", resource)
 		}
 	}
-	if SkillLoadAllowedTools(`{"loaded":false}`) != nil {
-		t.Error("non-loaded result should return nil")
+	if _, ok := byName["hidden"]; ok {
+		t.Fatal("disable-model-invocation resource reached catalog")
 	}
-	if SkillLoadAllowedTools("not json") != nil {
-		t.Error("invalid json should return nil")
+	if got := byName["project"].EffectiveAllowedTools; len(got) != 0 {
+		t.Fatalf("project allowed-tools must remain inert, got %v", got)
+	}
+	if got := byName["persona"].EffectiveAllowedTools; len(got) != 1 || got[0] != "fs__read" {
+		t.Fatalf("persona effective tools = %v, want exact filtered-registry intersection", got)
+	}
+	if byName["persona"].Summary != "inspect code — during review" {
+		t.Fatalf("summary = %q", byName["persona"].Summary)
 	}
 }
 
-func TestMetaSkillLoad_AllowedToolsPersonaOnly(t *testing.T) {
-	catalog := []skills.Skill{{
-		Name:         "recon",
-		Body:         "look around",
-		Scope:        skills.ScopePersona,
+func TestSkillContextOpenIsDigestFencedAndPreservesBundleExpansion(t *testing.T) {
+	access := NewSkillContextResourceAccess([]skills.Skill{{
+		Name: "check", Body: "Run ${STADO_SKILL_DIR}/check.sh", Dir: "/repo/.stado/skills/check",
+		Path: "/repo/.stado/skills/check/SKILL.md", Scope: skills.ScopePersona,
 		AllowedTools: []string{"fs__read"},
-	}}
-	ctx := WithSkillCatalog(context.Background(), catalog)
-	host := &skillActivateHost{}
-	tool := &metaSkillLoad{}
-	res, err := tool.Run(ctx, json.RawMessage(`{"name":"recon"}`), host)
-	if err != nil || res.Error != "" {
-		t.Fatalf("load: err=%v res=%s", err, res.Error)
+	}})
+	ceiling := skillContextCeiling{"fs__read": true}
+	snapshot, err := access.Catalog("skill", ceiling)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(host.activated) != 1 || host.activated[0] != "fs__read" {
-		t.Fatalf("activated: %v", host.activated)
+	resource := snapshot.Resources[0]
+	opened, err := access.Open("skill", resource.ID, snapshot.Digest, ceiling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.ID != resource.ID || opened.Digest != resource.Digest || opened.ContentFormat != "text/markdown" {
+		t.Fatalf("opened facts drifted: %+v", opened)
+	}
+	if opened.Content != "Run /repo/.stado/skills/check/check.sh" {
+		t.Fatalf("content = %q", opened.Content)
+	}
+	if _, err := access.Open("skill", resource.ID, snapshot.Digest, skillContextCeiling{}); err == nil {
+		t.Fatal("open accepted a stale catalog digest after effective ceiling changed")
+	}
+	if _, err := access.Open("skill", resource.ID, snapshot.Digest, ceiling); err != nil {
+		t.Fatalf("repeat exact open: %v", err)
+	}
+}
+
+func TestSkillContextResourceIDBindsDeclaredTools(t *testing.T) {
+	makeID := func(declared string) string {
+		access := NewSkillContextResourceAccess([]skills.Skill{{
+			Name: "same", Body: "same", Path: "/same", Scope: skills.ScopeProject, AllowedTools: []string{declared},
+		}})
+		snapshot, err := access.Catalog("skill", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot.Resources[0].ID
+	}
+	if makeID("fs__read") == makeID("shell__exec") {
+		t.Fatal("resource id does not bind declared allowed-tools")
+	}
+}
+
+func TestSkillContextPersonaAllowedToolsAreBounded(t *testing.T) {
+	declared := make([]string, maxSkillContextEffectiveTools+1)
+	ceiling := skillContextCeiling{}
+	for i := range declared {
+		declared[i] = string(rune('a'+i%26)) + string(rune('A'+i/26))
+		ceiling[declared[i]] = true
+	}
+	access := NewSkillContextResourceAccess([]skills.Skill{{Name: "wide", Body: "x", Scope: skills.ScopePersona, AllowedTools: declared}})
+	if _, err := access.Catalog("skill", ceiling); err == nil {
+		t.Fatalf("catalog accepted more than %d persona allowed-tools", maxSkillContextEffectiveTools)
+	}
+}
+
+func TestSkillContextModelContentCeilingAccepts128KiBAndOmitsNextByte(t *testing.T) {
+	accepted := strings.Repeat("x", maxSkillContextModelContentBytes)
+	access := NewSkillContextResourceAccess([]skills.Skill{
+		{Name: "accepted", Body: accepted, Scope: skills.ScopeProject},
+		{Name: "oversize", Body: accepted + "x", Scope: skills.ScopeProject},
+	})
+	snapshot, err := access.Catalog("skill", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Resources) != 1 || snapshot.Resources[0].Name != "accepted" {
+		t.Fatalf("model resources = %+v, want only exact-128KiB skill", snapshot.Resources)
+	}
+	opened, err := access.Open("skill", snapshot.Resources[0].ID, snapshot.Digest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Content != accepted {
+		t.Fatalf("opened content length = %d, want %d", len(opened.Content), len(accepted))
+	}
+}
+
+func TestAgentLoopToolSurfaceCeilingIsExactAndIndependentOfActiveState(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	all := reg.Snapshot().Tools
+	if len(all) == 0 {
+		t.Fatal("default registry is empty")
+	}
+	known := all[0].Name()
+	ceiling := make(map[string]bool, len(all))
+	for _, candidate := range all {
+		ceiling[candidate.Name()] = true
+	}
+	surface := &sessionToolSurface{activated: map[string]bool{known: true}, ceiling: ceiling}
+	if !surface.AllowsToolSurface(known) || surface.AllowsToolSurface("absent__tool") {
+		t.Fatalf("captured ceiling is not exact: known=%v absent=%v", surface.AllowsToolSurface(known), surface.AllowsToolSurface("absent__tool"))
+	}
+	if err := surface.ApplyToolSurface(tool.ToolSurfaceEdit{Deactivate: []string{known}}); err != nil {
+		t.Fatal(err)
+	}
+	if !surface.AllowsToolSurface(known) {
+		t.Fatal("deactivation narrowed immutable session ceiling")
+	}
+	if err := surface.ApplyToolSurface(tool.ToolSurfaceEdit{Activate: []string{known}}); err != nil {
+		t.Fatalf("reactivate permitted tool: %v", err)
+	}
+	if err := surface.ApplyToolSurface(tool.ToolSurfaceEdit{Activate: []string{"absent__tool"}}); err == nil {
+		t.Fatal("surface activated a tool outside the captured registry")
 	}
 }

@@ -55,13 +55,20 @@ func (a *FleetBridgeAdapter) AgentSpawn(ctx context.Context, req pluginRuntime.A
 	if len(req.NarrowTools) == 0 && len(req.AllowedTools) > 0 {
 		req.NarrowTools = append([]string(nil), req.AllowedTools...)
 	}
-	if req.Ephemeral && req.Execution == "retained" {
-		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("ephemeral and retained execution are mutually exclusive")
-	}
 	req.Provider = strings.TrimSpace(req.Provider)
 	req.Model = strings.TrimSpace(req.Model)
 	req.Thinking = strings.TrimSpace(req.Thinking)
 	req.ReasoningEffort = strings.TrimSpace(req.ReasoningEffort)
+	req.Execution = strings.TrimSpace(req.Execution)
+	if req.Execution == "" {
+		req.Execution = "wait"
+	}
+	if req.Execution != "wait" && req.Execution != "retained" {
+		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("execution must be wait or retained")
+	}
+	if req.Ephemeral && req.Execution == "retained" {
+		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("ephemeral and retained execution are mutually exclusive")
+	}
 	profile := subagent.Request{
 		Provider: req.Provider, Model: req.Model, Thinking: req.Thinking,
 		ThinkingBudgetTokens: req.ThinkingBudgetTokens, ReasoningEffort: req.ReasoningEffort,
@@ -95,6 +102,7 @@ func (a *FleetBridgeAdapter) AgentSpawn(ctx context.Context, req pluginRuntime.A
 		NarrowTools:          req.NarrowTools,
 		TokenBudget:          req.TokenBudget,
 		Execution:            req.Execution,
+		ChildToolOwner:       req.ChildToolOwner,
 	}
 	if req.Source != nil {
 		opts.Source = &subagent.Source{SessionID: req.Source.SessionID, At: req.Source.At}
@@ -256,7 +264,7 @@ func (a *FleetBridgeAdapter) spawnRetained(ctx context.Context, req pluginRuntim
 		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("pin retained fork point returned nil spawner")
 	}
 	childID := uuid.NewString()
-	request := subagent.Request{Prompt: req.Prompt, Role: opts.Role, Mode: opts.Mode, Ownership: opts.Ownership, WriteScope: opts.WriteScope, MaxTurns: opts.MaxTurns, TimeoutSeconds: opts.TimeoutSeconds, Persona: opts.Persona, Source: opts.Source, Provider: opts.Provider, Model: opts.Model, Thinking: opts.Thinking, ThinkingBudgetTokens: opts.ThinkingBudgetTokens, ReasoningEffort: opts.ReasoningEffort, ToolProfile: opts.ToolProfile, NarrowTools: opts.NarrowTools, TokenBudget: opts.TokenBudget, Execution: "retained"}
+	request := subagent.Request{Prompt: req.Prompt, Role: opts.Role, Mode: opts.Mode, Ownership: opts.Ownership, WriteScope: opts.WriteScope, MaxTurns: opts.MaxTurns, TimeoutSeconds: opts.TimeoutSeconds, Persona: opts.Persona, Source: opts.Source, Provider: opts.Provider, Model: opts.Model, Thinking: opts.Thinking, ThinkingBudgetTokens: opts.ThinkingBudgetTokens, ReasoningEffort: opts.ReasoningEffort, ToolProfile: opts.ToolProfile, NarrowTools: opts.NarrowTools, TokenBudget: opts.TokenBudget, Execution: "retained", ChildToolOwner: opts.ChildToolOwner}
 	request, err = prepareSubagentRequest(request)
 	if err != nil {
 		return pluginRuntime.AgentSpawnResult{}, err

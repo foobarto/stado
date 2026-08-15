@@ -98,8 +98,9 @@ Third-party stado plugins ship as wasm binaries, executed inside
 `wazero`. Wasm is already sandboxed by construction (memory-safe,
 no raw syscalls), so the kernel layer is unnecessary. What plugins
 CAN do is expressed through host imports the stado runtime
-provides — `session:read`, `session:fork`, `fs:read`, `fs:write`,
-`llm:invoke`, the generic `artifact:*` surface, and `stado_log`. Each
+provides — `session:read`, `session:fork`, `fs:read`, `fs:write`, the generic
+token-bounded `provider:invoke:<N>` primitive, the generic `artifact:*` surface,
+and `stado_log`. Each
 import is capability-gated against the signed plugin manifest. Artifact
 requests use an opaque broker-issued binding injected by the host bridge; the
 guest never sees that binding and its JSON cannot supply authority fields
@@ -174,8 +175,8 @@ privileges.
 Linux is the only supported platform now and through v1. The supported
 containment path is Landlock + bubblewrap/namespaces + seccomp, with a private
 `pasta` network namespace and CONNECT allowlist proxy where host-scoped egress
-is granted. Existing Darwin or Windows source remnants are unsupported, carry
-no current security promise, and may be removed without a compatibility period
+is granted. Darwin and Windows are outside the build/runtime/packaging contract
+and carry no current security promise
 ([EP-0065](../eps/0065-linux-only-platform-scope.md)).
 
 ## Turning knobs

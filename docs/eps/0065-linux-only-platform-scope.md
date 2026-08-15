@@ -2,7 +2,8 @@
 ep: 65
 title: Linux-Only Platform Scope
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
+implemented-in: v0.80.0
 type: Standards
 created: 2026-08-14
 requires: ["EP-0012", "EP-0050"]
@@ -10,6 +11,10 @@ extends: ["EP-0028", "EP-0037", "EP-0038"]
 supersedes: ["EP-0005"]
 see-also: ["EP-0006", "EP-0010"]
 history:
+  - date: 2026-08-14
+    status: Implemented
+    version: v0.80.0
+    note: The rollout is complete in source: current product documentation and the release matrix are Linux-only, Darwin/Windows runtime and packaging paths are removed, Linux validation is the complete release gate, and architecture guards freeze non-Linux release debt at zero.
   - date: 2026-08-14
     status: Accepted
     note: Accepted by operator decision during the complete EP and platform-architecture review.
@@ -98,6 +103,8 @@ removed rather than parked. Reintroducing either is a new product and security
 decision, not routine portability maintenance.
 
 ## Migration / rollout
+
+Completed for v0.80.0:
 
 1. Rewrite `DESIGN.md` and `PLAN.md` around the Linux-only contract.
 2. Remove macOS and Windows goals from README, threat model, feature docs,

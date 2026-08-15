@@ -5,15 +5,12 @@ package tui
 // notifications, and the toolsExecuted batch that closes a tool turn.
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/supervise"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -37,96 +34,21 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	// CSI could drive those straight into the tool panel's lipgloss render.
 	// SanitizeForTerminal keeps legitimate \n / \t / \r (tool output is
 	// multi-line prose) while stripping the escape vectors. The same
-	// sanitized content feeds appendSubagentNotice, whose JSON fields
-	// (error / worktree / child session) are rendered into a system block —
-	// sanitizing first preserves valid JSON structure while scrubbing any
-	// escape inside the string values.
 	content := textutil.SanitizeForTerminal(msg.result.Content)
 	// Update the matching tool block with the result.
-	toolName, toolArgs := "", ""
 	for i := range m.blocks {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
-			toolName = m.blocks[i].toolName
-			toolArgs = m.blocks[i].toolArgs
-			// skills__load (EP-0045): the tool panel only needs the short
-			// confirmation, but the full body-bearing result must survive in
-			// pendingResults so the batch handler (onToolsExecuted →
-			// absorbSkillLoads) can inject the body as a user message — same
-			// effect as a user `/skill:`. So trim for DISPLAY only; persist
-			// the raw result below. (The prior bug trimmed pendingResults at
-			// store-time, discarding the body before injection — model
-			// invocation was a TUI no-op.)
-			display := content
-			if toolName == "skills__load" && !msg.result.IsError {
-				if _, trimmed := runtime.AbsorbSkillLoad(content); trimmed != content {
-					display = trimmed
-				}
-			}
-			m.blocks[i].toolResult = display
+			m.blocks[i].toolResult = content
 			m.blocks[i].streaming = false // result in hand — auto mode collapses it
 			m.invalidateBlockCache(i)
 			break
 		}
 	}
-	if toolName == "agent__spawn" && !msg.result.IsError {
-		m.appendSubagentNotice(content)
-	}
-	if strings.HasPrefix(toolName, "supervise__") {
-		m.syncSuperviseState()
-		if m.supervision != nil && !msg.result.IsError {
-			switch {
-			case toolName == supervisePivotTool && m.supervision.state.Status == supervise.StatusPivotPending:
-				m.recordSuperviseControlEvent(supervise.WorkerPivotRequested)
-			case toolName == superviseCompletionTool && m.supervision.state.Status == supervise.StatusVerifying:
-				m.recordSuperviseControlEvent(supervise.WorkerCompletionClaimed)
-			}
-		}
-	}
-	var observe []tea.Cmd
-	// Successful pivot/completion control calls bind their pending request to
-	// the current anchor and change status. Do not advance that anchor again
-	// while recording the tool result, or every later verdict becomes stale.
-	if m.supervision != nil && m.supervision.state.Status == supervise.StatusRunning {
-		beforeTree := m.supervision.state.TreeDigest
-		outcome := supervise.WorkerEvent{
-			Kind:          supervise.WorkerToolOutcome,
-			Tool:          toolName,
-			ArgsDigest:    digestBytes([]byte(toolArgs)),
-			OutcomeDigest: digestBytes([]byte(content)),
-			Succeeded:     !msg.result.IsError,
-		}
-		if msg.result.IsError {
-			outcome.ErrorFingerprint = digestBytes([]byte(strings.TrimSpace(content)))
-		}
-		observe = append(observe, m.observeSupervise(outcome))
-		switch toolName {
-		case superviseProgressTool:
-			var progress struct {
-				StepComplete bool `json:"step_complete"`
-			}
-			if !msg.result.IsError && json.Unmarshal([]byte(toolArgs), &progress) == nil && progress.StepComplete {
-				observe = append(observe, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerStepClaimed}))
-			}
-		case supervisePivotTool:
-			observe = append(observe, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerPivotRequested}))
-		case superviseCompletionTool:
-			// A rejected request (for example, while plan steps remain) is
-			// exactly the unsupported-completion signal the watchdog should see.
-			observe = append(observe, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerCompletionClaimed}))
-		}
-		afterTree := m.superviseTreeDigest()
-		if afterTree != beforeTree {
-			patch, paths := m.superviseDiffSnapshot(m.supervision.state)
-			observe = append(observe, m.observeSupervise(supervise.WorkerEvent{Kind: supervise.WorkerTreeChanged, TreeDigest: afterTree, DiffBytes: int64(len(patch)), ChangedPaths: paths}))
-		}
-	}
-	// Persist the raw result (faithful tool output for the model + audit) —
-	// absorbSkillLoads trims any skills__load body in onToolsExecuted, after
-	// extracting it for injection.
+	// Persist the ordinary tool-origin result faithfully for the model and
+	// audit. No tool name is privileged into a synthetic conversation role.
 	m.pendingResults = append(m.pendingResults, msg.result)
 	m.renderBlocks()
-	observe = append(observe, m.advanceToolQueue())
-	return m, tea.Batch(observe...)
+	return m, m.advanceToolQueue()
 }
 
 func onPluginApprovalRequest(m *Model, msg pluginApprovalRequestMsg) (tea.Model, tea.Cmd) {
@@ -415,10 +337,6 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		// the audit log + history reflect what actually happened —
 		// the operator just doesn't get an autonomous follow-up.
 		if len(msg.results) > 0 {
-			// Trim any skills__load body out of the persisted tool result
-			// (the operator cancelled, so we never inject it) — but keep
-			// history well-formed so the next turn isn't an orphan tool_use.
-			m.absorbSkillLoads(msg.results)
 			blocks := make([]agent.Block, 0, len(msg.results))
 			for _, r := range msg.results {
 				cpy := r
@@ -429,20 +347,12 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 			m.persistMessage(toolMsg)
 		}
 		m.renderBlocks()
-		if m.supervision != nil && (m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil) {
-			return m, m.nextSuperviseHostAction()
-		}
 		if m.state == stateIdle && m.queuedPrompt != "" {
 			return m, m.promoteQueuedPrompt()
 		}
 		return m, nil
 	}
 	m.annotateLastAssistantToolResults(msg.results)
-	injections := m.absorbSkillLoads(msg.results)
-	// EP-0037 lazy-load: when the model called tools.describe, parse
-	// the result and add the described tools to this session's
-	// activation set so subsequent turns surface them.
-	m.absorbToolActivations(msg.results)
 	// Append a role=tool message with the accumulated tool results.
 	if len(msg.results) > 0 {
 		blocks := make([]agent.Block, 0, len(msg.results))
@@ -454,18 +364,8 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		m.msgs = append(m.msgs, toolMsg)
 		m.persistMessage(toolMsg)
 	}
-	for _, body := range injections {
-		userMsg := agent.Text(agent.RoleUser, body)
-		m.msgs = append(m.msgs, userMsg)
-		m.appendBlock(block{kind: "user", body: body})
-		m.persistMessage(userMsg)
-	}
 	if len(msg.results) > 0 && m.broker != nil {
 		if err := m.broker.SetTaint(m.rootCtx, runtime.ContextTainted); err != nil {
-			if m.supervision != nil && !superviseTerminal(m.supervision.state.Status) {
-				m.pauseSupervisionAfterTaintFailure(m.supervision, "tool-result continuation", err)
-				return m, nil
-			}
 			m.state = stateError
 			m.errorMsg = err.Error()
 			m.appendBlock(block{kind: "system", body: "broker taint update failed: " + err.Error()})
@@ -473,32 +373,8 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if m.supervision != nil {
-		m.syncSuperviseState()
-		if m.supervision.interventionHold || m.supervision.state.PendingIntervention != nil {
-			m.supervision.interventionHold = true
-			m.renderBlocks()
-			return m, m.nextSuperviseHostAction()
-		}
-		if m.supervision.state.Status == supervise.StatusVerifying {
-			m.renderBlocks()
-			return m, m.startSuperviseCompletionFlow()
-		}
-		if m.supervision.state.Status == supervise.StatusPivotPending {
-			m.renderBlocks()
-			return m, m.startSupervisePivotReview()
-		}
-		if len(m.supervision.followupQueue) > 0 {
-			// The agent loop would normally continue after tool results. Preserve
-			// that continuation while the host temporarily classifies the inbox.
-			m.supervision.followupResume = true
-			m.renderBlocks()
-			return m, m.startNextSuperviseFollowupReview()
-		}
-	}
 	// #16: this is the "next opportunity" — a steering message injects
 	// here so the model's next round-trip sees it alongside the results.
-	m.drainSuperviseAdvisorySteering()
 	m.drainSteering()
 	m.renderBlocks()
 	if command := m.applicationTurnBoundary(msg.results, applicationBoundaryContinueTools); command != nil {

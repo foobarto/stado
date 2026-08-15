@@ -149,6 +149,11 @@ type brokerArtifactBridge struct {
 	token  string
 }
 
+type brokerEvidenceBridge struct {
+	client *daemon.Client
+	token  string
+}
+
 type brokerApplicationBridge struct {
 	client *daemon.Client
 	token  string
@@ -159,14 +164,14 @@ type brokerApplicationEventBridge struct {
 	token  string
 }
 
-func (s *BrokerSession) BindArtifacts(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginruntime.ArtifactBridgeBinding, error) {
+func (s *BrokerSession) BindArtifacts(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginruntime.ArtifactBridgeBinding, error) {
 	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
 		return pluginruntime.ArtifactBridgeBinding{}, errors.New("artifact broker unavailable for this session")
 	}
 	var result broker.ArtifactBindResult
 	if err := s.client.Call(ctx, broker.MethodArtifactBind, broker.ArtifactBindParams{
 		SessionID: s.SessionID, ControllerToken: s.controllerToken,
-		Identity: identity, Manifest: manifest,
+		Identity: identity, Manifest: manifest, ToolName: toolName,
 	}, &result); err != nil {
 		return pluginruntime.ArtifactBridgeBinding{}, err
 	}
@@ -178,6 +183,31 @@ func (s *BrokerSession) BindArtifacts(ctx context.Context, identity plugins.Runt
 			AncestorSessionIDs: append([]string(nil), result.AncestorSessionIDs...),
 		},
 	}, nil
+}
+
+func (s *BrokerSession) BindEvidence(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest, toolName string) (pluginruntime.EvidenceBridgeBinding, error) {
+	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+		return pluginruntime.EvidenceBridgeBinding{}, errors.New("evidence broker unavailable for this session")
+	}
+	var result broker.ArtifactBindResult
+	params := broker.ArtifactBindParams{SessionID: s.SessionID, ControllerToken: s.controllerToken, Identity: identity, Manifest: manifest, ToolName: toolName}
+	if err := s.client.Call(ctx, broker.MethodEvidenceBind, broker.EvidenceBindParams(params), &result); err != nil {
+		return pluginruntime.EvidenceBridgeBinding{}, err
+	}
+	return pluginruntime.EvidenceBridgeBinding{Bridge: &brokerEvidenceBridge{client: s.client, token: result.BindingToken}}, nil
+}
+
+func (b *brokerEvidenceBridge) CallEvidence(ctx context.Context, operation string, payload []byte) ([]byte, error) {
+	if b == nil || b.client == nil || b.token == "" {
+		return nil, errors.New("evidence broker binding unavailable")
+	}
+	var response json.RawMessage
+	if err := b.client.Call(ctx, broker.MethodEvidenceCall, broker.EvidenceCallParams{
+		BindingToken: b.token, Operation: operation, Payload: json.RawMessage(payload),
+	}, &response); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), response...), nil
 }
 
 func (s *BrokerSession) BindApplication(ctx context.Context, identity plugins.RuntimeIdentity, manifest plugins.Manifest) (pluginruntime.ApplicationBinding, error) {
@@ -207,6 +237,7 @@ func (s *BrokerSession) BindApplication(ctx context.Context, identity plugins.Ru
 		Artifact: pluginruntime.ArtifactBridgeBinding{
 			Bridge: &brokerArtifactBridge{client: s.client, token: result.BindingToken}, Caller: caller,
 		},
+		Evidence:    pluginruntime.EvidenceBridgeBinding{Bridge: &brokerEvidenceBridge{client: s.client, token: result.BindingToken}},
 		Application: &brokerApplicationBridge{client: s.client, token: result.BindingToken},
 		Controller: &brokerApplicationControllerBridge{
 			client: s.client, sessionID: result.SessionID,

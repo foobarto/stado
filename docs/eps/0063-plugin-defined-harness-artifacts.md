@@ -12,6 +12,12 @@ see-also: ["EP-0015", "EP-0016", "EP-0031", "EP-0052", "EP-0054"]
 history:
   - date: 2026-08-14
     status: Accepted
+    note: Generic broker artifacts, authenticated imports, strict signed projections, and the fail-closed staged legacy migration are source-complete. The official memory/learn package remains unsigned and unpublished, and fresh activation awaits a separately trusted presenter.
+  - date: 2026-08-14
+    status: Accepted
+    note: Clarified exact `self#<local-kind>` read/observe selectors. The host and broker independently bind them to the admitted canonical identity so development packages need neither a forged official lock nor a wildcard grant.
+  - date: 2026-08-14
+    status: Accepted
     note: Accepted after the full EP catalogue and supervise architecture audit.
   - date: 2026-08-14
     status: Draft
@@ -21,6 +27,13 @@ history:
 > **Relationships:** **Requires:** [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md), [EP-0039](./0039-plugin-distribution-and-trust.md), [EP-0050](./0050-broker.md), [EP-0053](./0053-versioned-harness-artifacts-and-index.md), [EP-0058](./0058-measured-adaptive-retrieval.md), [EP-0059](./0059-durable-event-and-budget-substrate.md) · **Extends:** [EP-0053](./0053-versioned-harness-artifacts-and-index.md) · **Extended by:** [EP-0066](./0066-canonical-plugin-authority-and-application-placement.md), [EP-0067](./0067-session-controller-and-application-selection.md) · **See also:** [EP-0015](./0015-memory-system-plugin.md), [EP-0016](./0016-learning-self-improvement-plugin.md), [EP-0031](./0031-fs-cap-path-templates.md), [EP-0052](./0052-learn-trajectory-refinement.md), [EP-0054](./0054-addressable-context-and-research-agents.md)
 
 # EP-0063: Plugin-Defined Harness Artifacts
+
+> **Implementation status (2026-08-14):** The generic broker envelope,
+> authenticated artifact/evidence ABI, archived signed descriptors,
+> deterministic projections, secret filtering, and one-way legacy migration
+> are source-complete. The official memory/learn package remains unsigned and
+> fresh activation has no separately trusted presenter, so the EP remains
+> Accepted and core provides no native fallback.
 
 ## Problem
 
@@ -86,7 +99,7 @@ The canonical versioned envelope is:
     "anchor_session_id": "host populated when applicable",
     "anchor_fork_point": "host populated when applicable"
   },
-  "authority": "candidate|active|legacy_active|rejected|superseded|retired|deleted",
+  "authority": "candidate|active|rejected|superseded|retired|deleted",
   "tags": ["quality:review"],
   "groups": ["stado/supervision"],
   "provenance": {"origins": ["untrusted"], "created_by": "plugin"},
@@ -173,13 +186,16 @@ new artifact version through the ordinary broker API; the indexer never runs it.
 Canonical plugin identity becomes an explicit runtime input separate from the
 manifest. For remote plugins it is the EP-39 identity and resolved commit; for
 bundled plugins it is a release-stable `stado.dev/bundled/<plugin>@<version>`
-identity bound to the stado build; local development gets an explicit unstable
-`local://...` identity and cannot impersonate a bundled or installed plugin.
+identity bound to the stado build; a signed local-development installation gets
+an explicit unstable, install-path-bound `local://...` identity and cannot
+impersonate a bundled or remotely sourced plugin.
 
-At admission, the broker independently reopens the installed package, pinned
-signature, WASM digest, and EP-39 lock entry, intersects its capabilities with
-the active session and global policy, then mints an opaque binding scoped to
-the plugin identity, session generation, principal, repository, ancestry, and
+At admission, the broker independently reopens the installed package, checks
+the source-scoped pinned signature and WASM digest, and recomputes either the
+exact EP-39 lock identity or the exact local install-path identity. It then
+intersects capabilities with the active session and global policy and mints an
+opaque binding scoped to the plugin identity, session generation, principal,
+repository, ancestry, and
 ceiling. The WASM guest never sees or supplies that binding. A host bridge may
 transport it, but cannot use request fields to widen it. Local development
 identities require an explicit broker trust path and cannot obtain artifact
@@ -208,6 +224,10 @@ ancestry, and capability ceiling. Those fields are absent from guest authority
 input. The guest names one of its declared local kinds when proposing and uses
 qualified kind selectors when querying. It cannot propose another plugin's
 kind, forge session ancestry, or activate a candidate through these imports.
+For an exact kind declared by the same manifest, `self#<local-kind>` is a
+non-authoritative selector: the host rewrites it from the authenticated runtime
+identity and the broker independently resolves the signed capability during
+admission. Wildcard and undeclared self selectors are invalid.
 
 Capabilities are operation- and kind-scoped:
 
@@ -218,6 +238,9 @@ artifact:edit:<local-kind>
 artifact:observe:<qualified-kind-pattern>
 ```
 
+The `<qualified-kind-pattern>` position also accepts the exact
+`self#<declared-local-kind>` form described above. It never accepts `self#*`.
+
 Broad read patterns are high-trust declarations and still intersect broker
 scope/sensitivity policy. `edit` creates a candidate version under EP-53 rules;
 it does not mutate an active version in place. Activation, rejection,
@@ -225,10 +248,16 @@ retirement, deletion, aliases, and operator grants remain trusted operator or
 host actions outside the model-facing guest ABI.
 
 Imports call typed broker methods. Neither the plugin host nor a TUI wrapper may
-open the shared WAL. Requests include host-minted idempotency keys and expected
-versions where relevant; the broker resolves every authority field and
-capability from its opaque admission binding. The broker is the only
-authoritative writer under EP-59.
+open the shared WAL. Mutations may carry a bounded guest logical
+`idempotency_key`; omission derives one from the exact operation/payload. The
+broker hashes that logical key with the verified plugin namespace, operation,
+principal, scope, and exact scope binding. Same-input retries therefore return
+the exact prior durable result across sessions for global scope and across
+broker restart; reuse with different normalized guest-controlled input fails
+closed. Session keys additionally bind the session/generation and cannot cross
+them. There is no dual write. The broker resolves every authority field and
+capability from its opaque admission binding and remains the only authoritative
+writer under EP-59.
 
 This replaces EP-53's provisional `${state}/artifacts/` physical store wording.
 Artifacts, kind descriptors, relations, and observations are typed namespaces
@@ -242,6 +271,14 @@ only where the registered descriptor declares a supported projection. Generic
 results always include the qualified kind and schema identity. Callers that do
 not understand a kind can still render the envelope and raw bounded `data`.
 
+Query responses are digest-fenced pages: each returns at most 50 items plus
+`page_digest`, `next_offset`, and `complete`. Offset zero establishes a digest
+over the complete ordered visible `(id,version)` projection; every later page
+must repeat it. A changed projection rejects the continuation and requires a
+restart at zero. Offsets are bounded and a nonzero offset without an exact
+digest fails closed. Applications must also impose their own total aggregate
+bound; pagination is not permission for unbounded guest memory.
+
 The rebuildable index stores common fields plus descriptor-selected text. Its
 location and schema are artifact-oriented rather than memory-oriented. Search
 results identify the index sequence and completeness under EP-58. Private and
@@ -253,18 +290,25 @@ EP-53 semantics.
 1. Add canonical runtime plugin identity and manifest kind validation.
 2. Teach the artifact service to store `data` plus archived kind descriptors;
    add deterministic declared projections to the derived index.
-3. Register bundled learning kinds and migrate EP-53 memory/lesson fields into
-   their `data` objects while preserving IDs, versions, authority, exact legacy
-   bytes, and an auditable converter descriptor.
+3. Admit the exact signed official memory/learn identity and migrate EP-53
+   memory/lesson fields into its declared `data` objects while preserving IDs,
+   versions, authority, exact legacy bytes, and an auditable converter
+   descriptor. Core stado fabricates neither a bundled identity nor hardcoded
+   production kinds.
 4. Add authenticated broker RPC and `stado_artifact_*` host imports.
 5. Port bundled/installed consumers and remove `stado_memory_*`, the legacy
    `MemoryBridge`, and its separate `memory.jsonl` writer.
 6. Rename cache/layout text from memory to artifacts where compatibility does
    not require retaining an old read path.
 
-Migration is one-way, transactional, idempotent, and fails closed on unknown
-kind/schema identity. A compatibility reader may recognize old records during
-migration; new writes never emit the old top-level shape.
+Migration is one-way, idempotent, and logically atomic. Bounded migration stages
+are inert until one final marker binds and validates the complete ordered stage
+set, exact installed identity and descriptors, source watermark, archive digest,
+and destination expectations. A compatibility reader recognizes only the exact
+retired shapes during migration; new writes never emit the old top-level shape.
+Historically approved memories and lessons become active uniformly because that
+preserves an already granted legacy authority event; fresh candidates still
+require the independent activation path.
 
 ## Failure modes
 
