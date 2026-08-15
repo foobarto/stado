@@ -122,9 +122,27 @@ func filterEnv(env, keep []string) []string {
 		if !ok {
 			continue
 		}
+		// SSH-agent delegation is not a sandbox capability. Even an explicit
+		// guest keep-list cannot import the host agent into a confined process.
+		// An operator-selected unsandboxed execution path bypasses filtering.
+		if name == "SSH_AUTH_SOCK" || name == "SSH_AGENT_PID" {
+			continue
+		}
 		if want[name] && last[name] == i {
 			out = append(out, kv)
 		}
+	}
+	return out
+}
+
+func stripSSHAgentEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, ok := splitEnvKV(kv)
+		if !ok || name == "SSH_AUTH_SOCK" || name == "SSH_AGENT_PID" {
+			continue
+		}
+		out = append(out, kv)
 	}
 	return out
 }

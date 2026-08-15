@@ -11,7 +11,7 @@
 // $XDG_CONFIG_HOME/stado/policy.toml with a permissive default, and
 // session-handle minting. Subsequent phases tighten policy and
 // connect the handle to actual sandbox enforcement, taint state,
-// trust-root mediation, and ssh-agent delegation.
+// and trust-root mediation.
 //
 // The broker does NOT: hold an LLM, run plugin code, execute tools
 // directly, or ingest untrusted input. It is small by design.

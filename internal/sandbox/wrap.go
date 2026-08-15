@@ -116,17 +116,7 @@ func doRewrap(cfg WrapConfig) error {
 		return fmt.Errorf("sandbox wrap: build args: %w", err)
 	}
 
-	// Build the child environment: pass through everything, add rewrapped marker.
-	childEnv := append(os.Environ(), RewrappedEnvVar+"=1")
-	if cfg.HTTPProxy != "" {
-		childEnv = setEnvValue(childEnv, "HTTP_PROXY", cfg.HTTPProxy)
-		childEnv = setEnvValue(childEnv, "HTTPS_PROXY", cfg.HTTPProxy)
-	}
-	if len(cfg.AllowEnv) > 0 {
-		childEnv = filterEnv(childEnv, cfg.AllowEnv)
-		// Always keep the rewrapped marker even in restricted env.
-		childEnv = append(childEnv, RewrappedEnvVar+"=1")
-	}
+	childEnv := rewrapEnv(cfg, os.Environ())
 
 	cmd := exec.Command(args[0], append(args[1:], os.Args[1:]...)...) //nolint:gosec
 	cmd.Stdin = os.Stdin
@@ -143,6 +133,25 @@ func doRewrap(cfg WrapConfig) error {
 	}
 	os.Exit(0)
 	panic("unreachable")
+}
+
+// rewrapEnv constructs the environment for the outer wrapper. SSH-agent
+// delegation is not a Stado sandbox capability, so those variables are
+// removed even when allow_env is empty and the rest of the host environment
+// passes through unchanged.
+func rewrapEnv(cfg WrapConfig, environ []string) []string {
+	childEnv := stripSSHAgentEnv(environ)
+	childEnv = setEnvValue(childEnv, RewrappedEnvVar, "1")
+	if cfg.HTTPProxy != "" {
+		childEnv = setEnvValue(childEnv, "HTTP_PROXY", cfg.HTTPProxy)
+		childEnv = setEnvValue(childEnv, "HTTPS_PROXY", cfg.HTTPProxy)
+	}
+	if len(cfg.AllowEnv) > 0 {
+		childEnv = filterEnv(childEnv, cfg.AllowEnv)
+		// Always keep the rewrapped marker even in restricted env.
+		childEnv = setEnvValue(childEnv, RewrappedEnvVar, "1")
+	}
+	return childEnv
 }
 
 // buildWrapperArgs returns the wrapper argv (not including stado's own args).

@@ -94,6 +94,35 @@ func TestBwrapRunner_SeccompDoesNotBreakExecution(t *testing.T) {
 	}
 }
 
+func TestBwrapRunner_ClearsSSHAgentEnvironment(t *testing.T) {
+	if !(BwrapRunner{}).Available() {
+		t.Skip("bwrap unavailable")
+	}
+	sh := seccompTestShell(t)
+	cmd, err := (BwrapRunner{}).Command(context.Background(), Policy{
+		Exec: []string{sh},
+		Env:  []string{"PATH", "KEEP", "SSH_AUTH_SOCK", "SSH_AGENT_PID"},
+		Net:  NetPolicy{Kind: NetAllowAll},
+	}, sh, []string{"-c", `[ -z "${SSH_AUTH_SOCK+x}" ] && [ -z "${SSH_AGENT_PID+x}" ] && [ "$KEEP" = yes ]`}, []string{
+		"PATH=/usr/bin:/bin",
+		"KEEP=yes",
+		"SSH_AUTH_SOCK=/tmp/ssh-test/agent.1",
+		"SSH_AGENT_PID=1234",
+	})
+	if err != nil {
+		t.Fatalf("Command build failed: %v", err)
+	}
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		s := string(out)
+		if strings.Contains(s, "namespace") || strings.Contains(s, "uid map") ||
+			strings.Contains(s, "Operation not permitted") || strings.Contains(s, "clone") {
+			t.Skipf("bwrap cannot create a namespace on this host: %v\n%s", runErr, s)
+		}
+		t.Fatalf("SSH-agent environment reached the sandbox or filtered env was lost: %v\n%s", runErr, s)
+	}
+}
+
 func hasArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {

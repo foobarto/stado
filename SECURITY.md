@@ -506,12 +506,14 @@ substitute for `--no-sandbox`; those settings only control the legacy wrapper
 and its notice.
 
 The default broker profile binds the operator's home directory read-only while
-masking private SSH key material. When an SSH agent is present, current v0.80.x
-builds may bind its socket into the sandbox so git-over-SSH remains usable; a
-compromised agent can ask that socket to sign even though it cannot read the
-key bytes. Treat that delegated signing authority as an accepted v0.80.x
-residual, not credential isolation. The exact capability and containment
-boundaries are maintained in
+masking private SSH key material. Stado does not forward `$SSH_AUTH_SOCK` or
+offer a generic host-socket bind capability; sandboxed process environments
+drop SSH-agent variables, and the autonomous process profile does not mount
+broad `/run`. Its `/tmp` and `/var/tmp` are private tmpfs mounts, so host IPC
+and credential sockets in scratch directories are not inherited.
+Git-over-SSH credentials must be provided outside Stado's sandbox authority,
+preferably as short-lived, narrowly scoped credentials. The exact capability
+and containment boundaries are maintained in
 [the threat model](docs/security/threatmodel.md) and
 [sandboxing documentation](docs/features/sandboxing.md).
 

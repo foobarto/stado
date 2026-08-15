@@ -9,6 +9,13 @@ extends: ["EP-0037"]
 extended-by: ["EP-0067"]
 see-also: ["EP-0030", "EP-0032", "EP-0037", "EP-0038", "EP-0042"]
 history:
+  - date: 2026-08-15
+    status: Partial
+    note: >
+      Broad SSH-agent forwarding and the unused privileged git-subagent
+      substrate were removed after v0.80.2. Stado no longer exposes a generic
+      host-socket bind capability. Short-lived, narrowly scoped SSH credential
+      provisioning belongs outside this runtime, so phase 7 is withdrawn.
   - date: 2026-08-14
     status: Partial
     note: >
@@ -150,7 +157,6 @@ the end of phase 1.
 - Trust-root mounted read-only inside the agent's namespace +
   broker-owned trace writer (phase 5).
 - Provenance/taint tagging at ingestion (phase 6).
-- ssh-agent socket + git sub-agent flow (phase 7).
 - `stado session tree` ported to broker client (phase 8).
 
 ## Design
@@ -421,10 +427,10 @@ projected from the parent's current effective set rather than inherited whole.
 child using `parent_session_id`, role, mode, and write scope. The broker rejects
 missing/terminated parents and profile changes. It projects against the
 parent's current effective set, carries restriction-only fields (mask and
-timeout), removes ordinary-child SSH-agent access, and rebases the checkout
-root only after validating that the destination is a direct, non-symlink child
-of stado's managed worktree root. The child executor applies the returned
-ceiling and terminates the broker handle when work finishes.
+timeout), and rebases the checkout root only after validating that the
+destination is a direct, non-symlink child of stado's managed worktree root.
+The child executor applies the returned ceiling and terminates the broker
+handle when work finishes.
 
 At runtime, trusted operator prompts reset the parent handle to `clean` and
 tool results mark it `tainted` before the model can make another call. This is
@@ -432,9 +438,10 @@ the conservative origin-based over-approximation from DESIGN.md. The same
 boundary is wired in `runtime.AgentLoop` (run/headless/ACP/subagents) and the
 TUI's separate stream loop.
 
-The elevated git child is not hidden inside this ordinary-child slice. Filtered
-SSH-agent materialization, approval-once UX, declared-host egress, and the
-actual git verb dispatch gate remain GitHub #238.
+The formerly proposed elevated git child was never wired into this
+ordinary-child slice. Its unused substrate and Stado's broader SSH-agent
+forwarding were removed after v0.80.2; scoped credential provisioning is now
+outside this EP.
 
 ## Revision: exact ordinary-tool broker binding (2026-08-14)
 
@@ -461,8 +468,8 @@ than advertise attenuation the runtime cannot enforce.
 | 3 | Mount-and-namespace invariant table enforced in code + CI assertion. `~/.ssh/config` default-profile decision point resolved. |
 | 4 | Session capability model in code. Ceiling/effective vocabulary applied to `Policy`. Drop-only effective set. Widening-via-fork. |
 | 5 | Trust-root + audit-trace writer invariants. Trust ring + signing keys mounted RO. Broker owns sole writable handle to sidecar. Broker-decision log at canonical path. |
-| 6 | **Mechanical turn taint implemented.** Trusted operator boundary resets clean; tool-result ingestion taints before model re-entry on AgentLoop and TUI paths. Per-span metadata/audit detail can still deepen. |
-| 7 | **Substrate only.** Elevated filtered ssh-agent + git sub-agent runtime, approval, and dispatch enforcement split to GitHub #238. |
+| 6 | **Mechanical turn provenance marker implemented.** Trusted operator boundaries reset clean; tool-result ingestion marks the turn before model re-entry on AgentLoop and TUI paths. The marker is audit metadata and does not select a capability-policy matrix. |
+| 7 | **Withdrawn.** Broad SSH-agent forwarding and the unused privileged git-subagent substrate were removed after v0.80.2. Scoped, short-lived SSH credential provisioning belongs outside Stado. |
 | 8 | `stado session tree` as broker client. |
 
 ## References

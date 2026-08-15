@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -487,7 +486,7 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // The policy is conservatively permissive — runs
 // the child under bwrap or firejail for process containment
 // isolation, allows reading the system paths bash typically needs
-// (/bin, /sbin, /tmp, /run; /usr, /lib, /lib64, /etc, /proc, /dev are
+// (/bin, /sbin; /usr, /lib, /lib64, /etc, /proc, /dev are
 // bound automatically by the runner), and lets network through.
 //
 // Earlier versions of this function returned `&sandboxPolicy{CWD:
@@ -508,8 +507,9 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 //
 // The values below fix both. /bin and /sbin are bound (--ro-bind-try
 // is a no-op when they don't exist or are already covered by /usr's
-// symlink resolution). /tmp + /var/tmp are writable so plugins that
-// scratch there work. Net is explicit "allow".
+// symlink resolution). /tmp + /var/tmp are writable private tmpfs mounts so
+// plugins can scratch there without inheriting host IPC or credential sockets.
+// Net is explicit "allow".
 //
 // Operators wanting tighter rules supply an explicit `sandbox` field
 // on each stado_exec request from the wasm side. The intersection
@@ -525,11 +525,13 @@ func NewDefaultSandboxPolicy(workdir string) any {
 	p := &sandboxPolicy{
 		CWD: workdir,
 		// /bin + /sbin matter for bash's literal /bin/sh / /bin/bash
-		// argv[0] paths. /tmp + /var/tmp + /run cover scratch space
-		// commonly read by plugins. /usr / /lib / /lib64 / /etc /
-		// /proc / /dev are bound by the runner unconditionally.
-		FSRead:  []string{"/bin", "/sbin", "/tmp", "/var/tmp", "/run"},
+		// argv[0] paths. /tmp + /var/tmp provide private scratch space.
+		// /run is deliberately absent: it commonly holds
+		// per-user credential and IPC sockets. /usr / /lib / /lib64 /
+		// /etc / /proc / /dev are bound by the runner unconditionally.
+		FSRead:  []string{"/bin", "/sbin", "/tmp", "/var/tmp"},
 		FSWrite: []string{"/tmp", "/var/tmp"},
+		Mask:    []string{"/tmp", "/var/tmp"},
 		// Network: passthrough. Operators wanting deny set "deny"
 		// explicitly; per-host allowlists are a future config-driven
 		// surface, not the default.
@@ -538,17 +540,6 @@ func NewDefaultSandboxPolicy(workdir string) any {
 	if workdir != "" {
 		p.FSRead = append(p.FSRead, workdir)
 		p.FSWrite = append(p.FSWrite, workdir)
-	}
-	// ssh-agent forwarding, default-on (decision 2026-06-13): when the
-	// host has an agent socket, bind it + keep SSH_AUTH_SOCK so
-	// git-over-ssh works from a sandboxed bash tool call. Only the
-	// socket crosses the boundary — never key bytes. No masking here:
-	// this default doesn't bind $HOME, so the key dir is never reachable
-	// (masking is the $HOME-bound broker profile's job). No-op when no
-	// host agent is present.
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		p.Sockets = append(p.Sockets, sock)
-		p.Env = append(p.Env, "SSH_AUTH_SOCK")
 	}
 	return p
 }
@@ -574,12 +565,8 @@ type sandboxPolicy struct {
 	CWD         string   `json:"cwd"`
 	Env         []string `json:"env"` // env vars to keep
 	Unsandboxed bool     `json:"unsandboxed,omitempty"`
-	// Mask names dirs to render unreadable (tmpfs shadow); Sockets names
-	// host unix sockets to bind RW (ssh-agent forwarding). Both map 1:1
-	// to sandbox.Policy.Mask / .Sockets (decision 2026-06-13). Mask is a
-	// restriction (union on intersect); Sockets is an allow (intersect).
-	Mask    []string `json:"mask,omitempty"`
-	Sockets []string `json:"sockets,omitempty"`
+	// Mask names dirs to render unreadable with a tmpfs shadow.
+	Mask []string `json:"mask,omitempty"`
 }
 
 // resolveSandboxPolicy picks the effective sandbox policy for a
@@ -673,12 +660,7 @@ func intersectPolicies(host, guest *sandboxPolicy) *sandboxPolicy {
 		CWD:     host.CWD,
 		// Mask is a restriction: union so a tmpfs shadow either side
 		// wants survives (guest can add masks, never remove the host's).
-		// Sockets is an allow: intersect like FSRead/Env — guest can
-		// only narrow the host's forwarded sockets (a nil guest list
-		// inherits the host's, so the default-on agent socket survives
-		// for plugins that don't mention sockets).
-		Mask:    unionStringList(host.Mask, guest.Mask),
-		Sockets: intersectStringList(host.Sockets, guest.Sockets),
+		Mask: unionStringList(host.Mask, guest.Mask),
 	}
 	return out
 }
@@ -857,10 +839,9 @@ func sandboxRunnerForHost(host *Host) sandbox.Runner {
 }
 
 // toSandboxPolicy translates the wasm-side wire shape into a
-// sandbox.Policy. Extracted from buildSandboxedCmd so the field mapping
-// — including the ssh-agent passthrough fields Mask/Sockets (decision
-// 2026-06-13) — is unit-testable without a runner. CWD defaults to
-// workdir when the policy leaves it blank.
+// sandbox.Policy. Extracted from buildSandboxedCmd so the field mapping is
+// unit-testable without a runner. CWD defaults to workdir when the policy
+// leaves it blank.
 func toSandboxPolicy(policy *sandboxPolicy, workdir string) sandbox.Policy {
 	cwd := policy.CWD
 	if cwd == "" {
@@ -881,6 +862,5 @@ func toSandboxPolicy(policy *sandboxPolicy, workdir string) sandbox.Policy {
 		CWD:     cwd,
 		Env:     policy.Env,
 		Mask:    policy.Mask,
-		Sockets: policy.Sockets,
 	}
 }

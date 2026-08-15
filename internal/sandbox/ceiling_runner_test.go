@@ -105,45 +105,20 @@ func TestCeilingRunner_EnforcesExecCeiling(t *testing.T) {
 	}
 }
 
-// TestCeilingRunner_ForwardsCeilingSocketAndMask: a forwarded socket + mask in
-// the ceiling must reach the inner Policy even when the per-call Policy names
-// neither. The socket is an operator-granted, session-level capability — a
-// silent per-call should INHERIT it, not have it intersected away (the bug
-// fixed for ssh-agent passthrough). Mask flows through via union.
-func TestCeilingRunner_ForwardsCeilingSocketAndMask(t *testing.T) {
+// TestCeilingRunner_AppliesCeilingMask proves a ceiling mask reaches the inner
+// policy even when the per-call policy does not repeat it.
+func TestCeilingRunner_AppliesCeilingMask(t *testing.T) {
 	inner := &recordingRunner{available: true}
 	ceiling := Policy{
-		FSRead:  []string{"/work"},
-		Mask:    []string{"/home/u/.ssh"},
-		Sockets: []string{"/run/agent.sock"},
+		FSRead: []string{"/work"},
+		Mask:   []string{"/home/u/.ssh"},
 	}
 	wrapped := NewCeilingRunner(inner, ceiling)
-	perCall := Policy{FSRead: []string{"/work"}} // no sockets, no mask
+	perCall := Policy{FSRead: []string{"/work"}}
 	_, _ = wrapped.Command(context.Background(), perCall, "true", nil, nil)
 
-	if !hasPath(inner.gotPolicy.Sockets, "/run/agent.sock") {
-		t.Errorf("ceiling socket not inherited by inner Policy: %v", inner.gotPolicy.Sockets)
-	}
 	if !hasPath(inner.gotPolicy.Mask, "/home/u/.ssh") {
 		t.Errorf("ceiling mask not applied to inner Policy: %v", inner.gotPolicy.Mask)
-	}
-}
-
-// TestCeilingRunner_PerCallCannotAddSocketBeyondCeiling: the socket-inherit
-// must NOT let a per-call grant itself a socket the ceiling never forwarded
-// (no escalation — the inherit only restores the ceiling's own grant).
-func TestCeilingRunner_PerCallCannotAddSocketBeyondCeiling(t *testing.T) {
-	inner := &recordingRunner{available: true}
-	ceiling := Policy{FSRead: []string{"/work"}, Sockets: []string{"/run/agent.sock"}}
-	wrapped := NewCeilingRunner(inner, ceiling)
-	perCall := Policy{FSRead: []string{"/work"}, Sockets: []string{"/run/evil.sock"}}
-	_, _ = wrapped.Command(context.Background(), perCall, "true", nil, nil)
-
-	// No escalation: a per-call that names a socket the ceiling didn't grant
-	// gets nothing (the intersect drops it; the inherit only fires for a
-	// SILENT per-call, so it doesn't re-add the ceiling's socket here either).
-	if hasPath(inner.gotPolicy.Sockets, "/run/evil.sock") {
-		t.Errorf("per-call escalated a socket beyond the ceiling: %v", inner.gotPolicy.Sockets)
 	}
 }
 

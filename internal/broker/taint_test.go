@@ -2,7 +2,6 @@ package broker
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -103,34 +102,7 @@ func TestEvaluateWithTaint_NoSessionIDIsTaintAgnostic(t *testing.T) {
 	}
 }
 
-func TestEvaluateWithTaint_CleanSessionAdmitsElevatedRole(t *testing.T) {
-	t.Setenv("HOME", "/home/test")
-	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-
-	svc := NewService(DefaultPolicy(), nil)
-	handle, _, err := svc.CreateSession(CapabilityRequest{
-		Purpose: PurposeMainChat,
-		Profile: ProfileDefault,
-		CWD:     "/work",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	// Clean context: elevated subagent role admitted.
-	dec := svc.EvaluateWithTaint(CapabilityRequest{
-		Purpose:   PurposeSubagent,
-		Profile:   ProfileDefault,
-		Role:      "git-fetch", // reserved for phase 7
-		Mode:      "read_only",
-		SessionID: handle.SessionID,
-	})
-	if !dec.Admit {
-		t.Errorf("clean context should admit elevated role; got %#v", dec)
-	}
-}
-
-func TestEvaluateWithTaint_TaintedSessionDeniesElevatedRole(t *testing.T) {
+func TestEvaluateWithTaint_TaintDoesNotChangeExplicitPolicy(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
@@ -147,78 +119,16 @@ func TestEvaluateWithTaint_TaintedSessionDeniesElevatedRole(t *testing.T) {
 	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted); err != nil {
 		t.Fatalf("SetTaint: %v", err)
 	}
-	// Tainted context: elevated subagent role denied by overlay.
+
 	dec := svc.EvaluateWithTaint(CapabilityRequest{
 		Purpose:   PurposeSubagent,
 		Profile:   ProfileDefault,
-		Role:      "git-fetch",
-		Mode:      "read_only",
-		SessionID: handle.SessionID,
-	})
-	if dec.Admit {
-		t.Errorf("tainted context should deny elevated role; got %#v", dec)
-	}
-	if !strings.HasPrefix(dec.Rule, "tainted-deny:") {
-		t.Errorf("rule = %q, want 'tainted-deny:' prefix", dec.Rule)
-	}
-}
-
-func TestEvaluateWithTaint_LogsFinalTaintDenialOnce(t *testing.T) {
-	writer := &MemoryWriter{}
-	svc := NewService(DefaultPolicy(), writer)
-	parent, decision, err := svc.CreateSession(CapabilityRequest{
-		Purpose: PurposeMainChat, Profile: ProfileDefault, CWD: t.TempDir(),
-	})
-	if err != nil || !decision.Admit {
-		t.Fatalf("CreateSession: decision=%+v err=%v", decision, err)
-	}
-	if err := svc.SetTaint(parent.SessionID, parent.controllerToken, TaintTainted); err != nil {
-		t.Fatal(err)
-	}
-	before := len(writer.Records())
-	got := svc.EvaluateWithTaint(CapabilityRequest{
-		Purpose: PurposeSubagent, Profile: ProfileDefault,
-		SessionID: parent.SessionID, Role: "git-fetch",
-	})
-	if got.Admit || got.Rule != "tainted-deny:git-fetch" {
-		t.Fatalf("decision = %+v", got)
-	}
-	records := writer.Records()
-	if len(records) != before+1 {
-		t.Fatalf("decision records grew by %d, want 1", len(records)-before)
-	}
-	if logged := records[len(records)-1].Decision; logged.Admit || logged.Rule != got.Rule {
-		t.Fatalf("logged decision = %+v, want %+v", logged, got)
-	}
-}
-
-func TestEvaluateWithTaint_TaintedSessionAdmitsNonElevatedRole(t *testing.T) {
-	t.Setenv("HOME", "/home/test")
-	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-
-	svc := NewService(DefaultPolicy(), nil)
-	handle, _, err := svc.CreateSession(CapabilityRequest{
-		Purpose: PurposeMainChat,
-		Profile: ProfileDefault,
-		CWD:     "/work",
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	if err := svc.SetTaint(handle.SessionID, handle.controllerToken, TaintTainted); err != nil {
-		t.Fatalf("SetTaint: %v", err)
-	}
-	// Tainted context but ordinary role: still admitted.
-	dec := svc.EvaluateWithTaint(CapabilityRequest{
-		Purpose:   PurposeSubagent,
-		Profile:   ProfileDefault,
-		Role:      "explorer", // non-elevated
+		Role:      "explorer",
 		Mode:      "read_only",
 		SessionID: handle.SessionID,
 	})
 	if !dec.Admit {
-		t.Errorf("tainted context with non-elevated role should still admit; got %#v", dec)
+		t.Errorf("taint changed explicit default policy: %#v", dec)
 	}
 }
 
@@ -237,21 +147,5 @@ func TestEvaluateWithTaint_DeniedBaseStaysDenied(t *testing.T) {
 	if err == nil && handle.SessionID != "" {
 		// CreateSession itself was denied so we can't continue.
 		t.Skip("CreateSession denied; can't test overlay against existing session")
-	}
-}
-
-func TestIsElevatedSubagentRole(t *testing.T) {
-	cases := map[string]bool{
-		"git-fetch":     true,
-		"git-sub-agent": true,
-		"explorer":      false,
-		"worker":        false,
-		"":              false,
-		"unknown":       false,
-	}
-	for role, want := range cases {
-		if got := isElevatedSubagentRole(role); got != want {
-			t.Errorf("isElevatedSubagentRole(%q) = %v, want %v", role, got, want)
-		}
 	}
 }

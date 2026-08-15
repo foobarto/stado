@@ -56,10 +56,9 @@ type sessionState struct {
 	role       string
 	mode       string
 	generation uint64
-	// taint is the session's current provenance state (phase 6).
-	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
-	// for capability-grant decisions that should refuse when the
-	// requesting context is tainted.
+	// taint is the session's current coarse provenance marker (phase 6).
+	// Mutated via Service.SetTaint and persisted for audit/status; it does not
+	// alter capability admission.
 	taint Taint
 }
 
@@ -291,7 +290,7 @@ func (s *Service) createSubagentSession(req CapabilityRequest) (SessionHandle, D
 		s.sessionsMu.Unlock()
 		return SessionHandle{}, Decision{}, fmt.Errorf("broker: subagent profile %q differs from parent profile %q", req.Profile, parent.Profile)
 	}
-	d := decisionWithTaint(req, base, parentState.taint)
+	d := base
 	if !d.Admit {
 		s.sessionsMu.Unlock()
 		s.logDecision(req, d)

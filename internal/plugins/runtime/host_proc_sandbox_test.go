@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"math"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -203,7 +204,7 @@ func TestResolveSandboxPolicy(t *testing.T) {
 // execvp. Both confirmed empirically by codex.
 //
 // The corrected default sets Net="allow" explicitly and binds
-// /bin /sbin /tmp /var/tmp /run via FSRead so common shell patterns
+// /bin /sbin /tmp /var/tmp via FSRead so common shell patterns
 // work. This test fails if anyone reverts to the old shape.
 func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 	policy := NewDefaultSandboxPolicy("/some/workdir")
@@ -219,7 +220,7 @@ func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 			"Empty string falls through buildSandboxedCmd's switch and produces NetDenyAll — "+
 			"that's the bug fixed in the 2026-05-09 second pass.", resolved.Net)
 	}
-	wantReads := map[string]bool{"/bin": true, "/sbin": true, "/tmp": true, "/var/tmp": true, "/run": true}
+	wantReads := map[string]bool{"/bin": true, "/sbin": true, "/tmp": true, "/var/tmp": true}
 	got := map[string]bool{}
 	for _, p := range resolved.FSRead {
 		got[p] = true
@@ -234,6 +235,14 @@ func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 	}
 	if !slices.Contains(resolved.FSWrite, "/some/workdir") {
 		t.Errorf("default policy FSWrite missing workdir: %v", resolved.FSWrite)
+	}
+	if slices.Contains(resolved.FSRead, "/run") {
+		t.Errorf("default policy must not expose broad host runtime sockets: %v", resolved.FSRead)
+	}
+	for _, scratch := range []string{"/tmp", "/var/tmp"} {
+		if !slices.Contains(resolved.Mask, scratch) {
+			t.Errorf("default policy must make %s private: masks=%v", scratch, resolved.Mask)
+		}
 	}
 }
 
@@ -489,95 +498,60 @@ func TestNewDefaultSandboxPolicy_ActuallyRunsBash(t *testing.T) {
 	if !hasSandboxRunner() {
 		t.Skip("native sandbox runner not detected; integration test requires bwrap or firejail")
 	}
-	policy := NewDefaultSandboxPolicy("/tmp").(*sandboxPolicy)
+	workdir := t.TempDir()
+	hostScratch := t.TempDir()
+	probe := hostScratch + "/host-only"
+	if err := os.WriteFile(probe, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := workdir + "/output"
+	policy := NewDefaultSandboxPolicy(workdir).(*sandboxPolicy)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd, err := buildSandboxedCmd(ctx, policy, "/tmp", []string{"/bin/sh", "-c", "echo ok"}, nil)
+	cmd, err := buildSandboxedCmd(ctx, policy, workdir, []string{"/bin/sh", "-c", "test ! -e '" + probe + "' && echo ok > '" + output + "'"}, nil)
 	if err != nil {
 		t.Fatalf("buildSandboxedCmd with default policy: %v", err)
 	}
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
-		t.Fatalf("running /bin/sh -c 'echo ok' under default policy failed: %v\noutput: %s", runErr, out)
+		t.Fatalf("running shell under default policy failed: %v\noutput: %s", runErr, out)
 	}
-	if !strings.Contains(string(out), "ok") {
-		t.Errorf("expected 'ok' in output; got %q", out)
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("restored workdir was not writable: %v", err)
+	}
+	if string(got) != "ok\n" {
+		t.Errorf("output = %q, want ok", got)
 	}
 }
 
-// TestToSandboxPolicy_TranslatesMaskSockets pins the ssh-agent
-// passthrough translation (decision 2026-06-13): a sandboxPolicy with
-// Mask/Sockets/Env must produce a sandbox.Policy carrying those fields so
-// the runner emits the tmpfs shadow + socket bind + SSH_AUTH_SOCK setenv.
-// Without this, git-over-ssh from a sandboxed bash tool call can't reach
-// the forwarded agent.
-func TestToSandboxPolicy_TranslatesMaskSockets(t *testing.T) {
+func TestToSandboxPolicy_TranslatesMask(t *testing.T) {
 	sp := &sandboxPolicy{
-		CWD:     "/work",
-		Mask:    []string{"/home/u/.ssh"},
-		Sockets: []string{"/run/user/1000/keyring/ssh"},
-		Env:     []string{"SSH_AUTH_SOCK"},
-		Net:     "allow",
+		CWD:  "/work",
+		Mask: []string{"/home/u/.ssh"},
+		Net:  "allow",
 	}
 	p := toSandboxPolicy(sp, "/work")
 	if len(p.Mask) != 1 || p.Mask[0] != "/home/u/.ssh" {
 		t.Errorf("Mask not translated: got %v", p.Mask)
 	}
-	if len(p.Sockets) != 1 || p.Sockets[0] != "/run/user/1000/keyring/ssh" {
-		t.Errorf("Sockets not translated: got %v", p.Sockets)
-	}
-	foundEnv := false
-	for _, e := range p.Env {
-		if e == "SSH_AUTH_SOCK" {
-			foundEnv = true
-		}
-	}
-	if !foundEnv {
-		t.Errorf("Env should carry SSH_AUTH_SOCK: got %v", p.Env)
-	}
 }
 
-// TestNewDefaultSandboxPolicy_ForwardsAgentWhenSet asserts the host
-// default (used by mcp-server/daemon to auto-confine bash tool calls)
-// forwards the host agent socket + keeps SSH_AUTH_SOCK when present, so
-// git-over-ssh works from a sandboxed tool call. Default-on.
-func TestNewDefaultSandboxPolicy_ForwardsAgentWhenSet(t *testing.T) {
-	sock := "/run/user/1000/keyring/ssh"
+// The host default must not implicitly inherit credential-bearing environment
+// variables. In particular, setting SSH_AUTH_SOCK outside the sandbox does not
+// grant the sandbox access to it.
+func TestNewDefaultSandboxPolicy_DoesNotForwardSSHAgent(t *testing.T) {
+	sock := "/tmp/ssh-test/agent.1"
 	t.Setenv("SSH_AUTH_SOCK", sock)
 	policy := NewDefaultSandboxPolicy("/work").(*sandboxPolicy)
 
-	foundSock := false
-	for _, s := range policy.Sockets {
-		if s == sock {
-			foundSock = true
-		}
-	}
-	if !foundSock {
-		t.Errorf("default policy should forward agent socket %q; got %v", sock, policy.Sockets)
-	}
-	foundEnv := false
 	for _, e := range policy.Env {
 		if e == "SSH_AUTH_SOCK" {
-			foundEnv = true
+			t.Fatalf("default policy forwarded SSH_AUTH_SOCK: %v", policy.Env)
 		}
 	}
-	if !foundEnv {
-		t.Errorf("default policy Env should keep SSH_AUTH_SOCK; got %v", policy.Env)
-	}
-}
-
-// TestNewDefaultSandboxPolicy_NoAgentWhenUnset asserts the default is
-// inert when no host agent is present.
-func TestNewDefaultSandboxPolicy_NoAgentWhenUnset(t *testing.T) {
-	t.Setenv("SSH_AUTH_SOCK", "")
-	policy := NewDefaultSandboxPolicy("/work").(*sandboxPolicy)
-	if len(policy.Sockets) != 0 {
-		t.Errorf("no host agent → no forwarded socket; got %v", policy.Sockets)
-	}
-	for _, e := range policy.Env {
-		if e == "SSH_AUTH_SOCK" {
-			t.Errorf("no host agent → SSH_AUTH_SOCK should not be kept; got %v", policy.Env)
-		}
+	if !slices.Contains(policy.Mask, "/tmp") || !slices.Contains(policy.Mask, "/var/tmp") {
+		t.Fatalf("host scratch roots are not private: %v", policy.Mask)
 	}
 }
 

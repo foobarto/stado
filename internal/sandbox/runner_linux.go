@@ -23,7 +23,7 @@ func detectList() []Runner {
 }
 
 // BwrapRunner wraps commands in bubblewrap (bwrap). Requires the `bwrap`
-// binary on PATH. Maps Policy fields to --ro-bind / --bind / --setenv /
+// binary on PATH. Maps Policy fields to --ro-bind / --setenv /
 // --unshare-net flags.
 type BwrapRunner struct{}
 
@@ -39,6 +39,9 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	bwrapArgs := []string{
 		"--die-with-parent",
 		"--new-session",
+		// bwrap otherwise inherits the complete launcher environment. Clear it
+		// before adding the policy-filtered variables below.
+		"--clearenv",
 		"--unshare-pid",
 		"--unshare-ipc",
 		"--unshare-uts",
@@ -65,8 +68,6 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		bwrapArgs = append(bwrapArgs, "--bind-try", wp, wp)
 	}
 
-	// SSH-agent-passthrough / credential masking (decision 2026-06-13).
-	//
 	// Mask renders a directory unreadable even though an ancestor was
 	// bound RO above (e.g. HOME bound RO, but the key dir must not be
 	// exfiltratable). bwrap applies operations in argv order, so the
@@ -78,23 +79,19 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	for _, mp := range p.Mask {
 		bwrapArgs = append(bwrapArgs, "--tmpfs", mp)
 	}
-	// Restore the safe files: any FSRead entry that lives UNDER a masked
-	// dir gets re-bound on top of the tmpfs (host-verification +
-	// connection config). --ro-bind-try, not --ro-bind, so a missing
-	// safe file doesn't fail the whole sandbox.
+	// Restore explicitly allowed paths: any FSRead entry that lives UNDER a
+	// masked dir gets re-bound on top of the tmpfs. Paths also covered by
+	// FSWrite remain writable (for example a workdir below private /tmp);
+	// the rest are restored read-only.
 	for _, rp := range p.FSRead {
 		if underAnyMask(rp, p.Mask) {
-			bwrapArgs = append(bwrapArgs, "--ro-bind-try", rp, rp)
+			bindMode := "--ro-bind-try"
+			if resolvedPathWithinAny(rp, p.FSWrite) {
+				bindMode = "--bind-try"
+			}
+			bwrapArgs = append(bwrapArgs, bindMode, rp, rp)
 		}
 	}
-	// Forward host unix sockets (e.g. the agent socket). Only the socket
-	// crosses the boundary; key bytes stay in the agent. --bind (RW): an
-	// agent socket needs bidirectional traffic. The matching env var is
-	// carried via p.Env (filterEnv keeps it) + --setenv below.
-	for _, sock := range p.Sockets {
-		bwrapArgs = append(bwrapArgs, "--bind", sock, sock)
-	}
-
 	childEnv := filterEnv(baseEnv(env), p.Env)
 	cleanup := func() {}
 	usePasta := false
@@ -202,18 +199,17 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	return cmd, nil
 }
 
-// underAnyMask reports whether path p sits inside (or equals) any of the
-// masked directories. Used to decide which FSRead entries to re-bind on
-// top of a Mask tmpfs (the "shadow then selectively restore" pattern).
-// Comparison is lexical on cleaned paths with a trailing-separator guard
-// so "/a/.sshX" is NOT treated as under "/a/.ssh".
+// underAnyMask reports whether path p is a strict descendant of a masked
+// directory. It decides which explicit FSRead entries to re-bind on top of a
+// Mask tmpfs (the "shadow then selectively restore" pattern). Equality is
+// intentionally excluded: restoring an exact masked root such as /tmp would
+// expose the host directory and defeat the mask. Comparison is lexical on
+// cleaned paths with a trailing-separator guard, so "/a/.sshX" is not treated
+// as under "/a/.ssh".
 func underAnyMask(p string, masks []string) bool {
 	cp := filepath.Clean(p)
 	for _, m := range masks {
 		cm := filepath.Clean(m)
-		if cp == cm {
-			return true
-		}
 		if strings.HasPrefix(cp, cm+string(filepath.Separator)) {
 			return true
 		}

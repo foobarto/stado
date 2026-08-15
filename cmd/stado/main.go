@@ -68,8 +68,8 @@ var rootCmd = &cobra.Command{
 		// hand it to tui.Run to render in-band as a system block.
 		startupNotices := sandbox.HostUnsandboxedLines(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
-			// Broker attach + ceiling enforcement (credential-dir mask +
-			// ssh-agent forwarding) is shared with `session resume` via
+			// Broker attach + ceiling enforcement, including credential-directory
+			// masks, is shared with `session resume` via
 			// launchInlineTUI so both inline-TUI launches behave identically.
 			// The sandbox banner is folded into startupNotices because the
 			// alt-screen clears pre-launch stderr.

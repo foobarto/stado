@@ -238,7 +238,7 @@ func (s *Service) bindPlugin(ctx context.Context, sessionID, controllerToken str
 		Purpose: PurposeToolRun, Profile: session.handle.Profile, CWD: session.handle.CWD,
 		PluginName: identity.Namespace, SessionID: sessionID,
 	}
-	admission := decisionWithTaint(admissionRequest, s.evaluate(admissionRequest), session.taint)
+	admission := s.evaluate(admissionRequest)
 	if !admission.Admit {
 		s.sessionsMu.RUnlock()
 		s.logDecision(admissionRequest, admission)

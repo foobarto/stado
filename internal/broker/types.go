@@ -94,11 +94,9 @@ type CapabilityRequest struct {
 	Mode       string
 	WriteScope []string
 
-	// SessionID, when set, identifies the requesting session whose
-	// taint state should factor into the decision (phase 6). Used by
-	// Service.EvaluateWithTaint to apply stricter rules for
-	// capability-grant requests from tainted contexts. Empty makes
-	// the evaluation taint-agnostic.
+	// SessionID, when set, identifies the requesting session for audit
+	// correlation. Taint is provenance metadata; explicit capabilities,
+	// not taint-derived policy matrices, determine authority.
 	SessionID string
 }
 

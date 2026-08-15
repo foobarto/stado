@@ -117,12 +117,12 @@ the signature against the pinned trust store. Revocation is
 supported via `[plugins].crl_url` — stado refuses to install or
 run anything on the revocation list.
 
-## Credential masking + ssh-agent forwarding
+## Credential masking
 
 For a broker-mediated sandboxed session the default profile binds the
 operator's home directory read-only for ergonomics. That would leave the
-per-user SSH key directory reachable, so two default-on halves close the
-gap (decision 2026-06-13):
+per-user SSH key directory reachable, so the runner masks that credential
+directory:
 
 - **The SSH key directory is masked.** The runner shadows the key
   directory with an empty `tmpfs`, then re-binds the safe files
@@ -130,26 +130,20 @@ gap (decision 2026-06-13):
   inside become unreadable from the sandbox even though home is bound
   read-only — they can't be exfiltrated.
 
-- **The ssh-agent socket is forwarded.** When the host has
-  `$SSH_AUTH_SOCK` set, the runner binds that unix socket into the
-  sandbox and re-exports `SSH_AUTH_SOCK`, so `git` over ssh works from a
-  sandboxed tool call. **Only the socket crosses the boundary — key
-  bytes never enter the sandbox.** The agent signs on the host; the
-  sandbox only asks it to.
+This is wired into `sandbox.Policy.Mask`. Masks combine as a union because
+masking is a restriction: either side can hide more, but neither can unmask a
+path hidden by the other.
 
-This is wired into `sandbox.Policy` as two fields: `Mask` (paths to
-render unreadable; combined as a union — masking is a restriction) and
-`Sockets` (host unix sockets to bind; combined as an intersection — a
-bind is an allow a guest can only narrow). The startup banner notes when
-the agent is forwarded.
-
-**Accepted residual.** A compromised or prompt-injected agent in a
-forwarded session could abuse the socket to sign arbitrary git
-operations (push/commit) for the session's lifetime. The key itself is
-never exposed. The eventual hardening — a short-lived, fetch-only,
-approval- and taint-gated git sub-agent that alone holds the socket
-(EP-0050 phase 7) — is not built here; the operator accepts the residual
-for the pragmatic main-session forwarding.
+Stado does not forward `$SSH_AUTH_SOCK`, expose a generic host-socket bind
+capability, or include broad `/run` access in the autonomous process profile.
+Sandbox environment filtering drops SSH-agent variables even when a guest asks
+to keep them. The autonomous process profile uses private tmpfs mounts for
+`/tmp` and `/var/tmp`, so host IPC and credential sockets there are not
+inherited. Git-over-SSH
+therefore needs credentials provisioned outside Stado or an explicitly
+unsandboxed operator workflow. Short-lived, narrowly scoped SSH credential
+provisioning is intentionally a separate system concern rather than a Stado
+sub-agent role.
 
 ## Capability vocabulary
 

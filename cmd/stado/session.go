@@ -435,9 +435,8 @@ var sessionResumeCmd = &cobra.Command{
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 			// Resume attaches to the broker and enforces its projected
 			// ceiling exactly like the bare TUI (shared launchInlineTUI), so a
-			// resumed session gets the same credential-dir mask + ssh-agent
-			// forwarding (decision 2026-06-13: resume previously passed a zero
-			// ceiling + enforce=false and so ran un-fenced).
+			// resumed session gets the same credential-directory masks and
+			// ceiling enforcement; it previously ran with a zero ceiling.
 			return launchInlineTUI(ctx, cfg, startupNotices, rt.M())
 		})
 	},

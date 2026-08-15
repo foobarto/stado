@@ -58,12 +58,10 @@ func brokerExecutorSandbox(bs *BrokerSession, disabled bool) runtime.ExecutorSan
 
 // launchInlineTUI attaches to the broker for an inline TUI launch — the bare
 // `stado` command AND `stado session resume` — folds the sandbox-mode banner
-// into the startup notices, enforces the broker's projected ceiling (the
-// credential-dir mask + the forwarded ssh-agent socket), and boots the TUI.
+// into the startup notices, enforces the broker's projected ceiling (including
+// credential-directory masks), and boots the TUI.
 // Both entry points share it so a resumed session gets exactly the same
-// sandbox treatment as a fresh one (decision 2026-06-13: ssh-agent passthrough
-// scope — previously `session resume` passed a zero ceiling + enforce=false and
-// so ran un-fenced). Closes the broker session on return.
+// sandbox treatment as a fresh one. Closes the broker session on return.
 func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string, metrics telemetry.Metrics) error {
 	cwd, _ := os.Getwd()
 	bs, err := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
@@ -1118,14 +1116,6 @@ func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
 	if maskedCount := countMaskedPaths(s.Profile); maskedCount > 0 {
 		fmt.Fprintf(w, "%s: %d credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)\n",
 			surface, maskedCount)
-	}
-	// ssh-agent forwarding, default-on (decision 2026-06-13): surface
-	// that the host agent socket is bound (only the socket — key bytes
-	// stay in the agent) so the operator knows git-over-ssh works AND
-	// that a compromised session could abuse the socket for its
-	// lifetime (the accepted residual).
-	if len(s.Ceiling.Sockets) > 0 {
-		fmt.Fprintf(w, "%s: ssh-agent forwarded (socket only; keys never enter the sandbox)\n", surface)
 	}
 }
 
