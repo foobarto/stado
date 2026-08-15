@@ -147,7 +147,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&rootModel, "model", "",
 		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
 	rootCmd.PersistentFlags().BoolVar(&noSandbox, "no-sandbox", false,
-		"Opt out of the v1 default sandbox: disable bwrap + Landlock. The agent operates on your actual filesystem with no namespace isolation. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
+		"Opt out of the host-default WASM process/PTY sandbox and Landlock. Configured stdio MCP servers retain their capability-derived runner. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
 	rootCmd.AddCommand(versionCmd, configPathCmd, secretsCmd)
 	// Set Version so cobra wires up the standard `--version` global
 	// flag (alongside the `stado version` subcommand). Same source

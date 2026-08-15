@@ -464,52 +464,60 @@ they've pinned your real pubkey.
 
 ## Host sandbox
 
-stado spawns host subprocesses from many places — the TUI shell, plugin
-runners, LSP servers, the daemon, post-turn hooks, scheduled tasks, MCP
-wrappers, ACP providers. Those subprocesses inherit the host's
-filesystem and network access unless stado is itself wrapped under a
-process-containment sandbox. Supported Linux wrappers are **bwrap** and
-**firejail** (`internal/sandbox/wrap.go` → `pickRunner`). Linux is the only
-supported platform now and through v1; remaining Darwin or Windows code carries
-no current support or security promise
+stado derives a Linux host-default executor policy across TUI, `stado run`,
+`stado run --headless`, ACP, and `mcp-server`. Process and PTY imports that do
+not supply a guest policy receive that default, with the launch cwd and
+temporary directories as the intended writable filesystem scope. A
+broker-attached session projects an additional process ceiling; the guest
+policy and broker ceiling can narrow the host default but cannot widen it.
+
+Policy selection alone does not prove that every kernel mechanism is active:
+
+- WASM process and PTY imports use bubblewrap when it is available and fail
+  rather than silently run direct when their requested policy has no enforcing
+  Linux runner. The lower-level `sandbox.Detect()` abstraction itself falls
+  back to `NoneRunner`; caller paths that use that generic runner, including
+  stdio MCP subprocess launch, are not namespace-confined when bubblewrap is
+  unavailable.
+- The seccomp deny-list is defense in depth on the normal bubblewrap paths. It
+  is skipped for host-allowlist networking through `pasta`, and a filter setup
+  failure emits a warning and continues under bubblewrap without seccomp.
+- Direct `stado run` attempts to apply Landlock to the stado process. Landlock
+  unavailability is non-fatal and emits a warning before continuing without
+  that in-process write restriction.
+
+Use `stado doctor` to inspect the runner and Landlock availability on the
+actual host. Treat `runner: none`, a seccomp warning, or a Landlock warning as
+a real reduction in containment, not as equivalent to the full Linux posture.
+
+`--no-sandbox` is the explicit operator opt-out from the host-default WASM
+process/PTY policy on every top-level surface; it also skips Landlock where
+that layer is used. It does not disable the separately capability-derived
+runner for configured stdio MCP servers, which still uses `sandbox.Detect()`.
+`STADO_BROKER_ATTACH=0` only skips the broker-projected ceiling; it does not
+disable the local host-default sandbox.
+
+The older `[sandbox] mode = "wrap"` configuration remains available as an
+optional additional outer wrapper around stado itself. Its bwrap/firejail
+re-exec path and `WarnIfHostUnsandboxed` notices describe that outer-wrapper
+layer, not whether model-invoked subprocesses receive the default executor
+policy. Do not use `mode = "off"` or `STADO_SUPPRESS_SANDBOX_WARN=1` as a
+substitute for `--no-sandbox`; those settings only control the legacy wrapper
+and its notice.
+
+The default broker profile binds the operator's home directory read-only while
+masking private SSH key material. When an SSH agent is present, current v0.80.x
+builds may bind its socket into the sandbox so git-over-SSH remains usable; a
+compromised agent can ask that socket to sign even though it cannot read the
+key bytes. Treat that delegated signing authority as an accepted v0.80.x
+residual, not credential isolation. The exact capability and containment
+boundaries are maintained in
+[the threat model](docs/security/threatmodel.md) and
+[sandboxing documentation](docs/features/sandboxing.md).
+
+Linux is the only supported platform now and through v1. Darwin and Windows
+carry no current build, runtime, or containment promise
 ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
-
-The wrap is opt-in via `[sandbox] mode = "wrap"` in `config.toml`.
-Default is `off`. Only `stado run` re-execs itself under the wrapper
-today (`internal/sandbox/wrap.go` → `MaybeRewrap`); the bare TUI,
-`stado session resume`, and `stado run --headless` do NOT re-exec yet — they
-run unwrapped even with `mode = "wrap"` configured.
-
-To make this observable, all four entry points call
-`sandbox.WarnIfHostUnsandboxed` (`internal/sandbox/announce.go`) once
-per process.
-
-**Emits a warning to stderr when:**
-
-- `mode = "off"` / unset (the default) — host is unsandboxed; warning
-  points at the `[sandbox]` config knob and the supported wrappers.
-- `mode = "wrap"` but not the wrapped child — flags the gap that only
-  `stado run` re-execs today, so TUI / run-headless / session-resume still
-  run unwrapped under this config.
-- `mode = "external"` but no wrapper evidence is detected (i.e.
-  `STADO_REWRAPPED` is unset AND `looksWrapped()` returns false) — the
-  operator claims to handle wrapping externally but the entry point
-  doesn't appear to be running under one. Only `stado run` validates
-  this today via `MaybeRewrap`; the other entry points need the warning.
-
-**Suppressed silently when:**
-
-- `STADO_REWRAPPED=1` — we ARE the wrapped child; the sandbox is
-  active around us, warning would be a lie.
-- `STADO_SUPPRESS_SANDBOX_WARN=1` — operator/CI opt-out.
-- `mode = "external"` AND the process IS wrapped — the operator's
-  external setup is honored.
-
-The warning is a sync.Once across the process — three calls to the
-helper produce exactly one block, not three. Setting
-`STADO_SUPPRESS_SANDBOX_WARN=1` is the intended way to silence it for
-operators who knowingly accept the posture (e.g. running on a host
-that's already containerised, or in CI).
 
 ## Reporting a vulnerability
 

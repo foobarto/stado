@@ -77,10 +77,16 @@ Immediate work, in order:
 1. **Close the build-state marker in v0.80.2.** Re-run the full release gates
    and prove the clean downloaded binary reports `modified: false` before
    publishing the SSH-agent-signed patch tag.
-2. **Begin the authority/security EP for agent-driven tool-use auto-approval.**
-   Specify prediction versus authority, broker/plugin/sandbox ceilings, audit,
-   revocation, and failure behavior before writing implementation code.
-3. **Decide Minisign provisioning deliberately.** It remains optional until
+2. **Remove broad SSH-agent forwarding after v0.80.2.** Delete the Stado
+   socket-forwarding feature, tests, and documentation in a separate change;
+   do not mix that authority change into the corrective release.
+3. **Reconcile memory ownership and bounded failure behavior.** Treat memory
+   as primarily agent-owned, express main-session versus child authority as
+   explicit capabilities that children may lose but never mint, and replace
+   banking-grade compound-error recovery with deliberate stop/retry behavior.
+4. **Keep agent-driven auto-approval in incubation.** Do not revise or
+   implement the current draft until the operator explicitly resumes it.
+5. **Decide Minisign provisioning deliberately.** It remains optional until
    the CI secret and long-lived offline release root are intentionally created;
    do not imply that current releases contain either.
 
@@ -107,12 +113,13 @@ Owning EPs: [EP-0030](docs/eps/0030-security-research-default-harness.md) and
 
 Remaining gates:
 
-- complete provenance assignment at every ingestion point and feed taint into
-  broker policy without content classification;
+- retain the signed tree/trace history as the provenance and audit substrate;
+  do not add generalized taint propagation or a taint-policy matrix without a
+  concrete preventive boundary that the existing audit cannot provide;
 - move all canonical trace/event writes behind broker ownership;
-- complete narrow ssh-agent/git-child construction, fetch-oriented dispatch,
-  scoped egress, deterministic teardown, and removal of broad main-session
-  socket forwarding;
+- remove broad main-session and git-child SSH-agent socket forwarding from
+  Stado; short-lived, narrowly scoped SSH credential provisioning belongs in
+  a separate project rather than this runtime;
 - exercise mount, namespace, Landlock, seccomp, credential-mask, and network
   invariants in real Linux integration tests;
 - finish the adversarial default harness and make its declared status honest.
@@ -245,13 +252,14 @@ The following checks are v1 release requirements, not optional housekeeping:
 - treating draft [EP-0040](docs/eps/0040-bundled-local-inference.md) or
   [EP-0047](docs/eps/0047-structured-loop-result-and-output.md) as committed work.
 
-## Next product proposal
+## Incubating product proposal
 
-After the corrective sequence, the next intended feature is agent-driven
-tool-use auto-approval. It begins with a security and authority EP, not code.
-The design must distinguish prediction of operator intent from actual authority,
-must stay under the broker/plugin/sandbox ceilings, must be auditable and easy
-to revoke, and must not recreate approval prompts as the containment boundary.
+Agent-driven tool-use auto-approval remains an intentionally paused idea. Do
+not revise its draft or begin implementation until the operator explicitly
+resumes it. If resumed, it begins with a security and authority EP, not code:
+prediction of operator intent is not authority, and any mechanism remains below
+the broker/plugin/sandbox ceilings without recreating per-call approval prompts
+as the containment boundary.
 
 ## Definition of v1 complete
 

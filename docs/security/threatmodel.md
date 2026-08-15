@@ -33,12 +33,16 @@ per-session process ceiling that is composed with OS subprocess containment.
 TUI, `stado run`, `stado run --headless`, ACP, and `mcp-server` all derive the
 same executor sandbox decision and retain it for every executor they create.
 `stado_exec`, `stado_proc_spawn`, and PTY creation use that executor's Linux
-runner: bubblewrap plus seccomp.
-`--no-sandbox` is the explicit process-containment opt-out on every top-level
-surface. `STADO_BROKER_ATTACH=0` skips broker mediation only; it does not select
-`NoneRunner` or remove the local host-default process policy. Network
-allow-listing via a local CONNECT proxy applies to subprocess policies that use
-`NetAllowHosts`.
+runner. With bubblewrap available, the normal paths use its namespaces plus a
+conditional seccomp deny-list; WASM process/PTY imports fail if their requested
+policy has no enforcing runner. The generic detected runner used for configured
+stdio MCP servers may instead fall back to `NoneRunner`.
+`--no-sandbox` removes the host-default WASM process/PTY policy and Landlock on
+every top-level surface. It does not disable the separately capability-derived
+runner used to launch configured stdio MCP servers. `STADO_BROKER_ATTACH=0`
+skips broker mediation only; it does not select `NoneRunner` or remove the
+local host-default process policy. Network allow-listing via a local CONNECT
+proxy applies to subprocess policies that use `NetAllowHosts`.
 
 ## Threat model, Trust boundaries and assumptions
 **Attacker‑controlled inputs**
@@ -75,10 +79,12 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 - **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. `stado_ui_approve` is an opt-in yes/no workflow interaction, not an authentication primitive or a blanket containment gate.
 - Linux is the only supported platform now and through v1 (EP-0065). Darwin
   and Windows are outside the build/runtime contract and carry no current
-  containment guarantee. `--no-sandbox` is the explicit Linux override. Broker
-  attachment is default-on for TUI, `stado run`, `stado run --headless`, ACP,
-  and `mcp-server`; its projected process ceiling reaches all five. Direct
-  `stado run` additionally applies Landlock to the stado process itself.
+  containment guarantee. `--no-sandbox` is the explicit override for the
+  host-default WASM process/PTY policy and Landlock, not configured stdio MCP
+  runner selection. Broker attachment is default-on for TUI, `stado run`,
+  `stado run --headless`, ACP, and `mcp-server`; its projected process ceiling
+  reaches all five. Direct `stado run` additionally attempts Landlock on the
+  stado process itself and warns if the kernel cannot provide it.
 
 ## Attack surface, mitigations and attacker stories
 ### Tool execution & filesystem access
@@ -96,10 +102,11 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
   and landed without changing the tool-visible cwd.
 - Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
 - Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
-- `stado run` (v0.57.0+) applies Linux landlock by default, restricting writes
-  to launch cwd, `/tmp`, and the exact runtime-owned session worktree/sidecar
-  paths required for audit and conversation persistence (reads remain broad at
-  the landlock layer; the capability gate is the tighter read control).
+- `stado run` (v0.57.0+) attempts Linux Landlock by default. When available it
+  restricts writes to launch cwd, `/tmp`, and the exact runtime-owned session
+  worktree/sidecar paths required for audit and conversation persistence
+  (reads remain broad at the Landlock layer; the capability gate is the tighter
+  read control). Unavailability warns and continues without that layer;
   `--no-sandbox` is the explicit per-run opt-out.
 - Residual risk: capabilities are approved as a signed package ceiling at install/trust time and may be attenuated per signed tool. An over-broad effective tool grant or a trusted-but-coerced tool still operates within that scope. There is no per-call confirmation by design (EP-0017).
 
@@ -108,10 +115,11 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
 Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 
 **Risks/attacker stories:**
-- On a Linux host without the required containment primitives, a requested
-  subprocess policy fails because no supported runner can enforce it. The
-  explicit `--no-sandbox` override restores direct execution without the v1
-  containment posture.
+- On a Linux host without bubblewrap, WASM process/PTY imports that request a
+  subprocess policy fail because no supported runner can enforce it. Generic
+  detected-runner callers such as configured stdio MCP launch instead retain
+  the explicit `NoneRunner` fallback. `--no-sandbox` restores direct execution
+  for the host-default WASM process/PTY path without the v1 containment posture.
 - Pre-v0.57.0 `stado run` defaulted to no sandbox. v0.57.0 reversed
   that. Operators who set `--no-sandbox` retake the direct-execution risk;
   `STADO_BROKER_ATTACH=0` only removes the broker-projected ceiling.
@@ -122,8 +130,11 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 **Mitigations:**
 - **Host-default protective policy** (EP-0030): on all five top-level
   orchestrator surfaces, process and PTY imports that omit a guest policy get
-  bubblewrap isolation, a restricted FS view, and the launch cwd as a
-  write boundary. The broker ceiling can only narrow that policy.
+  the restricted host policy with the launch cwd as its intended write
+  boundary. Bubblewrap enforces that filesystem view when available; WASM
+  process/PTY imports fail if it is not. The broker ceiling can only narrow the
+  policy. Generic detected-runner callers retain the `NoneRunner` fallback
+  described above.
 - Network allow‑listing via a local CONNECT proxy (host allow‑list).
 - Every top-level surface gets the protective default without configuration.
 

@@ -22,10 +22,11 @@ A sandboxed, git-native coding agent for the terminal.
 Every tool call is committed to a signed audit log. Agent state lives in
 a sidecar git repo — your working tree stays pristine until you
 explicitly land changes. Tool execution is capability-gated through the
-OS sandbox. Release checksum manifests are Cosign-signed, and release builds
-carry SBOMs plus GitHub provenance. A strict Minisign path is wired for
-offline verification and self-update, but remains inactive until the project
-provisions its release key.
+signed WASM host-import boundary; Linux subprocesses additionally use the
+available kernel-containment layers described below. Release checksum manifests
+are Cosign-signed, and release builds carry SBOMs plus GitHub provenance. A
+strict Minisign path is wired for offline verification and self-update, but
+remains inactive until the project provisions its release key.
 
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux sandboxing, MCP/ACP, signed WASM plugins, retained
@@ -54,7 +55,8 @@ provisions its release key.
 - **Every action is auditable.** Each session maintains signed `tree`
   and `trace` refs; `stado audit verify` detects tampering.
 - **Tool execution is sandboxed.** The supported Linux path composes
-  `Landlock`, `bubblewrap`, namespaces, and `seccomp`. Built-in and
+  `Landlock`, `bubblewrap`, namespaces, and conditional `seccomp` when those
+  mechanisms are available; `stado doctor` reports reductions. Built-in and
   third-party WASM tools run inside `wazero` and are
   gated by manifest capabilities rather than the OS subprocess runner.
 - **Provider support is direct.** Anthropic, OpenAI, Google, and
@@ -113,7 +115,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.80.1
+  bash -s -- --dir /usr/local/bin --version v0.80.2
 ```
 
 ### Self-update (existing installs)
@@ -555,18 +557,21 @@ the TUI approval card explicitly.
 
 ### Sandboxing
 
-As of v0.57.0 stado is **sandboxed by default** across every
+As of v0.57.0 stado's **host-default sandbox policy is enabled** across every
 interactive surface (TUI, `stado run`, `stado run --headless`, `stado acp`,
 `stado mcp-server`). A privileged broker process (an evolution of
 `stado daemon`) projects a per-session capability ceiling and mounts
 the agent's namespace; the orchestrator can only request what global
-policy permits. Opt out with `stado run --no-sandbox` (or
-`STADO_BROKER_ATTACH=0` for development scenarios — see migration
-notes in `CHANGELOG.md` for v0.57.0).
+policy permits. `--no-sandbox` opts out of the host-default WASM process/PTY
+policy and Landlock; configured stdio MCP servers keep their separately
+capability-derived runner. `STADO_BROKER_ATTACH=0` skips only the broker
+ceiling and does not disable the local host-default policy.
 
-- **Linux** — Bubblewrap mounts the agent's namespace; Landlock
-  narrows the parent process to launch-cwd + `/tmp` writes. The
-  built-in `bash` tool defaults to deny-all networking on this path.
+- **Linux** — When available, Bubblewrap mounts the agent's namespace and
+  direct `stado run` applies Landlock to narrow parent-process writes to the
+  launch cwd + `/tmp`. Missing enforcement is reported rather than counted as
+  the full posture. The built-in `bash` tool defaults to deny-all networking
+  on the enforcing path.
   For `net:<host>` policies on subprocesses and MCP stdio servers,
   stado wraps the subprocess in `pasta --splice-only` and exposes only
   its local CONNECT-allowlist proxy port inside the private netns.
