@@ -79,13 +79,17 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	for _, mp := range p.Mask {
 		bwrapArgs = append(bwrapArgs, "--tmpfs", mp)
 	}
-	// Restore the safe files: any FSRead entry that lives UNDER a masked
-	// dir gets re-bound on top of the tmpfs (host-verification +
-	// connection config). --ro-bind-try, not --ro-bind, so a missing
-	// safe file doesn't fail the whole sandbox.
+	// Restore explicitly allowed paths: any FSRead entry that lives UNDER a
+	// masked dir gets re-bound on top of the tmpfs. Paths also covered by
+	// FSWrite remain writable (for example a workdir below private /tmp);
+	// the rest are restored read-only.
 	for _, rp := range p.FSRead {
 		if underAnyMask(rp, p.Mask) {
-			bwrapArgs = append(bwrapArgs, "--ro-bind-try", rp, rp)
+			bindMode := "--ro-bind-try"
+			if resolvedPathWithinAny(rp, p.FSWrite) {
+				bindMode = "--bind-try"
+			}
+			bwrapArgs = append(bwrapArgs, bindMode, rp, rp)
 		}
 	}
 	childEnv := filterEnv(baseEnv(env), p.Env)

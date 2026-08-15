@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"math"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -237,6 +238,11 @@ func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 	}
 	if slices.Contains(resolved.FSRead, "/run") {
 		t.Errorf("default policy must not expose broad host runtime sockets: %v", resolved.FSRead)
+	}
+	for _, scratch := range []string{"/tmp", "/var/tmp"} {
+		if !slices.Contains(resolved.Mask, scratch) {
+			t.Errorf("default policy must make %s private: masks=%v", scratch, resolved.Mask)
+		}
 	}
 }
 
@@ -492,19 +498,30 @@ func TestNewDefaultSandboxPolicy_ActuallyRunsBash(t *testing.T) {
 	if !hasSandboxRunner() {
 		t.Skip("native sandbox runner not detected; integration test requires bwrap or firejail")
 	}
-	policy := NewDefaultSandboxPolicy("/tmp").(*sandboxPolicy)
+	workdir := t.TempDir()
+	hostScratch := t.TempDir()
+	probe := hostScratch + "/host-only"
+	if err := os.WriteFile(probe, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := workdir + "/output"
+	policy := NewDefaultSandboxPolicy(workdir).(*sandboxPolicy)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd, err := buildSandboxedCmd(ctx, policy, "/tmp", []string{"/bin/sh", "-c", "echo ok"}, nil)
+	cmd, err := buildSandboxedCmd(ctx, policy, workdir, []string{"/bin/sh", "-c", "test ! -e '" + probe + "' && echo ok > '" + output + "'"}, nil)
 	if err != nil {
 		t.Fatalf("buildSandboxedCmd with default policy: %v", err)
 	}
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
-		t.Fatalf("running /bin/sh -c 'echo ok' under default policy failed: %v\noutput: %s", runErr, out)
+		t.Fatalf("running shell under default policy failed: %v\noutput: %s", runErr, out)
 	}
-	if !strings.Contains(string(out), "ok") {
-		t.Errorf("expected 'ok' in output; got %q", out)
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("restored workdir was not writable: %v", err)
+	}
+	if string(got) != "ok\n" {
+		t.Errorf("output = %q, want ok", got)
 	}
 }
 
@@ -533,26 +550,8 @@ func TestNewDefaultSandboxPolicy_DoesNotForwardSSHAgent(t *testing.T) {
 			t.Fatalf("default policy forwarded SSH_AUTH_SOCK: %v", policy.Env)
 		}
 	}
-	if len(policy.Mask) != 1 || policy.Mask[0] != "/tmp/ssh-test" {
-		t.Fatalf("active SSH-agent directory was not masked: %v", policy.Mask)
-	}
-}
-
-func TestSSHAgentSocketDirMask_OnlyMasksStrictMountedDescendant(t *testing.T) {
-	roots := []string{"/tmp", "/work"}
-	tests := map[string]string{
-		"/tmp/ssh-a/agent.1":           "/tmp/ssh-a",
-		"/work/.agent/socket":          "/work/.agent",
-		"/run/user/1000/keyring/ssh":   "",
-		"/tmp/agent.sock":              "",
-		"relative/ssh-a/agent.1":       "",
-		"/workaround/.agent/socket":    "",
-		"/work/.agent/../agent/socket": "/work/agent",
-	}
-	for socketPath, want := range tests {
-		if got := sshAgentSocketDirMask(socketPath, roots); got != want {
-			t.Errorf("sshAgentSocketDirMask(%q) = %q, want %q", socketPath, got, want)
-		}
+	if !slices.Contains(policy.Mask, "/tmp") || !slices.Contains(policy.Mask, "/var/tmp") {
+		t.Fatalf("host scratch roots are not private: %v", policy.Mask)
 	}
 }
 

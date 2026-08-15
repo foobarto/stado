@@ -509,8 +509,8 @@ The default broker profile binds the operator's home directory read-only while
 masking private SSH key material. Stado does not forward `$SSH_AUTH_SOCK` or
 offer a generic host-socket bind capability; sandboxed process environments
 drop SSH-agent variables, and the autonomous process profile does not mount
-broad `/run`. When the active socket sits beneath a mounted root, its containing
-directory is masked without replacing the rest of persistent scratch.
+broad `/run`. Its `/tmp` and `/var/tmp` are private tmpfs mounts, so host IPC
+and credential sockets in scratch directories are not inherited.
 Git-over-SSH credentials must be provided outside Stado's sandbox authority,
 preferably as short-lived, narrowly scoped credentials. The exact capability
 and containment boundaries are maintained in

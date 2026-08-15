@@ -137,9 +137,9 @@ path hidden by the other.
 Stado does not forward `$SSH_AUTH_SOCK`, expose a generic host-socket bind
 capability, or include broad `/run` access in the autonomous process profile.
 Sandbox environment filtering drops SSH-agent variables even when a guest asks
-to keep them. When the active socket is inside a mounted subtree such as
-OpenSSH's usual `/tmp/ssh-*/agent.*`, the socket's containing directory is
-masked while the rest of persistent scratch remains available. Git-over-SSH
+to keep them. The autonomous process profile uses private tmpfs mounts for
+`/tmp` and `/var/tmp`, so host IPC and credential sockets there are not
+inherited. Git-over-SSH
 therefore needs credentials provisioned outside Stado or an explicitly
 unsandboxed operator workflow. Short-lived, narrowly scoped SSH credential
 provisioning is intentionally a separate system concern rather than a Stado

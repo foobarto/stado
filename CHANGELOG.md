@@ -12,7 +12,7 @@ Plugins / Infra / Fixes.
   `$SSH_AUTH_SOCK`, binds host unix sockets into agent sandboxes, or reserves a
   privileged git-subagent role. Sandboxed process environments always scrub
   SSH-agent variables, and the autonomous process profile no longer mounts
-  broad `/run`; active socket directories beneath mounted roots are masked.
+  broad `/run`; `/tmp` and `/var/tmp` are private tmpfs scratch mounts.
   Private SSH material remains masked. Scoped, short-lived SSH credential
   provisioning belongs outside Stado.
 - **Taint is provenance, not authority.** Remove the unused git-role taint

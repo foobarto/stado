@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -487,7 +486,7 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // The policy is conservatively permissive — runs
 // the child under bwrap or firejail for process containment
 // isolation, allows reading the system paths bash typically needs
-// (/bin, /sbin, /tmp, /var/tmp; /usr, /lib, /lib64, /etc, /proc, /dev are
+// (/bin, /sbin; /usr, /lib, /lib64, /etc, /proc, /dev are
 // bound automatically by the runner), and lets network through.
 //
 // Earlier versions of this function returned `&sandboxPolicy{CWD:
@@ -508,8 +507,9 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 //
 // The values below fix both. /bin and /sbin are bound (--ro-bind-try
 // is a no-op when they don't exist or are already covered by /usr's
-// symlink resolution). /tmp + /var/tmp are writable so plugins that
-// scratch there work. Net is explicit "allow".
+// symlink resolution). /tmp + /var/tmp are writable private tmpfs mounts so
+// plugins can scratch there without inheriting host IPC or credential sockets.
+// Net is explicit "allow".
 //
 // Operators wanting tighter rules supply an explicit `sandbox` field
 // on each stado_exec request from the wasm side. The intersection
@@ -525,12 +525,13 @@ func NewDefaultSandboxPolicy(workdir string) any {
 	p := &sandboxPolicy{
 		CWD: workdir,
 		// /bin + /sbin matter for bash's literal /bin/sh / /bin/bash
-		// argv[0] paths. /tmp + /var/tmp cover scratch space commonly
-		// read by plugins. /run is deliberately absent: it commonly holds
+		// argv[0] paths. /tmp + /var/tmp provide private scratch space.
+		// /run is deliberately absent: it commonly holds
 		// per-user credential and IPC sockets. /usr / /lib / /lib64 /
 		// /etc / /proc / /dev are bound by the runner unconditionally.
 		FSRead:  []string{"/bin", "/sbin", "/tmp", "/var/tmp"},
 		FSWrite: []string{"/tmp", "/var/tmp"},
+		Mask:    []string{"/tmp", "/var/tmp"},
 		// Network: passthrough. Operators wanting deny set "deny"
 		// explicitly; per-host allowlists are a future config-driven
 		// surface, not the default.
@@ -540,36 +541,7 @@ func NewDefaultSandboxPolicy(workdir string) any {
 		p.FSRead = append(p.FSRead, workdir)
 		p.FSWrite = append(p.FSWrite, workdir)
 	}
-	if mask := sshAgentSocketDirMask(os.Getenv("SSH_AUTH_SOCK"), append(append([]string{}, p.FSRead...), p.FSWrite...)); mask != "" {
-		p.Mask = append(p.Mask, mask)
-	}
 	return p
-}
-
-// sshAgentSocketDirMask returns the active agent socket's parent only when it
-// is a strict descendant of a mounted root. OpenSSH's usual
-// /tmp/ssh-*/agent.* layout is therefore shadowed without replacing the whole
-// persistent scratch mount. Empty, relative, unmounted, and root-level socket
-// paths need no extra mount or cannot be masked safely here.
-func sshAgentSocketDirMask(socketPath string, mountedRoots []string) string {
-	socketPath = filepath.Clean(strings.TrimSpace(socketPath))
-	if socketPath == "." || !filepath.IsAbs(socketPath) {
-		return ""
-	}
-	parent := filepath.Dir(socketPath)
-	if parent == string(filepath.Separator) {
-		return ""
-	}
-	for _, root := range mountedRoots {
-		root = filepath.Clean(root)
-		if root == "." || parent == root {
-			continue
-		}
-		if strings.HasPrefix(parent, root+string(filepath.Separator)) {
-			return parent
-		}
-	}
-	return ""
 }
 
 // sandboxPolicy is the wasm-side wire shape for the optional `sandbox`

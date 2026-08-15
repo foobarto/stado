@@ -135,6 +135,18 @@ func filterEnv(env, keep []string) []string {
 	return out
 }
 
+func stripSSHAgentEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, ok := splitEnvKV(kv)
+		if !ok || name == "SSH_AUTH_SOCK" || name == "SSH_AGENT_PID" {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 func splitEnvKV(kv string) (string, string, bool) {
 	for i := 0; i < len(kv); i++ {
 		if kv[i] == '=' {

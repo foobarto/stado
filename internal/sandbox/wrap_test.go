@@ -3,9 +3,33 @@ package sandbox
 import (
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestRewrapEnvAlwaysDropsSSHAgent(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin",
+		"KEEP=yes",
+		"SSH_AUTH_SOCK=/tmp/ssh-test/agent.1",
+		"SSH_AGENT_PID=1234",
+	}
+	for _, cfg := range []WrapConfig{
+		{},
+		{AllowEnv: []string{"PATH", "KEEP", "SSH_AUTH_SOCK", "SSH_AGENT_PID"}},
+	} {
+		got := rewrapEnv(cfg, environ)
+		for _, forbidden := range []string{"SSH_AUTH_SOCK=/tmp/ssh-test/agent.1", "SSH_AGENT_PID=1234"} {
+			if slices.Contains(got, forbidden) {
+				t.Fatalf("rewrapEnv(%+v) retained %q: %v", cfg, forbidden, got)
+			}
+		}
+		if !slices.Contains(got, RewrappedEnvVar+"=1") {
+			t.Fatalf("rewrapEnv(%+v) lost wrapper marker: %v", cfg, got)
+		}
+	}
+}
 
 // #035: firejail wrap mode must not silently ignore the configured
 // filesystem allow-list. These tests pin the fail-closed + faithful-RO
