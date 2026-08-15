@@ -113,7 +113,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.80.1
+  bash -s -- --dir /usr/local/bin --version v0.80.2
 ```
 
 ### Self-update (existing installs)
