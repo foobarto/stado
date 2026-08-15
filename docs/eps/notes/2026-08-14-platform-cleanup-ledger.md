@@ -239,7 +239,7 @@ before changing behavior or metadata.
 
 ## Ordered implementation queue
 
-[The root PLAN](../../../PLAN.md#current-corrective-release-v0801) is the sole
+[The root PLAN](../../../PLAN.md#current-state-after-v0801) is the sole
 authoritative work and release sequence. This ledger is a decision and
 inconsistency index only; it deliberately does not duplicate an order that can
 stale. The v0.80.1 terminal repeat found and corrected C34's path-dependent
