@@ -199,11 +199,13 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	return cmd, nil
 }
 
-// underAnyMask reports whether path p sits inside (or equals) any of the
-// masked directories. Used to decide which FSRead entries to re-bind on
-// top of a Mask tmpfs (the "shadow then selectively restore" pattern).
-// Comparison is lexical on cleaned paths with a trailing-separator guard
-// so "/a/.sshX" is NOT treated as under "/a/.ssh".
+// underAnyMask reports whether path p is a strict descendant of a masked
+// directory. It decides which explicit FSRead entries to re-bind on top of a
+// Mask tmpfs (the "shadow then selectively restore" pattern). Equality is
+// intentionally excluded: restoring an exact masked root such as /tmp would
+// expose the host directory and defeat the mask. Comparison is lexical on
+// cleaned paths with a trailing-separator guard, so "/a/.sshX" is not treated
+// as under "/a/.ssh".
 func underAnyMask(p string, masks []string) bool {
 	cp := filepath.Clean(p)
 	for _, m := range masks {
