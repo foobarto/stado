@@ -203,24 +203,24 @@ func providerTokenReservation(req ProviderInvokeRequest, estimatedInput, availab
 	return saturatingTokenSum(estimatedInput, output)
 }
 
-func (host *Host) reserveProviderTokens(req ProviderInvokeRequest, estimatedInput int) (int, bool) {
-	host.providerBudgetMu.Lock()
-	defer host.providerBudgetMu.Unlock()
-	available := host.ProviderInvokeBudget - host.providerTokensUsed - host.providerTokensReserved
+func (h *Host) reserveProviderTokens(req ProviderInvokeRequest, estimatedInput int) (int, bool) {
+	h.providerBudgetMu.Lock()
+	defer h.providerBudgetMu.Unlock()
+	available := h.ProviderInvokeBudget - h.providerTokensUsed - h.providerTokensReserved
 	reservation := providerTokenReservation(req, estimatedInput, available)
 	if reservation <= estimatedInput || reservation <= 0 {
 		return 0, false
 	}
-	host.providerTokensReserved += reservation
+	h.providerTokensReserved += reservation
 	return reservation, true
 }
 
-func (host *Host) commitProviderTokens(reservation, actual int) {
-	host.providerBudgetMu.Lock()
-	defer host.providerBudgetMu.Unlock()
-	host.providerTokensReserved -= reservation
-	if host.providerTokensReserved < 0 {
-		host.providerTokensReserved = 0
+func (h *Host) commitProviderTokens(reservation, actual int) {
+	h.providerBudgetMu.Lock()
+	defer h.providerBudgetMu.Unlock()
+	h.providerTokensReserved -= reservation
+	if h.providerTokensReserved < 0 {
+		h.providerTokensReserved = 0
 	}
-	host.providerTokensUsed = saturatingTokenSum(host.providerTokensUsed, actual)
+	h.providerTokensUsed = saturatingTokenSum(h.providerTokensUsed, actual)
 }

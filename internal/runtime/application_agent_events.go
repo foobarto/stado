@@ -57,7 +57,7 @@ type AgentTerminalFactsV1 struct {
 	Execution string `json:"execution,omitempty"`
 }
 
-// Budget fields are admitted limits, not measured terminal usage. Host-measured
+// AgentBudgetFactsV1 fields are admitted limits, not measured terminal usage. Host-measured
 // usage belongs to the separate generic terminal-metadata work in ledger C29.
 type AgentBudgetFactsV1 struct {
 	TokenLimit     int `json:"token_limit,omitempty"`

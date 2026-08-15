@@ -755,7 +755,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
   anchor; `notes/journal.md` append-only log; `decisions/` ADR-style settled
   calls; `specs/open/` per-chunk specs + deferred stubs; `goals/`
   long-running `/pursue` state. The conventions for all of it are in
-  [CLAUDE.md](CLAUDE.md).
+  `CLAUDE.md`.
 
 ### Build · test · release
 

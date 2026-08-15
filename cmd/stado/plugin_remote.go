@@ -87,8 +87,6 @@ func fetchRemotePlugin(rawIdentity string) (fetchedRemotePlugin, error) {
 					return fetchedRemotePlugin{}, fmt.Errorf("remote install: source ref %s changed while fetching", sourceRevision)
 				}
 				return fetchedRemotePlugin{Dir: stagingDir, SourceRevision: sourceRevision, ResolvedCommit: resolvedCommit}, nil
-			} else {
-				lastErr = err
 			}
 		}
 

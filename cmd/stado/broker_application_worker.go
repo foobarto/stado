@@ -58,10 +58,13 @@ func (b *brokerApplicationControllerBridge) CallApplicationController(ctx contex
 		if err := json.Unmarshal(payload, &input); err != nil {
 			return nil, fmt.Errorf("decode worker transition: %w", err)
 		}
-		method := broker.MethodApplicationWorkerActivate
-		if operation == "worker.resume.activate" {
+		var method string
+		switch operation {
+		case "worker.activate":
+			method = broker.MethodApplicationWorkerActivate
+		case "worker.resume.activate":
 			method = broker.MethodApplicationWorkerResumeActivate
-		} else if operation == "worker.cancel" {
+		case "worker.cancel":
 			method = broker.MethodApplicationWorkerCancel
 		}
 		if err := b.client.Call(ctx, method, broker.ApplicationWorkerTransitionParams{

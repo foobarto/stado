@@ -341,9 +341,10 @@ func ResolveInstalledPackage(roots []string, selector string) (InstalledPackage,
 			return InstalledPackage{}, err
 		}
 		for _, pkg := range packages {
-			if selector == pkg.Record.StoreKey || selector == pkg.Identity.Canonical {
+			switch selector {
+			case pkg.Record.StoreKey, pkg.Identity.Canonical:
 				exact = append(exact, pkg)
-			} else if selector == pkg.Manifest.Name || selector == pkg.Manifest.Name+"@"+pkg.Manifest.Version {
+			case pkg.Manifest.Name, pkg.Manifest.Name + "@" + pkg.Manifest.Version:
 				aliases = append(aliases, pkg)
 			}
 		}

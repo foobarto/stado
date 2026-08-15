@@ -388,8 +388,8 @@ func validateSessionScopeTransition(previous, next sessionScopeSnapshot, handoff
 	if !IsSubsetOf(next.Handle.Effective, previous.Handle.Effective) {
 		return errors.New("durable session effective authority widened")
 	}
-	switch {
-	case next.ControllerVersion == previous.ControllerVersion:
+	switch next.ControllerVersion {
+	case previous.ControllerVersion:
 		if next.TicketDigest != previous.TicketDigest || next.ResumeDigest != previous.ResumeDigest {
 			return errors.New("recovery bearer changed without controller adoption")
 		}
@@ -399,7 +399,7 @@ func validateSessionScopeTransition(previous, next sessionScopeSnapshot, handoff
 		if previous.Status == sessionScopeDetached && next.Status != sessionScopeDetached {
 			return errors.New("detached session changed without adoption")
 		}
-	case next.ControllerVersion == previous.ControllerVersion+1:
+	case previous.ControllerVersion + 1:
 		if next.Status != sessionScopeAttached || next.ControllerDigest == "" {
 			return errors.New("controller adoption did not produce an attached controller")
 		}

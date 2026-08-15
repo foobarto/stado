@@ -587,7 +587,8 @@ func TestAuthorityContextAndProjectionValidation(t *testing.T) {
 	if _, err := f.service.Project(context.Background(), bad, ProjectionOptions{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("authority error = %v", err)
 	}
-	if _, err := f.service.Project(nil, auth, ProjectionOptions{}); !errors.Is(err, ErrInvalid) {
+	var nilContext context.Context
+	if _, err := f.service.Project(nilContext, auth, ProjectionOptions{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("nil context error = %v", err)
 	}
 	cancelled, cancel := context.WithCancel(context.Background())

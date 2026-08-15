@@ -158,10 +158,10 @@ func TestCheckInstalledPackageUsesExactRemoteLockNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := t.TempDir()
-	m, sig := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
+	m, _ := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
 	m.WASMSHA256 = "remote-wasm"
 	// Re-sign after binding the digest.
-	sig, err = m.Sign(priv)
+	sig, err := m.Sign(priv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,9 +207,9 @@ func TestCheckInstalledPackageMalformedMatchingLockNeverFallsBackLocal(t *testin
 		t.Fatal(err)
 	}
 	state := t.TempDir()
-	m, sig := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
+	m, _ := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
 	m.WASMSHA256 = "remote-wasm"
-	sig, err = m.Sign(priv)
+	sig, err := m.Sign(priv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,9 +259,9 @@ func TestCheckInstalledPackageEnforcesExactPackageFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	low, lowSig := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
+	low, _ := signedPackageForTrustTest(t, pub, priv, "supervise", "1.0.0")
 	low.WASMSHA256 = "remote-wasm"
-	lowSig, err = low.Sign(priv)
+	lowSig, err := low.Sign(priv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,9 +302,9 @@ func TestProjectRecordAndLockCannotMintRemoteSourceAuthority(t *testing.T) {
 	state := t.TempDir()
 	project := filepath.Join(t.TempDir(), ".stado")
 	root := filepath.Join(project, "plugins")
-	m, sig := signedPackageForTrustTest(t, pub, priv, "borrowed-name", "1.0.0")
+	m, _ := signedPackageForTrustTest(t, pub, priv, "borrowed-name", "1.0.0")
 	m.WASMSHA256 = strings.Repeat("1", 64)
-	sig, err = m.Sign(priv)
+	sig, err := m.Sign(priv)
 	if err != nil {
 		t.Fatal(err)
 	}

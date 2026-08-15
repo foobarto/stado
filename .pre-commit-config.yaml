@@ -1,7 +1,9 @@
 # Pre-commit config for stado.
 #
-# Install once per clone:
-#   pip install pre-commit && pre-commit install
+# Install the repository hook once per clone:
+#   ln -s ../../.githooks/pre-commit .git/hooks/pre-commit
+# Optionally install `pre-commit`; the repository hook runs the checks below
+# after it has formatted and re-staged the staged Go snapshot.
 #
 # The hook runs on `git commit` against the staged diff and refuses
 # the commit on findings. To run a one-off scan of the whole repo:

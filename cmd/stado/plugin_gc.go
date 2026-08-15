@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -194,10 +193,6 @@ var pluginGCCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
-
-func samePluginVersion(a, b string) bool {
-	return a != "" && strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
 }
 
 func init() {

@@ -242,6 +242,6 @@ func registerAgentCancelImport(builder wazero.HostModuleBuilder, host *Host) {
 		Export("stado_agent_cancel")
 }
 
-func (host *Host) allowsAgentOperation(operation string) bool {
-	return host != nil && manifestHasExactCapability(host.Manifest.Capabilities, "agent:"+operation)
+func (h *Host) allowsAgentOperation(operation string) bool {
+	return h != nil && manifestHasExactCapability(h.Manifest.Capabilities, "agent:"+operation)
 }

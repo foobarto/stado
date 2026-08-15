@@ -975,11 +975,6 @@ func NewHostWithIdentity(m plugins.Manifest, identity plugins.RuntimeIdentity, w
 				h.NetHTTPClient = true
 				continue
 			}
-			// "net:dial:..." / "net:listen:..." are parsed by
-			// parseNetSocketCap below.
-			if parts[1] == "dial" || parts[1] == "listen" {
-				break // out of the switch; parser block below handles it
-			}
 		case "session":
 			// DESIGN §"Plugin extension points for context management":
 			// session:observe / session:read / session:fork.

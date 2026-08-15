@@ -12,7 +12,6 @@ import (
 
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
-	"github.com/foobarto/stado/internal/subagent"
 )
 
 const maxSubagentActivities = 5
@@ -74,46 +73,6 @@ func (m *Model) recordSubagentEvent(ev runtime.SubagentEvent) {
 	if cmd := ev.AdoptionCommand(); cmd != "" {
 		act.AdoptionCommand = cmd
 	}
-	act.UpdatedAt = now
-}
-
-func (m *Model) recordSubagentResult(res subagent.Result) {
-	child := strings.TrimSpace(res.ChildSession)
-	if child == "" {
-		return
-	}
-	now := time.Now()
-	act := m.upsertSubagentActivity(child, now)
-	if res.Worktree != "" {
-		act.Worktree = res.Worktree
-	}
-	if res.Role != "" {
-		act.Role = res.Role
-	}
-	if res.Mode != "" {
-		act.Mode = res.Mode
-	}
-	act.Phase = "finished"
-	act.Status = res.Status
-	if act.Status == "" {
-		act.Status = "completed"
-	}
-	act.ForkTree = res.ForkTree
-	act.ChangedFiles = len(res.ChangedFiles)
-	act.ScopeViolations = len(res.ScopeViolations)
-	parent := ""
-	if m.session != nil {
-		parent = m.session.ID
-	}
-	if act.ParentSession == "" {
-		act.ParentSession = parent
-	}
-	act.AdoptionCommand = runtime.SubagentEvent{
-		ParentSession: act.ParentSession,
-		ChildSession:  child,
-		ForkTree:      res.ForkTree,
-		ChangedFiles:  res.ChangedFiles,
-	}.AdoptionCommand()
 	act.UpdatedAt = now
 }
 

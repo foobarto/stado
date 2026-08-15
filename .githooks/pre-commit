@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+mkdir -p .cache
+hook_tmp=$(mktemp -d "$repo_root/.cache/pre-commit.XXXXXX")
+staged="$hook_tmp/staged.go"
+formatted_blob="$hook_tmp/formatted.go"
+cleanup() {
+	rm -f "$staged" "$formatted_blob"
+	rmdir "$hook_tmp" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+formatted=0
+while IFS= read -r -d '' path; do
+	# Preserve partially staged work: format the index blob directly when the
+	# worktree has additional edits, and format both copies otherwise.
+	worktree_clean=0
+	if git diff --quiet -- "$path"; then
+		worktree_clean=1
+	fi
+
+	git show ":$path" >"$staged"
+	cp "$staged" "$formatted_blob"
+	gofmt -w "$formatted_blob"
+
+	if ! cmp -s "$staged" "$formatted_blob"; then
+		if (( worktree_clean )); then
+			cp "$formatted_blob" "$path"
+			git add -- "$path"
+		else
+			mode=$(git ls-files -s -- "$path" | awk 'NR == 1 { print $1 }')
+			oid=$(git hash-object -w -- "$formatted_blob")
+			git update-index --cacheinfo "$mode,$oid,$path"
+		fi
+		printf 'gofmt: %s\n' "$path"
+		formatted=1
+	fi
+
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.go')
+
+if (( formatted )); then
+	printf 'pre-commit: staged Go formatting updated automatically\n'
+fi
+
+if command -v pre-commit >/dev/null 2>&1; then
+	pre-commit run --hook-stage pre-commit
+fi

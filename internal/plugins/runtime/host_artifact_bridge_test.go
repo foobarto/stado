@@ -245,7 +245,7 @@ func TestArtifactBridgePropagatesCancellation(t *testing.T) {
 	// so the wire result is deliberately not part of the cancellation contract.
 	// The contract is that the exact call context reaches and unblocks the
 	// broker bridge, matching the session/UI/fleet bridge tests.
-	_ = <-done
+	<-done
 	var bridgeErr error
 	if bridge.lastCtx != nil {
 		bridgeErr = bridge.lastCtx.Err()
