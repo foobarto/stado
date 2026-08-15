@@ -23,6 +23,10 @@
 # caches here avoids filling the devbox's virtual /tmp and /var/tmp disks.
 /.cache/
 
+# GoReleaser writes metadata into dist/ before invoking `go build`. Keep the
+# generated tree ignored so -buildvcs=true records the tagged source as clean.
+/dist/
+
 # Binary blobs fetched by `go run hack/fetch-binaries.go` + the per-
 # platform embed files it generates. Release builds run the script as
 # a goreleaser before-hook; dev builds don't need them.

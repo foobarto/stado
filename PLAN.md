@@ -29,13 +29,22 @@ macOS and Windows are not current or v1 targets
 ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)). Their old roadmap
 items are removed rather than deferred.
 
-## Current corrective release: v0.80.1
+## Current state after v0.80.1
 
 PR #257 merged as `391ca108` and shipped in signed Linux-only release v0.80.0.
 Its binaries, checksum manifest, Cosign certificate/signature, SBOMs, and GitHub
 provenance are published. The immutable v0.80.0 homepage check failed because
 the tagged page still advertised v0.79.0; v0.80.1 corrects that metadata rather
 than rewriting the published tag.
+
+PR #258 merged as `1d77b3bd` and shipped in SSH-agent-signed Linux-only release
+v0.80.1. The tagged homepage validator is green. All eleven downloaded assets
+match GitHub's digests; all eight payloads match the checksum manifest; Cosign
+verification succeeds; the static amd64 binary reports stado 0.80.1, Go 1.26.6,
+and the exact release commit. Independent `gh attestation verify` now succeeds
+and binds all eight payloads to the tag, commit, Release workflow, and
+transparency log. Minisign remains deliberately unprovisioned and did not emit
+an asset or embedded root.
 
 The official supervise application initially shipped as `supervise/v0.1.0`.
 The terminal source/release audit found that its Go 1.26.6 WASM build retained
@@ -56,19 +65,30 @@ full Linux GoReleaser snapshot with SBOMs. Local snapshot Cosign was deliberatel
 skipped because only the real GitHub Actions release has the intended OIDC
 identity.
 
-Only these v0.80.1 gates remain, in order:
+The clean-download audit found one additional build-state metadata defect. The
+published binary embeds the exact release commit but reports `modified: true`:
+GoReleaser creates unignored `dist/` metadata before invoking `go build`, so
+Go's `-buildvcs=true` stamp sees generated output. The signed hashes and
+provenance remain exact. This follow-up ignores `/dist/` and guards that rule;
+the immutable v0.80.1 tag is not rewritten.
 
-1. **Publish and verify v0.80.1.** Merge only the audited patch after
-   green CI, create an SSH-agent-signed annotated tag without rewriting v0.80.0,
-   publish through the Linux release workflow, and verify the homepage workflow,
-   asset checksums, static binary, and reported version from clean downloads.
-2. **Close independent release-integrity evidence.** Re-run GitHub provenance
-   verification outside the GitHub-only proxy. Minisign remains optional until
-   its CI secret and long-lived release root are deliberately provisioned.
+Immediate work, in order:
+
+1. **Close the build-state marker in v0.80.2.** Re-run the full release gates
+   and prove the clean downloaded binary reports `modified: false` before
+   publishing the SSH-agent-signed patch tag.
+2. **Begin the authority/security EP for agent-driven tool-use auto-approval.**
+   Specify prediction versus authority, broker/plugin/sandbox ceilings, audit,
+   revocation, and failure behavior before writing implementation code.
+3. **Decide Minisign provisioning deliberately.** It remains optional until
+   the CI secret and long-lived offline release root are intentionally created;
+   do not imply that current releases contain either.
 
 The final connector/adversarial review planned before v0.80.0 was bypassed when
 the operator approved that merge. It remains explicit process debt; v0.80.1's
 terminal source/EP audit does not retroactively claim that connector review ran.
+The unrelated deferred security stash remains untouched and outside this
+release-evidence follow-up.
 
 Other staged official applications remain unsigned source candidates unless
 their own Accepted EP gates close. In particular, memory/learn remains
