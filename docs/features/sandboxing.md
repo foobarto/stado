@@ -1,9 +1,9 @@
 # Sandboxing
 
-Four layers, enforced by the Linux kernel and the wasm runtime — never by
-trust. Every tool invocation, every shell command, every MCP server
-starts inside the cage; escape requires a capability declaration
-that stado maps to a concrete policy.
+Four control layers combine the WASM runtime with Linux kernel mechanisms.
+Signed WASM capabilities are enforced at the host-import boundary. The kernel
+layers apply when their required host mechanisms are available; process paths
+without the full stack and their fail/fallback behavior are explicit below.
 
 ## Why sandboxing
 
@@ -13,11 +13,11 @@ exploited). The acceptable posture isn't "the agent promises to be
 careful"; it's "the kernel prevents it from touching anything the
 user didn't authorise."
 
-Stado's commitment: the set of things the agent's tools can
-actually do at runtime is **strictly bounded** by the declared
-capability set. Tests exist for the negative path — attempts to
-`fs:write:/etc/passwd` without a matching capability are refused at
-the syscall level.
+Stado's capability commitment applies to WASM host imports: an undeclared
+operation is refused before the guest can perform it. Subprocess namespace and
+syscall containment additionally depend on an enforcing Linux runner; the
+absence and defense-in-depth fallbacks are not treated as equivalent to the
+full posture.
 
 ## Layer 1 — Landlock (Linux filesystem)
 
@@ -34,28 +34,34 @@ Kernel ≥ 5.13. Filesystem ruleset applied at process start:
   In-process HTTP host imports remain governed by wasm capabilities rather
   than Landlock.
 
-In v0.57.0+, the sandbox is **on by default** for `stado run` and
-every other orchestrator entry point. Landlock applies to the
-entire `run` process; writes are confined to the launch cwd +
-`/tmp`. The TUI launches shell commands via bubblewrap (layer 2)
-which composes with Landlock — the child inherits the parent's
-FS ruleset AND gets its own bwrap mount namespace on top. Pass
-`--no-sandbox` to disable both layers (the runner becomes
-`NoneRunner` and Landlock is skipped). `--no-sandbox` is a
-**persistent root flag**, not a `run`-only one — it works on every
-entry point (`stado --no-sandbox` for the TUI, `stado run
---no-sandbox`, `stado mcp-server --no-sandbox`, etc.).
+In v0.57.0+, the host-default sandbox policy is **on by default** for `stado
+run` and every other orchestrator entry point. When Landlock is available it
+applies to the entire `run` process and confines writes to the launch cwd +
+`/tmp`. TUI shell commands use bubblewrap when that runner is available. On a
+direct `run` path where both layers are active, the child inherits the parent's
+FS ruleset and gets its own bwrap mount namespace on top. Pass
+`--no-sandbox` to disable the host-default WASM process/PTY policy and
+Landlock. `--no-sandbox` is a **persistent root flag**, not a `run`-only one —
+it applies on every entry point (`stado --no-sandbox` for the TUI, `stado run
+--no-sandbox`, `stado mcp-server --no-sandbox`, etc.). Configured stdio MCP
+servers are separate: they retain the runner derived from their declared
+capabilities and `sandbox.Detect()`.
 
 `stado doctor` reports:
 - `Landlock available` — kernel ≥ 5.13
 - `Landlock unavailable` — kernel too old OR binary refused; falls
   back with a one-time advisory.
 
-## Layer 2 — bubblewrap + seccomp BPF (Linux exec)
+## Layer 2 — bubblewrap + conditional seccomp BPF (Linux exec)
 
-Every `bash` tool call and every MCP stdio server is launched
-inside a new mount + pid + ipc namespace via bubblewrap, with a
-seccomp filter that strips the common escape routes:
+With bubblewrap available, host-default WASM process/PTY calls launch inside a
+new mount + pid + ipc namespace. Those calls fail if their requested policy
+has no enforcing runner. Configured stdio MCP servers use the generic detected
+runner and therefore fall back to `NoneRunner` when bubblewrap is unavailable.
+
+On the normal bubblewrap paths a seccomp filter strips common escape routes.
+The filter is skipped for host-allowlist networking through `pasta`; filter
+setup failure warns and continues under bubblewrap without seccomp:
 
 - `ptrace` — no attach-to-sibling or host processes
 - `mount` / `umount2` — no mount tricks
@@ -172,11 +178,12 @@ privileges.
 
 ## Platform coverage
 
-Linux is the only supported platform now and through v1. The supported
-containment path is Landlock + bubblewrap/namespaces + seccomp, with a private
-`pasta` network namespace and CONNECT allowlist proxy where host-scoped egress
-is granted. Darwin and Windows are outside the build/runtime/packaging contract
-and carry no current security promise
+Linux is the only supported platform now and through v1. The full supported
+containment path, when its host mechanisms are available, is Landlock +
+bubblewrap/namespaces + conditional seccomp, with a private `pasta` network
+namespace and CONNECT allowlist proxy where host-scoped egress is granted.
+Darwin and Windows are outside the build/runtime/packaging contract and carry
+no current security promise
 ([EP-0065](../eps/0065-linux-only-platform-scope.md)).
 
 ## Turning knobs

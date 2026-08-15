@@ -490,8 +490,10 @@ Use `stado doctor` to inspect the runner and Landlock availability on the
 actual host. Treat `runner: none`, a seccomp warning, or a Landlock warning as
 a real reduction in containment, not as equivalent to the full Linux posture.
 
-`--no-sandbox` is the explicit operator opt-out on every top-level surface. It
-selects direct execution and disables the default executor policy.
+`--no-sandbox` is the explicit operator opt-out from the host-default WASM
+process/PTY policy on every top-level surface; it also skips Landlock where
+that layer is used. It does not disable the separately capability-derived
+runner for configured stdio MCP servers, which still uses `sandbox.Detect()`.
 `STADO_BROKER_ATTACH=0` only skips the broker-projected ceiling; it does not
 disable the local host-default sandbox.
 
