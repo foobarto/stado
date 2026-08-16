@@ -15,9 +15,9 @@ import (
 	"sync"
 )
 
-// detectList prefers bubblewrap, then falls back to None. Landlock/seccomp
-// integration lands in a follow-up; PLAN.md §3.4 uses bwrap as the preferred
-// exec sandbox on Linux anyway.
+// detectList prefers bubblewrap, then falls back to None. BwrapRunner composes
+// mount/network namespaces with seccomp on its ordinary paths. Production
+// Landlock composition remains a separate PLAN gate.
 func detectList() []Runner {
 	return []Runner{BwrapRunner{}, NoneRunner{}}
 }

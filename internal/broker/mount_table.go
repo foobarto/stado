@@ -239,10 +239,10 @@ func MountTableFor(profile Profile, cwd string) MountTable {
 // rows do NOT appear in either set — they're either absent from
 // the namespace or held by the broker.
 //
-// Note: the produced Policy is what the sandbox.Runner consumes.
-// The Landlock layer enforces the read set; bwrap enforces the
-// mount set. The two should agree — Phase 3's runtime work threads
-// this Policy into both layers consistently.
+// Note: the produced Policy is what the sandbox.Runner consumes. Bubblewrap
+// currently enforces the mount set. The standalone Landlock layer uses the
+// same Policy vocabulary, but production composition through this broker
+// ceiling remains an explicit PLAN gate rather than a shipped claim.
 func (t MountTable) ToPolicy() sandbox.Policy {
 	var fsRead, fsWrite, masked []string
 	for _, row := range t.Rows {
