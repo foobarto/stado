@@ -8,6 +8,17 @@ Plugins / Infra / Fixes.
 
 ### Security / removed surfaces
 
+- **Landlock is composed with the production Linux subprocess boundary.**
+  Bubblewrap now enters through a narrow current-executable trampoline that
+  applies the effective filesystem policy inside the completed mount namespace
+  before execing the already-resolved target. Unsupported kernels visibly keep
+  the existing bubblewrap-only fallback; the `pasta` host-allowlist path also
+  reports and skips the helper because portable descriptor inheritance is not
+  established. Rule failures on a supported kernel fail closed. The real
+  containment regression proves Landlock is active in
+  the same process that receives mount, network, environment, credential-mask,
+  and seccomp controls, and a daemon round-trip proves a broker-returned ceiling
+  removes a caller-requested outside mount before execution.
 - **Trajectory writes are broker-owned.** Run and TUI tool outcomes, plus the
   initial run objective, now cross an authenticated native RPC bound to the
   durable logical session. The broker derives the canonical subject,
@@ -25,9 +36,10 @@ Plugins / Infra / Fixes.
 - **Composed Linux containment regression.** A real bubblewrap integration test
   now proves read-only and writable mount scopes, credential-directory masking
   with an explicit safe-file restore, environment filtering, deny-all network
-  namespace isolation, loaded seccomp kill behavior, and operation-context
-  teardown in one execution. Background/TODO contexts no longer create an
-  immortal cleanup watcher that pins the command's resources. Managed sandbox
+  namespace isolation, active Landlock enforcement, loaded seccomp kill
+  behavior, and operation-context teardown in one execution. Background/TODO
+  contexts no longer create an immortal cleanup watcher that pins the command's
+  resources. Managed sandbox
   commands now release proxy and seccomp resources on every execution or wait
   exit; the PTY reaper and MCP manager own the corresponding raw-command
   lifecycle, while runtime cleanup remains only an abandonment fallback.

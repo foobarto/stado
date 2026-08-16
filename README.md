@@ -568,14 +568,18 @@ policy and Landlock; configured stdio MCP servers keep their separately
 capability-derived runner. `STADO_BROKER_ATTACH=0` skips only the broker
 ceiling and does not disable the local host-default policy.
 
-- **Linux** — When available, Bubblewrap mounts the agent's namespace and
-  direct `stado run` applies Landlock to narrow parent-process writes to the
-  launch cwd + `/tmp`. Missing enforcement is reported rather than counted as
-  the full posture. The built-in `bash` tool defaults to deny-all networking
-  on the enforcing path.
+- **Linux** — When available, Bubblewrap mounts the agent's namespace and its
+  child trampoline applies the effective Landlock filesystem policy before
+  exec. Direct `stado run` additionally narrows parent-process writes to the
+  launch cwd + `/tmp` and exact session audit paths. Missing enforcement is
+  reported rather than counted as the full posture. The built-in `bash` tool
+  defaults to deny-all networking on the enforcing path.
   For `net:<host>` policies on subprocesses and MCP stdio servers,
   stado wraps the subprocess in `pasta --splice-only` and exposes only
-  its local CONNECT-allowlist proxy port inside the private netns.
+  its local CONNECT-allowlist proxy port inside the private netns. That path
+  currently warns and skips Landlock and seccomp because portable inherited-FD
+  delivery through `pasta` is not established; bubblewrap still enforces its
+  mount and namespace boundary.
 - **WASM plugins and bundled plugin-backed tools** — execute inside
   `wazero`; filesystem/session/LLM/tool access is mediated by
   capability-gated host imports rather than the OS subprocess runner.

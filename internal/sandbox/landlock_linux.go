@@ -122,6 +122,25 @@ func addPathBeneathRule(rulesetFD int, path string, access uint64) error {
 		return fmt.Errorf("landlock: open %s: %w", path, err)
 	}
 	defer func() { _ = unix.Close(parentFD) }()
+	var stat unix.Stat_t
+	if err := unix.Fstat(parentFD, &stat); err != nil {
+		return fmt.Errorf("landlock: stat %s: %w", path, err)
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+		// LANDLOCK_RULE_PATH_BENEATH accepts directory-only rights such as
+		// READ_DIR, MAKE_*, REMOVE_*, and REFER only for directory rules.
+		// Broker policies intentionally contain exact files (trust roots and
+		// selectively restored credential metadata), so filter their rule to
+		// the access bits valid for a file rather than rejecting the complete
+		// composed ruleset with EINVAL.
+		access &= uint64(unix.LANDLOCK_ACCESS_FS_EXECUTE |
+			unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
+			unix.LANDLOCK_ACCESS_FS_READ_FILE |
+			unix.LANDLOCK_ACCESS_FS_TRUNCATE)
+		if access == 0 {
+			return nil
+		}
+	}
 	parentFD32, err := fdInt32(parentFD)
 	if err != nil {
 		return err

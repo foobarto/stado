@@ -205,11 +205,12 @@ Relevant `config.toml` sections:
 
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.
-- **Sandbox-by-default since v0.57.0.** `stado run` applies Landlock
-  + the broker-projected ceiling-runner by default on the supported Linux
-  platform. Pass `--no-sandbox` to opt out (NoneRunner, no Landlock) and run
-  without the v1 containment posture. Darwin and Windows are outside the
-  current and v1 support contract (EP-0065).
+- **Sandbox-by-default since v0.57.0.** `stado run` applies the
+  broker-projected bubblewrap ceiling, Landlock inside each sandboxed
+  subprocess, and a separate parent-process Landlock write boundary on the
+  supported Linux platform. Pass `--no-sandbox` to opt out (NoneRunner, no
+  Landlock) and run without the v1 containment posture. Darwin and Windows are
+  outside the current and v1 support contract (EP-0065).
 - **`--sandbox-fs` retired in v0.57.0.** The pre-v0.57.0 flag is
   gone with no deprecation alias; passing it produces an "unknown
   flag" error. The new default is the sandboxed mode; `--no-sandbox`
