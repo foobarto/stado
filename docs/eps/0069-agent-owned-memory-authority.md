@@ -2,13 +2,16 @@
 ep: 69
 title: Agent-Owned Memory Authority
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Accepted
 type: Standards
 created: 2026-08-15
 requires: ["EP-0004", "EP-0050", "EP-0055", "EP-0059", "EP-0066", "EP-0067"]
 extends: ["EP-0052", "EP-0053", "EP-0063", "EP-0064"]
 see-also: ["EP-0015", "EP-0054", "EP-0058"]
 history:
+  - date: 2026-08-16
+    status: Accepted
+    note: Accepted by operator decision after adversarial review of agent ownership, recursive attenuation, poisoning residual risk, taint non-goals, and bounded failure handling.
   - date: 2026-08-15
     status: Draft
     note: Initial draft replacing per-memory operator activation with attenuated agent authority and bounded stop/read-back/retry failure handling.
@@ -18,10 +21,10 @@ history:
 
 # EP-0069: Agent-Owned Memory Authority
 
-> **Draft scope:** this EP changes who may manage memory; it does not make
+> **Accepted scope:** this EP changes who may manage memory; it does not make
 > memory authoritative instructions, introduce an approval agent, or revive a
 > native memory application. The current staged package remains candidate-only
-> until this draft is accepted and implemented.
+> until this contract is implemented and independently release-verified.
 
 ## Problem
 
@@ -310,16 +313,6 @@ not release blockers; their ambiguity is preserved rather than hidden.
   ambiguous provider reply, truncated journal, and cleanup diagnostic paths.
 - End-to-end tests with the signed official package before publication.
 
-## Open questions
-
-1. Should the first implementation expose the exact authority profile in the
-   existing application configuration or in a reusable named broker profile?
-2. Should `drop_capabilities` remain memory-resource-only in its first slice,
-   or accept the already-existing sandbox/tool vocabulary through one typed
-   union once error reporting is equally precise?
-3. Should an explicit root-agent adoption action preserve a staged candidate's
-   ID, or create a fresh active ID linked through provenance?
-
 ## Decision log
 
 ### D1. Agents manage memory within admitted scope
@@ -374,6 +367,33 @@ not release blockers; their ambiguity is preserved rather than hidden.
   unbounded journal history to reconstruct intent.
 - **Why:** the system cannot manufacture missing knowledge, and extra recovery
   transitions increase the chance of duplicate cost or state corruption.
+
+### D7. The first profile is explicit application configuration
+
+- **Decided:** the first implementation stores the exact memory authority
+  profile with the existing operator-controlled application configuration.
+- **Alternatives:** introduce reusable named broker profiles immediately.
+- **Why:** admission is already the guarded minting point. A second profile
+  indirection adds migration and audit surface before another consumer exists.
+
+### D8. Spawn drops remain typed resource-authority drops
+
+- **Decided:** `drop_capabilities` initially accepts only the exact session
+  resource-authority vocabulary defined by this EP. Existing sandbox, tool,
+  filesystem, network, provider, mode, and write-scope attenuation remains in
+  its own typed fields.
+- **Alternatives:** combine every attenuation vocabulary into one string union.
+- **Why:** separate typed boundaries keep unknown values fail-closed and avoid
+  making one list an accidental compatibility or authority-minting surface.
+
+### D9. Candidate adoption creates a linked active identity
+
+- **Decided:** adopting a staged candidate creates a fresh active artifact ID
+  and records the candidate ID in immutable provenance.
+- **Alternatives:** change the candidate's authority state in place or reuse its
+  ID for the active lineage.
+- **Why:** authority admission is a new event. Keeping candidate and active
+  identities distinct makes that event explicit without rewriting history.
 
 ## Related
 
