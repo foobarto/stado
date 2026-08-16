@@ -95,20 +95,14 @@ func TestBwrapRunnerCommand_AbandonedAllowHostsCommandClosesProxy(t *testing.T) 
 	}
 }
 
-func TestBwrapRunnerCommand_CompletedAllowHostsCommandClosesProxy(t *testing.T) {
-	if err := ensurePastaSpliceOnly(); err != nil {
-		t.Skipf("pasta unavailable: %v", err)
-	}
-	cmd, err := (BwrapRunner{}).Command(context.Background(), Policy{
-		Exec: []string{"true"},
-		Net:  NetPolicy{Kind: NetAllowHosts, Hosts: []string{"example.com"}},
-	}, "true", nil, nil)
+func TestManagedCommand_CompletedRunClosesOwnedProxy(t *testing.T) {
+	proxy, err := ListenLoopback(NetPolicy{Kind: NetAllowHosts, Hosts: []string{"example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	cmd := managedCommand(exec.Command("true"), func() { _ = proxy.Close() })
 	t.Cleanup(cmd.Release)
-	env := collectSetenv(cmd.Args)
-	addr := "127.0.0.1:" + proxyPortFromEnv(t, env["HTTPS_PROXY"])
+	addr := proxy.Listener.Addr().String()
 	conn, err := net.DialTimeout("tcp", addr, time.Second)
 	if err != nil {
 		t.Fatalf("proxy was not listening before command run: %v", err)

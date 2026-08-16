@@ -19,9 +19,10 @@ type Runner interface {
 }
 
 // Command owns an exec.Cmd and any runner resources that must live exactly as
-// long as that subprocess. Run and Wait release those resources on every exit
-// path; Start releases them if the process cannot be started. Callers that use
-// Start must eventually use Wait (or cancel the command's context).
+// long as that subprocess. Run, Wait, Output, and CombinedOutput release those
+// resources on every exit path; Start releases them if the process cannot be
+// started. Callers that use Start must eventually use Wait (or cancel the
+// command's context).
 //
 // Raw is only for adapters whose API requires *exec.Cmd. In that case the
 // command context must own a deterministic cancellation point because the
@@ -65,6 +66,20 @@ func (c *Command) Run() error {
 func (c *Command) Wait() error {
 	defer c.release()
 	return c.Cmd.Wait()
+}
+
+// Output runs the subprocess, captures stdout, and deterministically releases
+// runner resources.
+func (c *Command) Output() ([]byte, error) {
+	defer c.release()
+	return c.Cmd.Output()
+}
+
+// CombinedOutput runs the subprocess, captures stdout and stderr, and
+// deterministically releases runner resources.
+func (c *Command) CombinedOutput() ([]byte, error) {
+	defer c.release()
+	return c.Cmd.CombinedOutput()
 }
 
 // Release closes runner-owned resources without waiting for the subprocess.

@@ -14,9 +14,9 @@ Plugins / Infra / Fixes.
   namespace isolation, loaded seccomp kill behavior, and operation-context
   teardown in one execution. Background/TODO contexts no longer create an
   immortal cleanup watcher that pins the command's resources. Managed sandbox
-  commands now release proxy and seccomp resources on every `Run`/`Wait` exit;
-  the PTY reaper and MCP manager own the corresponding raw-command lifecycle,
-  while runtime cleanup remains only an abandonment fallback.
+  commands now release proxy and seccomp resources on every execution or wait
+  exit; the PTY reaper and MCP manager own the corresponding raw-command
+  lifecycle, while runtime cleanup remains only an abandonment fallback.
 - **SSH-agent forwarding removed.** Stado no longer imports
   `$SSH_AUTH_SOCK`, binds host unix sockets into agent sandboxes, or reserves a
   privileged git-subagent role. Sandboxed process environments always scrub
