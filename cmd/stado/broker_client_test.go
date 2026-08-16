@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -333,8 +334,28 @@ func TestBrokerSessionTrajectoryWriterUsesDurableBrokerScope(t *testing.T) {
 			t.Fatalf("untrusted call ID leaked into canonical idempotency key: %q", record.Transaction.IdempotencyKey)
 		}
 	}
-	if err := peer.Close(); err != nil {
+	start := make(chan struct{})
+	var recorders sync.WaitGroup
+	for invocation := 2; invocation < 34; invocation++ {
+		recorders.Add(1)
+		go func(invocation int) {
+			defer recorders.Done()
+			<-start
+			_ = peer.RecordTrajectoryToolOutcome(context.Background(), 4, invocation, call, result)
+		}(invocation)
+	}
+	closeErr := make(chan error, 1)
+	go func() {
+		<-start
+		closeErr <- peer.Close()
+	}()
+	close(start)
+	recorders.Wait()
+	if err := <-closeErr; err != nil {
 		t.Fatal(err)
+	}
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 34, call, result); err != nil {
+		t.Fatalf("closed trajectory writer should be inert: %v", err)
 	}
 	if err := root.Close(); err != nil {
 		t.Fatal(err)

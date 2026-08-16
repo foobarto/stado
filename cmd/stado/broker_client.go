@@ -644,17 +644,35 @@ func (s *BrokerSession) SetTaint(ctx context.Context, taint runtime.ContextTaint
 	}, nil)
 }
 
+func (s *BrokerSession) snapshotControllerAuthority() (*daemon.Client, string, string, bool) {
+	if s == nil || s.Skipped {
+		return nil, "", "", false
+	}
+	// Handoff rotates controller authority under logicalMu, while Close retires
+	// it under logicalMu then applicationMu. Match that order and return one
+	// internally consistent snapshot for asynchronous callers.
+	s.logicalMu.Lock()
+	defer s.logicalMu.Unlock()
+	s.applicationMu.RLock()
+	defer s.applicationMu.RUnlock()
+	if s.applicationClosed || s.client == nil || s.SessionID == "" || s.controllerToken == "" {
+		return nil, "", "", false
+	}
+	return s.client, s.SessionID, s.controllerToken, true
+}
+
 // EnsureTrajectoryObjective submits the first objective through the
 // authenticated broker controller. The broker derives the durable logical
 // subject and owns the canonical WAL write.
 func (s *BrokerSession) EnsureTrajectoryObjective(ctx context.Context, objective string) error {
-	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+	client, sessionID, controllerToken, ok := s.snapshotControllerAuthority()
+	if !ok {
 		return nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
 	defer cancel()
-	return s.client.Call(callCtx, broker.MethodSessionContextObjective, broker.SessionContextObjectiveParams{
-		SessionID: s.SessionID, ControllerToken: s.controllerToken, Objective: objective,
+	return client.Call(callCtx, broker.MethodSessionContextObjective, broker.SessionContextObjectiveParams{
+		SessionID: sessionID, ControllerToken: controllerToken, Objective: objective,
 	}, nil)
 }
 
@@ -662,7 +680,8 @@ func (s *BrokerSession) EnsureTrajectoryObjective(ctx context.Context, objective
 // broker authors the subject, principal, evidence ref, actor, and idempotency
 // key before appending the canonical event.
 func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn, invocation int, call agent.ToolUseBlock, result agent.ToolResultBlock) error {
-	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
+	client, sessionID, controllerToken, ok := s.snapshotControllerAuthority()
+	if !ok {
 		return nil
 	}
 	sum := sha256.Sum256(call.Input)
@@ -670,8 +689,8 @@ func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn, i
 	denied := result.IsError && (strings.Contains(content, "permission") || strings.Contains(content, "outside write_scope") || strings.Contains(content, "denied"))
 	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
 	defer cancel()
-	return s.client.Call(callCtx, broker.MethodSessionContextToolOutcome, broker.SessionContextToolOutcomeParams{
-		SessionID: s.SessionID, ControllerToken: s.controllerToken,
+	return client.Call(callCtx, broker.MethodSessionContextToolOutcome, broker.SessionContextToolOutcomeParams{
+		SessionID: sessionID, ControllerToken: controllerToken,
 		Turn: turn, Invocation: invocation, CallID: call.ID, Tool: call.Name, ArgsDigest: hex.EncodeToString(sum[:]),
 		Succeeded: !result.IsError, Denied: denied,
 	}, nil)
