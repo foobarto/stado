@@ -164,6 +164,8 @@ The broker is the small privileged process boundary. It:
 - validates typed requests against global policy;
 - creates sessions and projects immutable capability ceilings;
 - owns canonical event ordering and write handles;
+- serves bounded session-context projections only to a live controller or the
+  exact durable recovery bearer held by an operator inspection command;
 - issues and consumes exact operator-origin grants;
 - manages budgets, admissions, jobs, leases, holds, pause, resume, stop, and
   cancellation;

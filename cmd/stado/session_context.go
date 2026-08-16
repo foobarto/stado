@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
+	"os"
 
-	"github.com/foobarto/stado/internal/broker/wal"
+	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/brokercredential"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/daemon"
 	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/spf13/cobra"
 )
@@ -18,48 +21,86 @@ func writeJSON(writer io.Writer, value any) error {
 	return encoder.Encode(value)
 }
 
-func withSessionContext(cmd *cobra.Command, fn func(*sessioncontext.Service) error) error {
+func withSessionContext(cmd *cobra.Command, subject string, fn func(*daemon.Client, broker.SessionContextReadAuth) error) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
+	credentials, err := brokercredential.New(cfg.StateDir())
 	if err != nil {
 		return err
 	}
-	defer func() { _ = store.Close() }()
-	return fn(sessioncontext.New(store))
+	credential, err := credentials.Load(subject)
+	if err != nil {
+		return fmt.Errorf("session context credential: %w", err)
+	}
+	socketPath, err := daemon.SocketPath()
+	if err != nil {
+		return err
+	}
+	stadoBin, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	dialCtx, dialCancel := context.WithTimeout(cmd.Context(), brokerAttachTimeout)
+	defer dialCancel()
+	client, _, err := daemon.EnsureRunning(dialCtx, socketPath, stadoBin, brokerAttachTimeout)
+	if err != nil {
+		return fmt.Errorf("session context broker: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+	return fn(client, broker.SessionContextReadAuth{
+		Subject: credential.Subject, Ticket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+	})
 }
 
 var sessionStateCmd = &cobra.Command{Use: "state <session-id>", Short: "Show the bounded structured session state", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-	return withSessionContext(cmd, func(s *sessioncontext.Service) error {
-		state, err := s.State(args[0])
-		if err != nil {
+	var state sessioncontext.State
+	err := withSessionContext(cmd, args[0], func(client *daemon.Client, auth broker.SessionContextReadAuth) error {
+		callCtx, cancel := context.WithTimeout(cmd.Context(), brokerAttachTimeout)
+		defer cancel()
+		if err := client.Call(callCtx, broker.MethodSessionContextState, broker.SessionContextStateParams(auth), &state); err != nil {
 			return err
 		}
-		return writeJSON(cmd.OutOrStdout(), state)
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(cmd.OutOrStdout(), state)
 }}
 var sessionSignalsCmd = &cobra.Command{Use: "signals <session-id>", Short: "Show active deterministic learning signals", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-	return withSessionContext(cmd, func(s *sessioncontext.Service) error {
-		signals, err := s.Signals(args[0], false)
-		if err != nil {
+	var signals []sessioncontext.Signal
+	err := withSessionContext(cmd, args[0], func(client *daemon.Client, auth broker.SessionContextReadAuth) error {
+		callCtx, cancel := context.WithTimeout(cmd.Context(), brokerAttachTimeout)
+		defer cancel()
+		if err := client.Call(callCtx, broker.MethodSessionContextSignals, broker.SessionContextSignalsParams{SessionContextReadAuth: auth}, &signals); err != nil {
 			return err
 		}
-		return writeJSON(cmd.OutOrStdout(), signals)
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(cmd.OutOrStdout(), signals)
 }}
 var sessionJournalCmd = &cobra.Command{Use: "journal <session-id>", Short: "Show the bounded canonical session chronology", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-	return withSessionContext(cmd, func(s *sessioncontext.Service) error {
-		journal, err := s.Journal(args[0], 200)
-		if err != nil {
+	var journal []sessioncontext.JournalEntry
+	err := withSessionContext(cmd, args[0], func(client *daemon.Client, auth broker.SessionContextReadAuth) error {
+		callCtx, cancel := context.WithTimeout(cmd.Context(), brokerAttachTimeout)
+		defer cancel()
+		if err := client.Call(callCtx, broker.MethodSessionContextJournal, broker.SessionContextJournalParams{SessionContextReadAuth: auth, Limit: 200}, &journal); err != nil {
 			return err
 		}
-		if len(journal) == 0 {
-			fmt.Fprintln(cmd.ErrOrStderr(), "(no structured journal events)")
-		}
-		return writeJSON(cmd.OutOrStdout(), journal)
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if len(journal) == 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "(no structured journal events)")
+	}
+	return writeJSON(cmd.OutOrStdout(), journal)
 }}
 
 func init() { sessionCmd.AddCommand(sessionStateCmd, sessionSignalsCmd, sessionJournalCmd) }

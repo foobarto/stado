@@ -89,9 +89,10 @@ type Service struct {
 	// only production write path while unit tests that exercise policy alone
 	// remain lightweight.
 	artifacts *artifactBrokerState
-	// sessionContext is the broker-owned trajectory/session-context writer over
-	// the same canonical WAL. Orchestrator processes submit typed facts through
-	// authenticated RPC and never open this store directly.
+	// sessionContext is the broker-owned trajectory/session-context service over
+	// the same canonical WAL. Orchestrator processes submit typed facts and read
+	// bounded projections through authenticated RPC; they never open this store
+	// directly.
 	sessionContext *sessioncontext.Service
 
 	// sessionScopes is installed with the canonical broker WAL. Only logical

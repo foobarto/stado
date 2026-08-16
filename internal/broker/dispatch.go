@@ -23,6 +23,9 @@ const (
 	MethodSessionTaint                    = "broker.v1.session.taint"
 	MethodSessionContextObjective         = "broker.v1.session.context.objective"
 	MethodSessionContextToolOutcome       = "broker.v1.session.context.tool_outcome"
+	MethodSessionContextState             = "broker.v1.session.context.state"
+	MethodSessionContextSignals           = "broker.v1.session.context.signals"
+	MethodSessionContextJournal           = "broker.v1.session.context.journal"
 	MethodToolRunSandbox                  = "broker.v1.toolrun.sandbox"
 	MethodPolicyQuery                     = "broker.v1.policy.query"
 	MethodApplicationBind                 = "broker.v1.application.bind"
@@ -119,6 +122,12 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return s.dispatchSessionContextObjective(ctx, params)
 	case MethodSessionContextToolOutcome:
 		return s.dispatchSessionContextToolOutcome(ctx, params)
+	case MethodSessionContextState:
+		return s.dispatchSessionContextState(params)
+	case MethodSessionContextSignals:
+		return s.dispatchSessionContextSignals(params)
+	case MethodSessionContextJournal:
+		return s.dispatchSessionContextJournal(params)
 	case MethodToolRunSandbox:
 		return s.dispatchToolRunSandbox(ctx, params)
 	case MethodPolicyQuery:
@@ -304,6 +313,30 @@ type SessionContextToolOutcomeParams struct {
 
 type SessionContextWriteResult struct {
 	OK bool `json:"ok"`
+}
+
+// SessionContextReadAuth admits exactly one native read authority: either the
+// live controller for a durable logical session, or its stable recovery bearer
+// for an operator inspection command. The broker derives the logical subject
+// in both cases; a caller never supplies an unauthenticated projection key.
+type SessionContextReadAuth struct {
+	SessionID       string `json:"session_id,omitempty"`
+	ControllerToken string `json:"controller_token,omitempty"`
+	Subject         string `json:"subject,omitempty"`
+	Ticket          string `json:"ticket,omitempty"`
+	ResumeSecret    string `json:"resume_secret,omitempty"`
+}
+
+type SessionContextStateParams = SessionContextReadAuth
+
+type SessionContextSignalsParams struct {
+	SessionContextReadAuth
+	IncludeExpired bool `json:"include_expired,omitempty"`
+}
+
+type SessionContextJournalParams struct {
+	SessionContextReadAuth
+	Limit int `json:"limit,omitempty"`
 }
 
 // ArtifactBindParams is sent only by the native verified plugin loader. The

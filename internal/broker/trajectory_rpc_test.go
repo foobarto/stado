@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -149,6 +150,119 @@ func TestTrajectoryRPCReportsCanonicalStoreFailureAsInternal(t *testing.T) {
 	_, err = service.Dispatch(context.Background(), MethodSessionContextObjective, raw)
 	if dispatchCode(err) != ErrCodeInternal || !strings.Contains(err.Error(), "canonical session context") {
 		t.Fatalf("store failure error=%v", err)
+	}
+}
+
+func TestSessionContextReadRPCAuthenticatesControllerAndRecoveryBearer(t *testing.T) {
+	service, _ := openScopeService(t, t.TempDir())
+	defer service.Close()
+	handle, credential := createDurableScope(t, service, t.TempDir(), "logical-session-a")
+	dispatchRPC(t, service, MethodSessionContextObjective, SessionContextObjectiveParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken, Objective: "ship safely",
+	})
+
+	controllerRaw := dispatchRPC(t, service, MethodSessionContextState, SessionContextStateParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken,
+	})
+	var controllerState sessioncontext.State
+	if err := json.Unmarshal(controllerRaw, &controllerState); err != nil {
+		t.Fatal(err)
+	}
+	if controllerState.SessionID != credential.Subject || controllerState.Objective != "ship safely" {
+		t.Fatalf("controller projection=%+v", controllerState)
+	}
+
+	recoveryAuth := SessionContextReadAuth{
+		Subject: credential.Subject, Ticket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+	}
+	recoveryRaw := dispatchRPC(t, service, MethodSessionContextState, SessionContextStateParams(recoveryAuth))
+	var recoveryState sessioncontext.State
+	if err := json.Unmarshal(recoveryRaw, &recoveryState); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(recoveryState, controllerState) {
+		t.Fatalf("recovery projection differs from controller projection: recovery=%+v controller=%+v", recoveryState, controllerState)
+	}
+
+	journalRaw := dispatchRPC(t, service, MethodSessionContextJournal, SessionContextJournalParams{
+		SessionContextReadAuth: recoveryAuth, Limit: 1,
+	})
+	var journal []sessioncontext.JournalEntry
+	if err := json.Unmarshal(journalRaw, &journal); err != nil {
+		t.Fatal(err)
+	}
+	if len(journal) != 1 || journal[0].Type != "state.updated" {
+		t.Fatalf("journal=%+v", journal)
+	}
+}
+
+func TestSessionContextReadRPCRejectsSubstitutedOrMixedAuthority(t *testing.T) {
+	service, _ := openScopeService(t, t.TempDir())
+	defer service.Close()
+	handle, credential := createDurableScope(t, service, t.TempDir(), "logical-session-a")
+
+	wrongResume := credential.ResumeSecret[:len(credential.ResumeSecret)-1] + "0"
+	if wrongResume == credential.ResumeSecret {
+		wrongResume = credential.ResumeSecret[:len(credential.ResumeSecret)-1] + "1"
+	}
+	wrong := SessionContextStateParams{
+		Subject: credential.Subject, Ticket: credential.Ticket, ResumeSecret: wrongResume,
+	}
+	raw, err := json.Marshal(wrong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Dispatch(context.Background(), MethodSessionContextState, raw); dispatchCode(err) != ErrCodeSessionScopeCredential {
+		t.Fatalf("wrong recovery bearer error=%v", err)
+	}
+
+	mixed := SessionContextStateParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken,
+		Subject: credential.Subject, Ticket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+	}
+	raw, err = json.Marshal(mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Dispatch(context.Background(), MethodSessionContextState, raw); dispatchCode(err) != ErrCodeInvalidParams {
+		t.Fatalf("mixed read authority error=%v", err)
+	}
+
+	tooLarge := SessionContextJournalParams{
+		SessionContextReadAuth: SessionContextReadAuth{SessionID: handle.SessionID, ControllerToken: handle.controllerToken},
+		Limit:                  maxSessionJournalEntries + 1,
+	}
+	raw, err = json.Marshal(tooLarge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Dispatch(context.Background(), MethodSessionContextJournal, raw); dispatchCode(err) != ErrCodeInvalidParams {
+		t.Fatalf("unbounded journal error=%v", err)
+	}
+}
+
+func TestSessionContextRecoveryReadSurvivesBrokerRestart(t *testing.T) {
+	walDir := t.TempDir()
+	first, _ := openScopeService(t, walDir)
+	handle, credential := createDurableScope(t, first, t.TempDir(), "logical-session-a")
+	dispatchRPC(t, first, MethodSessionContextObjective, SessionContextObjectiveParams{
+		SessionID: handle.SessionID, ControllerToken: handle.controllerToken, Objective: "survive restart",
+	})
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, _ := openScopeService(t, walDir)
+	defer second.Close()
+	raw := dispatchRPC(t, second, MethodSessionContextState, SessionContextStateParams{
+		Subject: credential.Subject, Ticket: credential.Ticket, ResumeSecret: credential.ResumeSecret,
+	})
+	var state sessioncontext.State
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.SessionID != credential.Subject || state.Objective != "survive restart" {
+		t.Fatalf("restarted projection=%+v", state)
 	}
 }
 

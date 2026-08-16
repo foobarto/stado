@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,9 +18,13 @@ import (
 const (
 	maxTrajectoryCallIDRunes = 256
 	maxTrajectoryToolRunes   = 256
+	maxSessionJournalEntries = 1000
 )
 
-var errTrajectoryDurableSession = errors.New("broker: session context requires a durable logical session")
+var (
+	errTrajectoryDurableSession    = errors.New("broker: session context requires a durable logical session")
+	errSessionContextReadAuthority = errors.New("broker: session context requires exactly one read authority")
+)
 
 func (s *Service) dispatchSessionContextObjective(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var params SessionContextObjectiveParams
@@ -75,6 +80,57 @@ func (s *Service) dispatchSessionContextToolOutcome(ctx context.Context, raw jso
 	return json.Marshal(SessionContextWriteResult{OK: true})
 }
 
+func (s *Service) dispatchSessionContextState(raw json.RawMessage) (json.RawMessage, error) {
+	var params SessionContextStateParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, invalidTrajectoryParams(MethodSessionContextState, err)
+	}
+	svc, subject, err := s.authenticatedSessionContextRead(params)
+	if err != nil {
+		return nil, sessionContextReadAuthError(MethodSessionContextState, err)
+	}
+	state, err := svc.State(subject)
+	if err != nil {
+		return nil, trajectoryStoreError(MethodSessionContextState, err)
+	}
+	return json.Marshal(state)
+}
+
+func (s *Service) dispatchSessionContextSignals(raw json.RawMessage) (json.RawMessage, error) {
+	var params SessionContextSignalsParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, invalidTrajectoryParams(MethodSessionContextSignals, err)
+	}
+	svc, subject, err := s.authenticatedSessionContextRead(params.SessionContextReadAuth)
+	if err != nil {
+		return nil, sessionContextReadAuthError(MethodSessionContextSignals, err)
+	}
+	signals, err := svc.Signals(subject, params.IncludeExpired)
+	if err != nil {
+		return nil, trajectoryStoreError(MethodSessionContextSignals, err)
+	}
+	return json.Marshal(signals)
+}
+
+func (s *Service) dispatchSessionContextJournal(raw json.RawMessage) (json.RawMessage, error) {
+	var params SessionContextJournalParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, invalidTrajectoryParams(MethodSessionContextJournal, err)
+	}
+	if params.Limit < 0 || params.Limit > maxSessionJournalEntries {
+		return nil, invalidTrajectoryParams(MethodSessionContextJournal, errors.New("session journal limit must be between 0 and 1000"))
+	}
+	svc, subject, err := s.authenticatedSessionContextRead(params.SessionContextReadAuth)
+	if err != nil {
+		return nil, sessionContextReadAuthError(MethodSessionContextJournal, err)
+	}
+	journal, err := svc.Journal(subject, params.Limit)
+	if err != nil {
+		return nil, trajectoryStoreError(MethodSessionContextJournal, err)
+	}
+	return json.Marshal(journal)
+}
+
 func (s *Service) authenticatedSessionContext(sessionID, controllerToken string) (*sessioncontext.Service, string, string, error) {
 	if s == nil || s.sessionContext == nil {
 		return nil, "", "", errors.New("broker: session context authority unavailable")
@@ -97,6 +153,41 @@ func (s *Service) authenticatedSessionContext(sessionID, controllerToken string)
 	return s.sessionContext, state.scope.subject, state.principal, nil
 }
 
+func (s *Service) authenticatedSessionContextRead(auth SessionContextReadAuth) (*sessioncontext.Service, string, error) {
+	if s == nil || s.sessionContext == nil {
+		return nil, "", errors.New("broker: session context authority unavailable")
+	}
+	hasController := auth.SessionID != "" || auth.ControllerToken != ""
+	hasRecovery := auth.Subject != "" || auth.Ticket != "" || auth.ResumeSecret != ""
+	if hasController == hasRecovery {
+		return nil, "", errSessionContextReadAuthority
+	}
+	if hasController {
+		svc, subject, _, err := s.authenticatedSessionContext(auth.SessionID, auth.ControllerToken)
+		return svc, subject, err
+	}
+	credential := SessionAdoptionCredential{
+		Subject: auth.Subject, Ticket: auth.Ticket, ResumeSecret: auth.ResumeSecret,
+	}
+	if err := ValidateSessionAdoptionCredential(credential); err != nil {
+		return nil, "", ErrSessionScopeCredential
+	}
+	ticketDigest := sha256.Sum256([]byte(credential.Ticket))
+	resumeDigest := sha256.Sum256([]byte(credential.ResumeSecret))
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+	for _, state := range s.sessions {
+		if !state.scope.durable || state.scope.subject != credential.Subject {
+			continue
+		}
+		if subtle.ConstantTimeCompare(ticketDigest[:], state.scope.ticketDigest[:]) == 1 &&
+			subtle.ConstantTimeCompare(resumeDigest[:], state.scope.resumeDigest[:]) == 1 {
+			return s.sessionContext, state.scope.subject, nil
+		}
+	}
+	return nil, "", ErrSessionScopeCredential
+}
+
 func invalidTrajectoryParams(method string, err error) *DispatchError {
 	return &DispatchError{Code: ErrCodeInvalidParams, Message: method + ": " + err.Error()}
 }
@@ -111,6 +202,16 @@ func trajectoryAuthError(method string, err error) *DispatchError {
 		code = ErrCodeInternal
 	}
 	return &DispatchError{Code: code, Message: method + ": " + err.Error()}
+}
+
+func sessionContextReadAuthError(method string, err error) *DispatchError {
+	if errors.Is(err, errSessionContextReadAuthority) {
+		return invalidTrajectoryParams(method, err)
+	}
+	if errors.Is(err, ErrSessionScopeCredential) {
+		return &DispatchError{Code: ErrCodeSessionScopeCredential, Message: method + ": " + err.Error()}
+	}
+	return trajectoryAuthError(method, err)
 }
 
 func trajectoryStoreError(method string, err error) *DispatchError {

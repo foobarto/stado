@@ -22,6 +22,12 @@ import (
 
 func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, *wal.Store, func()) {
 	t.Helper()
+	_, client, service, store, teardown := startTestDurableDaemonWithSocket(t)
+	return client, service, store, teardown
+}
+
+func startTestDurableDaemonWithSocket(t *testing.T) (string, *daemon.Client, *broker.Service, *wal.Store, func()) {
+	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "broker.sock")
 	service := broker.NewService(broker.LoadEmbeddedDefaultPolicy(), nil)
 	store, err := wal.Open(filepath.Join(t.TempDir(), "wal"))
@@ -60,7 +66,7 @@ func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, *wal
 		<-serveErr
 		t.Fatal("durable daemon never accepted handshake")
 	}
-	return client, service, store, func() {
+	return socketPath, client, service, store, func() {
 		_ = client.Close()
 		_ = server.Stop()
 		cancel()
@@ -318,6 +324,10 @@ func TestBrokerSessionTrajectoryWriterUsesDurableBrokerScope(t *testing.T) {
 	}
 	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 1, call, result); err != nil {
 		t.Fatal(err)
+	}
+	brokerState, err := peer.SessionContextState(t.Context())
+	if err != nil || brokerState.SessionID != "logical-session-trajectory" || brokerState.Objective != "ship safely" {
+		t.Fatalf("broker state=%+v err=%v", brokerState, err)
 	}
 
 	projection := sessioncontext.New(store)

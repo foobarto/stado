@@ -8,12 +8,22 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
 // noopProvider satisfies startStream after onToolsExecuted without a real API.
 type noopProvider struct{}
+
+type promptStateBroker struct {
+	failingTaintBroker
+	state sessioncontext.State
+}
+
+func (b promptStateBroker) SessionContextState(context.Context) (sessioncontext.State, error) {
+	return b.state, nil
+}
 
 func (noopProvider) Name() string                     { return "noop" }
 func (noopProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
@@ -96,5 +106,16 @@ Sort imports.
 	sys := m.turnSystemPrompt("hi")
 	if strings.Contains(sys, "Available skills") || strings.Contains(sys, "tidy imports") {
 		t.Errorf("native system prompt leaked skill catalog:\n%s", sys)
+	}
+}
+
+func TestTurnSystemPromptReadsBoundedStateThroughBroker(t *testing.T) {
+	m := newSkillModel(t, t.TempDir())
+	m.broker = promptStateBroker{state: sessioncontext.State{
+		SessionID: "logical-session-a", Version: 1, Objective: "ship safely",
+	}}
+	sys := m.turnSystemPrompt("hi")
+	if !strings.Contains(sys, `"objective_host_fact":"ship safely"`) {
+		t.Fatalf("broker-projected state missing from system prompt:\n%s", sys)
 	}
 }

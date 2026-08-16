@@ -9,6 +9,7 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins"
 	pluginruntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/foobarto/stado/internal/tools"
 )
 
@@ -59,6 +60,13 @@ type BrokerSessionTransitioner interface {
 // cannot select the recovered broker session/generation.
 type BrokerLogicalSessionTransitioner interface {
 	OpenLogicalSession(context.Context, string, string) (BrokerController, error)
+}
+
+// SessionContextReader is the optional authenticated projection seam used by
+// native prompt composition. Implementations derive the logical subject from
+// their held broker controller rather than accepting a model-selected key.
+type SessionContextReader interface {
+	SessionContextState(context.Context) (sessioncontext.State, error)
 }
 
 // LogicalSessionHandoffReservation is an authority-free native receipt for one
