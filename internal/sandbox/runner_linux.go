@@ -244,8 +244,16 @@ func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
 		}
 		return nil
 	}
+	done := ctx.Done()
+	if done == nil {
+		// context.Background and context.TODO never complete. Do not pin the
+		// command, proxy, or seccomp fd behind an immortal watcher goroutine;
+		// cmd.Cancel still offers explicit cleanup, and otherwise the command's
+		// owned files become collectible with the command.
+		return
+	}
 	go func() {
-		<-ctx.Done()
+		<-done
 		runCleanup()
 	}()
 }

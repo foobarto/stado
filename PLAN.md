@@ -132,8 +132,9 @@ Remaining gates:
   do not add generalized taint propagation or a taint-policy matrix without a
   concrete preventive boundary that the existing audit cannot provide;
 - move all canonical trace/event writes behind broker ownership;
-- exercise mount, namespace, Landlock, seccomp, credential-mask, and network
-  invariants in real Linux integration tests;
+- retain the composed real-bubblewrap regression for mount scope, namespace,
+  seccomp, credential masking, environment filtering, network denial, and
+  teardown; add equivalent composed Landlock and broker-admission coverage;
 - finish the adversarial default harness and make its declared status honest.
 
 ### Plugin application platform closure
@@ -151,8 +152,9 @@ draft [EP-0068](docs/eps/0068-signed-plugin-cli-commands.md).
 Remaining gates:
 
 - keep the exact host-import and required-export signature matrix enforced
-  against every released official plugin in cross-repository CI; finish making
-  every host import documented, capability-scoped, bounded, and behavior-tested;
+  against every released official plugin in cross-repository CI and keep the
+  live host-import documentation guard green; finish making every host import
+  capability-scoped, bounded, and behavior-tested;
 - complete the remaining broader [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md)
   and [EP-0039](docs/eps/0039-plugin-distribution-and-trust.md) surface and
   distribution phases without restoring name-based or compatibility authority;

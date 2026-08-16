@@ -8,6 +8,12 @@ Plugins / Infra / Fixes.
 
 ### Security / removed surfaces
 
+- **Composed Linux containment regression.** A real bubblewrap integration test
+  now proves read-only and writable mount scopes, credential-directory masking
+  with an explicit safe-file restore, environment filtering, deny-all network
+  namespace isolation, loaded seccomp kill behavior, and operation-context
+  teardown in one execution. Background/TODO contexts no longer create an
+  immortal cleanup watcher that pins the command's resources.
 - **SSH-agent forwarding removed.** Stado no longer imports
   `$SSH_AUTH_SOCK`, binds host unix sockets into agent sandboxes, or reserves a
   privileged git-subagent role. Sandboxed process environments always scrub
@@ -26,6 +32,9 @@ Plugins / Infra / Fixes.
 
 ### Plugins / fixes / CI
 
+- **Every live host import must be documented.** CI enumerates the actual
+  wazero `stado` module, including capability-shaped imports, and fails when
+  any exported host function is absent from the plugin-author reference.
 - **Exact host/guest ABI preflight.** `stado plugin abi-check <dir>...` compiles
   digest-verified WASM without executing guest code and compares every
   `stado` import plus every manifest-required tool/lifecycle export by exact
