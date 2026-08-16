@@ -170,6 +170,35 @@ func TestOneOffFailureYieldsNoSignal(t *testing.T) {
 	}
 }
 
+func TestObserveRetryReturnsCommittedResultBeforeRegeneratingMetadata(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+	first := Observation{SessionID: "s", Kind: ObservationTool, Tool: "shell", ArgsDigest: "same", EvidenceRef: "trace:1"}
+	second := Observation{SessionID: "s", Kind: ObservationTool, Tool: "shell", ArgsDigest: "same", EvidenceRef: "trace:2"}
+	if _, err := s.Observe(ctx, first, "alice", "broker", "obs:1"); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := s.Observe(ctx, second, "alice", "broker", "obs:2")
+	if err != nil || len(signals) != 1 {
+		t.Fatalf("initial signals=%v err=%v", signals, err)
+	}
+	replayed, err := s.Observe(ctx, second, "alice", "broker", "obs:2")
+	if err != nil || len(replayed) != 1 || replayed[0].ID != signals[0].ID {
+		t.Fatalf("replayed signals=%v err=%v", replayed, err)
+	}
+	if got := len(store.Records()); got != 2 {
+		t.Fatalf("records after retry=%d, want 2", got)
+	}
+	second.ArgsDigest = "changed"
+	if _, err := s.Observe(ctx, second, "alice", "broker", "obs:2"); !errors.Is(err, wal.ErrConflict) {
+		t.Fatalf("changed retry error=%v", err)
+	}
+	if got := len(store.Records()); got != 2 {
+		t.Fatalf("records after conflict=%d, want 2", got)
+	}
+}
+
 func TestRepeatedSignalShapeAggregatesWhileActive(t *testing.T) {
 	s, store := setup(t)
 	defer store.Close()

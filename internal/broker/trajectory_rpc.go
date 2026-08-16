@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/sessioncontext"
 )
 
@@ -113,6 +114,9 @@ func trajectoryAuthError(method string, err error) *DispatchError {
 }
 
 func trajectoryStoreError(method string, err error) *DispatchError {
+	if errors.Is(err, wal.ErrConflict) {
+		return invalidTrajectoryParams(method, err)
+	}
 	return &DispatchError{Code: ErrCodeInternal, Message: method + ": canonical session context: " + err.Error()}
 }
 
