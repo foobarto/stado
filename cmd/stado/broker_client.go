@@ -16,6 +16,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +36,9 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/internal/tui"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 // inlineTUIRunner is the function launchInlineTUI uses to boot the TUI. It is a
@@ -141,6 +145,7 @@ var _ runtime.BrokerSessionTransitioner = (*BrokerSession)(nil)
 var _ runtime.BrokerLogicalSessionTransitioner = (*BrokerSession)(nil)
 var _ runtime.BrokerLogicalSessionHandoff = (*BrokerSession)(nil)
 var _ runtime.ApplicationWorkerRunController = (*BrokerSession)(nil)
+var _ trajectory.Writer = (*BrokerSession)(nil)
 
 type brokerArtifactBridge struct {
 	client *daemon.Client
@@ -636,6 +641,58 @@ func (s *BrokerSession) SetTaint(ctx context.Context, taint runtime.ContextTaint
 	return s.client.Call(callCtx, broker.MethodSessionTaint, broker.SessionTaintParams{
 		SessionID: s.SessionID, ControllerToken: s.controllerToken,
 		Taint: string(taint),
+	}, nil)
+}
+
+func (s *BrokerSession) snapshotControllerAuthority() (*daemon.Client, string, string, bool) {
+	if s == nil || s.Skipped {
+		return nil, "", "", false
+	}
+	// Handoff rotates controller authority under logicalMu, while Close retires
+	// it under logicalMu then applicationMu. Match that order and return one
+	// internally consistent snapshot for asynchronous callers.
+	s.logicalMu.Lock()
+	defer s.logicalMu.Unlock()
+	s.applicationMu.RLock()
+	defer s.applicationMu.RUnlock()
+	if s.applicationClosed || s.client == nil || s.SessionID == "" || s.controllerToken == "" {
+		return nil, "", "", false
+	}
+	return s.client, s.SessionID, s.controllerToken, true
+}
+
+// EnsureTrajectoryObjective submits the first objective through the
+// authenticated broker controller. The broker derives the durable logical
+// subject and owns the canonical WAL write.
+func (s *BrokerSession) EnsureTrajectoryObjective(ctx context.Context, objective string) error {
+	client, sessionID, controllerToken, ok := s.snapshotControllerAuthority()
+	if !ok {
+		return nil
+	}
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	return client.Call(callCtx, broker.MethodSessionContextObjective, broker.SessionContextObjectiveParams{
+		SessionID: sessionID, ControllerToken: controllerToken, Objective: objective,
+	}, nil)
+}
+
+// RecordTrajectoryToolOutcome submits bounded mechanical outcome facts. The
+// broker authors the subject, principal, evidence ref, actor, and idempotency
+// key before appending the canonical event.
+func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn, invocation int, call agent.ToolUseBlock, result agent.ToolResultBlock) error {
+	client, sessionID, controllerToken, ok := s.snapshotControllerAuthority()
+	if !ok {
+		return nil
+	}
+	sum := sha256.Sum256(call.Input)
+	content := strings.ToLower(result.Content)
+	denied := result.IsError && (strings.Contains(content, "permission") || strings.Contains(content, "outside write_scope") || strings.Contains(content, "denied"))
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	return client.Call(callCtx, broker.MethodSessionContextToolOutcome, broker.SessionContextToolOutcomeParams{
+		SessionID: sessionID, ControllerToken: controllerToken,
+		Turn: turn, Invocation: invocation, CallID: call.ID, Tool: call.Name, ArgsDigest: hex.EncodeToString(sum[:]),
+		Succeeded: !result.IsError, Denied: denied,
 	}, nil)
 }
 

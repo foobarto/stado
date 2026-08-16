@@ -45,6 +45,40 @@ func (s *Service) PatchHost(ctx context.Context, session, principal, actor, idem
 	return s.patchState(session, principal, actor, idem, expected, "host", StatePatch{}, patch)
 }
 
+// EnsureObjective records the first non-empty host objective atomically. A
+// retry or later caller observes the existing objective and does not replace
+// it. This avoids a State/PatchHost read-modify-write race at broker RPC
+// boundaries.
+func (s *Service) EnsureObjective(ctx context.Context, session, objective, principal, actor, idem string) (State, error) {
+	_ = ctx
+	objective = strings.TrimSpace(objective)
+	if strings.TrimSpace(session) == "" || objective == "" {
+		return State{}, errors.New("session context session and objective required")
+	}
+	if err := bounded(objective, 4096); err != nil {
+		return State{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := foldState(s.wal.Records(), session)
+	if err != nil {
+		return State{}, err
+	}
+	if state.Objective != "" {
+		return state, nil
+	}
+	if state.SessionID == "" {
+		state.SessionID = session
+		state.Assertions = map[string]string{}
+	}
+	state.Objective = objective
+	state.Version++
+	state.UpdatedAt = s.now().UTC()
+	b, _ := json.Marshal(state)
+	_, err = s.wal.Append(tx(session, principal, actor, idem, "state.updated", b))
+	return state, err
+}
+
 func (s *Service) patchState(session, principal, actor, idem string, expected uint64, writer string, model StatePatch, host HostPatch) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

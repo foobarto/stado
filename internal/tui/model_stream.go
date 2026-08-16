@@ -195,7 +195,14 @@ func (m *Model) LoadPersistedConversation() {
 		return
 	}
 	loaded, err := runtime.LoadConversation(m.session.WorktreePath)
-	if err != nil || len(loaded) == 0 {
+	if err != nil {
+		return
+	}
+	m.trajectoryInvocation = trajectory.InvocationBase(loaded, 0)
+	if invocation, countErr := runtime.ConversationToolInvocationCount(m.session.WorktreePath); countErr == nil {
+		m.trajectoryInvocation = max(m.trajectoryInvocation, invocation)
+	}
+	if len(loaded) == 0 {
 		return
 	}
 	m.msgs = loaded
@@ -1067,6 +1074,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
+	m.trajectoryInvocation = max(m.trajectoryInvocation, trajectory.InvocationBase(m.msgs, len(m.turnToolCalls)))
 	return m.advanceToolQueue()
 }
 
@@ -1118,11 +1126,13 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
 		m.pendingCalls = m.pendingCalls[1:]
+		invocation := m.trajectoryInvocation
+		m.trajectoryInvocation++
 		if !m.turnAllowsTool(call.Name) {
 			m.rejectUnavailableTool(call)
 			continue
 		}
-		return m.executeCallAsync(call)
+		return m.executeCallAsync(call, invocation)
 	}
 	// Queue drained — post the results and let the agent loop re-stream.
 	results := m.pendingResults
@@ -1230,7 +1240,7 @@ func unavailableToolContent(name string) string {
 // so long-running tools (e.g. bash sleep 30) never block the UI. The result
 // is ferried back via toolResultMsg. A cancellable context lets Ctrl+C stop
 // the tool mid-execution; a tick timer updates the elapsed counter live.
-func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
+func (m *Model) executeCallAsync(call agent.ToolUseBlock, invocation int) tea.Cmd {
 	if m.executor == nil {
 		return func() tea.Msg {
 			return toolResultMsg{result: agent.ToolResultBlock{
@@ -1291,10 +1301,12 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	m.toolMu.Unlock()
 	var trajectoryRecorder *trajectory.Recorder
 	trajectoryTurn := 0
-	if m.session != nil && m.cfg != nil {
-		rec := trajectory.Recorder{StateDir: m.cfg.StateDir(), SessionID: m.session.ID, Principal: trajectory.LocalPrincipal()}
-		trajectoryRecorder = &rec
-		trajectoryTurn = m.session.Turn()
+	if m.session != nil {
+		if writer, ok := m.broker.(trajectory.Writer); ok {
+			rec := trajectory.Recorder{Writer: writer}
+			trajectoryRecorder = &rec
+			trajectoryTurn = m.session.Turn()
+		}
 	}
 	return func() tea.Msg {
 		defer func() {
@@ -1339,7 +1351,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			IsError:   isErr,
 		}
 		if trajectoryRecorder != nil {
-			trajectoryRecorder.ToolOutcome(trajectoryTurn, call, resultBlock)
+			trajectoryRecorder.ToolOutcome(trajectoryTurn, invocation, call, resultBlock)
 		}
 		return toolResultMsg{result: resultBlock}
 	}

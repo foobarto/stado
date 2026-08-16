@@ -739,7 +739,11 @@ type Model struct {
 	turnThinking  string
 	turnThinkSig  string
 	turnToolCalls []agent.ToolUseBlock
-	turnAllowed   map[string]struct{}
+	// trajectoryInvocation is the transcript-derived tool-call ordinal used
+	// while draining the current provider response. Provider call IDs are not
+	// unique on every backend (Gemini uses the tool name).
+	trajectoryInvocation int
+	turnAllowed          map[string]struct{}
 	// turnToolInstances binds each provider-visible name to the exact adapter
 	// projected for that turn. It prevents a response generated against an old
 	// lifecycle application instance from dispatching through a rebound owner.

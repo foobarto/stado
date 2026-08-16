@@ -134,6 +134,36 @@ func TestLoadPersistedConversation_MissingFileIsNoOp(t *testing.T) {
 	}
 }
 
+func TestTrajectoryInvocationSurvivesCompactionAndResume(t *testing.T) {
+	m := newPersistTestModel(t)
+	call := func() agent.Block {
+		return agent.Block{ToolUse: &agent.ToolUseBlock{ID: "same-tool", Name: "same-tool"}}
+	}
+	if err := runtime.AppendMessage(m.session.WorktreePath, agent.Message{
+		Role: agent.RoleAssistant, Content: []agent.Block{call(), call()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.AppendCompaction(m.session.WorktreePath, runtime.ConversationCompaction{
+		Summary: "prior calls compacted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m.LoadPersistedConversation()
+	if m.trajectoryInvocation != 2 {
+		t.Fatalf("resumed invocation=%d, want 2", m.trajectoryInvocation)
+	}
+	m.turnToolCalls = []agent.ToolUseBlock{{ID: "same-tool", Name: "same-tool"}}
+	m.turnAllowed = map[string]struct{}{"same-tool": {}}
+	if command := m.onTurnComplete(); command == nil {
+		t.Fatal("expected queued tool command")
+	}
+	if m.trajectoryInvocation != 3 {
+		t.Fatalf("post-compaction invocation=%d, want 3", m.trajectoryInvocation)
+	}
+}
+
 // TestMsgsToBlocks_ReconstructsThinkingBlocks: resumed thinking content
 // should stay in thinking blocks so display modes still apply after restart,
 // while tool-use/result history remains compact placeholder text.

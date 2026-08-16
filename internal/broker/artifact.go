@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/broker/authority"
 	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/workdirpath"
 )
@@ -99,6 +100,7 @@ func (s *Service) ConfigureArtifactStore(store *wal.Store, verifier ArtifactPlug
 		return fmt.Errorf("broker: restore durable session scopes: %w", err)
 	}
 	s.artifacts = state
+	s.sessionContext = sessioncontext.New(store)
 	return nil
 }
 

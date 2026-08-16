@@ -27,8 +27,6 @@ var walDebt = map[string]int{
 	"cmd/stado/session_context.go::withSessionContext::OpenShared":             1,
 	"internal/runtime/retained_bridge.go::ConfigureRetainedBridge::OpenShared": 1,
 	"internal/stateprompt/context.go::Build::OpenShared":                       1,
-	"internal/trajectory/recorder.go::EnsureObjective::OpenShared":             1,
-	"internal/trajectory/recorder.go::ToolOutcome::OpenShared":                 1,
 }
 
 // brokerOwnedWALCalls are composition-root opens made on behalf of the broker

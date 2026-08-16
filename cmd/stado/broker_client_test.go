@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,9 +16,11 @@ import (
 	"github.com/foobarto/stado/internal/daemon"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/sessioncontext"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
-func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, func()) {
+func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, *wal.Store, func()) {
 	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "broker.sock")
 	service := broker.NewService(broker.LoadEmbeddedDefaultPolicy(), nil)
@@ -56,7 +60,7 @@ func startTestDurableDaemon(t *testing.T) (*daemon.Client, *broker.Service, func
 		<-serveErr
 		t.Fatal("durable daemon never accepted handshake")
 	}
-	return client, service, func() {
+	return client, service, store, func() {
 		_ = client.Close()
 		_ = server.Stop()
 		cancel()
@@ -163,7 +167,7 @@ func TestBrokerSession_DoubleCloseSafe(t *testing.T) {
 }
 
 func TestBrokerSessionDurableLogicalPeerCreateDetachAdopt(t *testing.T) {
-	client, _, teardown := startTestDurableDaemon(t)
+	client, _, _, teardown := startTestDurableDaemon(t)
 	defer teardown()
 	cwd := t.TempDir()
 	var rootHandle broker.SessionHandleResult
@@ -219,7 +223,7 @@ func TestBrokerSessionDurableLogicalPeerCreateDetachAdopt(t *testing.T) {
 }
 
 func TestBrokerSessionLogicalHandoffStagesBeforeCommitAndRotatesInPlace(t *testing.T) {
-	client, service, teardown := startTestDurableDaemon(t)
+	client, service, _, teardown := startTestDurableDaemon(t)
 	defer teardown()
 	cwd := t.TempDir()
 	var rootHandle broker.SessionHandleResult
@@ -274,6 +278,84 @@ func TestBrokerSessionLogicalHandoffStagesBeforeCommitAndRotatesInPlace(t *testi
 	}
 	if err := peer.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrokerSessionTrajectoryWriterUsesDurableBrokerScope(t *testing.T) {
+	client, _, store, teardown := startTestDurableDaemon(t)
+	defer teardown()
+	cwd := t.TempDir()
+	var rootHandle broker.SessionHandleResult
+	if err := client.Call(t.Context(), broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose: broker.PurposeMainChat, Profile: broker.ProfileDefault, CWD: cwd,
+	}, &rootHandle); err != nil {
+		t.Fatal(err)
+	}
+	credentialStore, err := brokercredential.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := &BrokerSession{
+		SessionID: rootHandle.SessionID, controllerToken: rootHandle.ControllerToken,
+		Purpose: rootHandle.Purpose, Profile: broker.ProfileDefault, client: client,
+		logicalCredentials: credentialStore,
+	}
+	controller, err := root.OpenLogicalSession(t.Context(), cwd, "logical-session-trajectory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := controller.(*BrokerSession)
+	if err := peer.EnsureTrajectoryObjective(t.Context(), "ship safely"); err != nil {
+		t.Fatal(err)
+	}
+	call := agent.ToolUseBlock{ID: "call/with\nseparators", Name: "shell", Input: json.RawMessage(`{"cmd":"false"}`)}
+	result := agent.ToolResultBlock{ToolUseID: call.ID, Content: "exit status 1", IsError: true}
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 0, call, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 1, call, result); err != nil {
+		t.Fatal(err)
+	}
+
+	projection := sessioncontext.New(store)
+	state, err := projection.State("logical-session-trajectory")
+	if err != nil || state.Objective != "ship safely" {
+		t.Fatalf("state=%+v err=%v", state, err)
+	}
+	signals, err := projection.Signals("logical-session-trajectory", false)
+	if err != nil || len(signals) != 1 || signals[0].Type != sessioncontext.SignalRepeatedToolFailure {
+		t.Fatalf("signals=%v err=%v", signals, err)
+	}
+	for _, record := range store.Records() {
+		if strings.Contains(record.Transaction.IdempotencyKey, "call/with") {
+			t.Fatalf("untrusted call ID leaked into canonical idempotency key: %q", record.Transaction.IdempotencyKey)
+		}
+	}
+	start := make(chan struct{})
+	var recorders sync.WaitGroup
+	for invocation := 2; invocation < 34; invocation++ {
+		recorders.Add(1)
+		go func(invocation int) {
+			defer recorders.Done()
+			<-start
+			_ = peer.RecordTrajectoryToolOutcome(context.Background(), 4, invocation, call, result)
+		}(invocation)
+	}
+	closeErr := make(chan error, 1)
+	go func() {
+		<-start
+		closeErr <- peer.Close()
+	}()
+	close(start)
+	recorders.Wait()
+	if err := <-closeErr; err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 34, call, result); err != nil {
+		t.Fatalf("closed trajectory writer should be inert: %v", err)
 	}
 	if err := root.Close(); err != nil {
 		t.Fatal(err)

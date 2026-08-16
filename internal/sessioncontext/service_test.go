@@ -43,6 +43,53 @@ func TestStateSeparatesModelAndHostAuthority(t *testing.T) {
 	}
 }
 
+func TestEnsureObjectivePreservesFirstValue(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	state, err := s.EnsureObjective(ctx, "s1", "  ship safely  ", "alice", "broker", "objective:s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Objective != "ship safely" || state.Version != 1 {
+		t.Fatalf("first state=%+v", state)
+	}
+	state, err = s.EnsureObjective(ctx, "s1", "replace me", "mallory", "agent", "objective:s1:later")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Objective != "ship safely" || state.Version != 1 {
+		t.Fatalf("later state=%+v", state)
+	}
+	if got := len(store.Records()); got != 1 {
+		t.Fatalf("records=%d, want 1", got)
+	}
+}
+
+func TestEnsureObjectiveRejectsInvalidInput(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		session   string
+		objective string
+	}{
+		{name: "empty session", objective: "objective"},
+		{name: "empty objective", session: "s1", objective: "  "},
+		{name: "oversize objective", session: "s1", objective: string(make([]rune, 4097))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := s.EnsureObjective(ctx, test.session, test.objective, "alice", "broker", "objective:test"); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestDecisionLifecycleAndJournal(t *testing.T) {
 	s, store := setup(t)
 	defer store.Close()
@@ -120,6 +167,35 @@ func TestOneOffFailureYieldsNoSignal(t *testing.T) {
 	got, err := s.Observe(context.Background(), Observation{SessionID: "s", Kind: ObservationTool, Tool: "x", ArgsDigest: "a", EvidenceRef: "trace:1"}, "alice", "broker", "one")
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got=%v err=%v", got, err)
+	}
+}
+
+func TestObserveRetryReturnsCommittedResultBeforeRegeneratingMetadata(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+	first := Observation{SessionID: "s", Kind: ObservationTool, Tool: "shell", ArgsDigest: "same", EvidenceRef: "trace:1"}
+	second := Observation{SessionID: "s", Kind: ObservationTool, Tool: "shell", ArgsDigest: "same", EvidenceRef: "trace:2"}
+	if _, err := s.Observe(ctx, first, "alice", "broker", "obs:1"); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := s.Observe(ctx, second, "alice", "broker", "obs:2")
+	if err != nil || len(signals) != 1 {
+		t.Fatalf("initial signals=%v err=%v", signals, err)
+	}
+	replayed, err := s.Observe(ctx, second, "alice", "broker", "obs:2")
+	if err != nil || len(replayed) != 1 || replayed[0].ID != signals[0].ID {
+		t.Fatalf("replayed signals=%v err=%v", replayed, err)
+	}
+	if got := len(store.Records()); got != 2 {
+		t.Fatalf("records after retry=%d, want 2", got)
+	}
+	second.ArgsDigest = "changed"
+	if _, err := s.Observe(ctx, second, "alice", "broker", "obs:2"); !errors.Is(err, wal.ErrConflict) {
+		t.Fatalf("changed retry error=%v", err)
+	}
+	if got := len(store.Records()); got != 2 {
+		t.Fatalf("records after conflict=%d, want 2", got)
 	}
 }
 

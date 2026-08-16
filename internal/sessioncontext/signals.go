@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -22,10 +23,6 @@ func (s *Service) Observe(ctx context.Context, obs Observation, principal, actor
 	if obs.SessionID == "" || obs.Kind == "" || obs.EvidenceRef == "" {
 		return nil, errors.New("observation session, kind, and evidence ref required")
 	}
-	if obs.ID == "" {
-		obs.ID = mint("obs_")
-	}
-	obs.CreatedAt = s.now().UTC()
 	if len(obs.Attributes) > 16 {
 		return nil, errors.New("too many observation attributes")
 	}
@@ -34,6 +31,13 @@ func (s *Service) Observe(ctx context.Context, obs Observation, principal, actor
 			return nil, errors.New("observation attribute exceeds limit")
 		}
 	}
+	if signals, found, err := replayObservation(s.wal.Records(), obs, principal, actor, idem); found || err != nil {
+		return signals, err
+	}
+	if obs.ID == "" {
+		obs.ID = mint("obs_")
+	}
+	obs.CreatedAt = s.now().UTC()
 	prior, err := foldObservations(s.wal.Records(), obs.SessionID)
 	if err != nil {
 		return nil, err
@@ -68,6 +72,61 @@ func (s *Service) Observe(ctx context.Context, obs Observation, principal, actor
 	}
 	_, err = s.wal.Append(wal.Transaction{ID: mint("tx_"), IdempotencyKey: idem, Principal: principal, Actor: actor, Events: events})
 	return signals, err
+}
+
+// replayObservation resolves an idempotent retry before minting IDs or
+// timestamps and before running detectors against the already-committed
+// observation. The global WAL key is reusable only for the exact same
+// authority and mechanical input.
+func replayObservation(records []wal.Record, requested Observation, principal, actor, idem string) ([]Signal, bool, error) {
+	for _, record := range records {
+		tx := record.Transaction
+		if tx.IdempotencyKey != idem {
+			continue
+		}
+		if tx.Principal != principal || tx.Actor != actor {
+			return nil, true, wal.ErrConflict
+		}
+		var existing Observation
+		foundObservation := false
+		var signals []Signal
+		for _, event := range tx.Events {
+			if event.Store != sessionStore || event.Session != requested.SessionID {
+				return nil, true, wal.ErrConflict
+			}
+			switch event.Type {
+			case "observation.recorded":
+				if foundObservation || json.Unmarshal(event.Data, &existing) != nil {
+					return nil, true, errors.New("session context: malformed idempotent observation")
+				}
+				foundObservation = true
+			case "signal.detected":
+				var signal Signal
+				if err := json.Unmarshal(event.Data, &signal); err != nil {
+					return nil, true, errors.New("session context: malformed idempotent signal")
+				}
+				signals = append(signals, signal)
+			default:
+				return nil, true, wal.ErrConflict
+			}
+		}
+		if !foundObservation || !sameObservationInput(existing, requested) {
+			return nil, true, wal.ErrConflict
+		}
+		return signals, true, nil
+	}
+	return nil, false, nil
+}
+
+func sameObservationInput(existing, requested Observation) bool {
+	return (requested.ID == "" || existing.ID == requested.ID) &&
+		existing.SessionID == requested.SessionID &&
+		existing.Kind == requested.Kind &&
+		existing.Tool == requested.Tool &&
+		existing.ArgsDigest == requested.ArgsDigest &&
+		existing.Succeeded == requested.Succeeded &&
+		existing.EvidenceRef == requested.EvidenceRef &&
+		maps.Equal(existing.Attributes, requested.Attributes)
 }
 
 func foldSignals(records []wal.Record, session string, now time.Time) ([]Signal, error) {
