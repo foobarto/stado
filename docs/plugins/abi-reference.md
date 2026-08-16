@@ -738,8 +738,8 @@ The host builds the wire form automatically from the manifest's
 themselves.
 
 `[tools].enabled`, `[tools].disabled`, `[tools].autoload`, etc. all
-accept any of bare, wire, dotted, or globbed (`fs.*`) — see
-`runtime.ToolMatchesGlob`.
+accept any of bare, wire, dotted, or path-style globbed (`fs.*`, `shell_*`)
+forms — see `runtime.ToolMatchesGlob`.
 
 ---
 
@@ -758,6 +758,13 @@ stado tags run `vMAJOR.MINOR.PATCH`. Pre-1.0 (current state):
 `min_stado_version` in the manifest gates installation: a plugin
 that uses `stado_progress` (added in v0.38) declares
 `"min_stado_version": "0.38.0"`. Older stado refuses to install it.
+
+`stado plugin abi-check <dist-dir>...` is the non-executing compatibility
+gate. It verifies the manifest-declared WASM digest, compiles the module, and
+compares every `stado` import and required export by both name and exact
+WebAssembly parameter/result types. `stado plugin verify` performs the same ABI
+check after signer and rollback verification. ABI checking is not a substitute
+for signature authentication.
 
 ---
 

@@ -16,11 +16,12 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 var pluginVerifyCmd = &cobra.Command{
 	Use:   "verify <plugin-dir>",
-	Short: "Check a plugin's signature, wasm digest, and rollback state",
+	Short: "Check a plugin's signature, digest, rollback state, and host ABI",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -46,6 +47,13 @@ var pluginVerifyCmd = &cobra.Command{
 				return err
 			}
 			return fmt.Errorf("verify: %w", err)
+		}
+		abiIssue, err := runtime.CheckPluginPackageABI(cmd.Context(), dir)
+		if err != nil {
+			return fmt.Errorf("verify: ABI check: %w", err)
+		}
+		if abiIssue.HasProblems() {
+			return fmt.Errorf("verify: ABI incompatible: %s", abiIssue.String())
 		}
 
 		// Consult the CRL (if configured). Trust-store verify gets the

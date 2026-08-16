@@ -43,7 +43,7 @@ func init() {
 	pluginSignCmd.Flags().BoolVar(&pluginSignQuiet, "quiet", false,
 		"Suppress informational stdout (CI mode). Errors still go to stderr.")
 	pluginCmd.AddCommand(pluginTrustCmd, pluginUntrustCmd, pluginListCmd, pluginInstalledCmd, pluginVerifyCmd,
-		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
+		pluginABICheckCmd, pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
 		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd, pluginReloadCmd,
 		// EP-0039: distribution and trust additions.
 		pluginUseCmd, pluginDevCmd, pluginUntrustAnchorCmd)

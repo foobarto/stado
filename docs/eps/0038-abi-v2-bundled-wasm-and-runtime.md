@@ -1386,6 +1386,11 @@ the actual embedded WASM modules and their host-import boundaries directly.
   invoked through stado plugin run (later `stado tool run`, c2cd90d) with a fixture scenario,
   asserting tool output matches the previous native
   implementation's expected output.
+- **Static compatibility tests:** compile digest-verified plugin WASM without
+  executing guest code and compare every `stado` import plus each
+  manifest-required tool/lifecycle export by exact parameter and result types.
+  Run the same matrix against every released official plugin from both host and
+  plugin CI so same-name signature drift cannot hide behind name-only checks.
 - **Agent surface tests:**
   - `agent.spawn` sync/async return shape.
   - `agent.read_messages` filtering to assistant-role only.

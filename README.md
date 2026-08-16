@@ -269,7 +269,8 @@ stado plugin init my-plugin             # scaffold a Go wasip1 plugin
 stado plugin gen-key my-plugin.seed     # one-time signer key
 stado plugin sign plugin.manifest.json --key my-plugin.seed --wasm plugin.wasm
 stado plugin trust <pubkey-hex> "Alice Example"
-stado plugin verify .                   # signature + digest + rollback/CRL/Rekor
+stado plugin verify .                   # signature + digest + rollback + exact ABI
+stado plugin abi-check ./dist           # structural ABI check for CI; no trust mutation
 stado plugin install .                  # install globally under user state
 stado plugin install --local .          # install under this project's .stado/plugins/
 stado plugin list                       # detailed bundled + installed catalog

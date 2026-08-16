@@ -119,6 +119,39 @@ func TestRegisterInstalledPluginTools_NilCfgNoOp(t *testing.T) {
 	}
 }
 
+func TestBuildRegistryWithPluginsFiltersAfterInstalledRegistration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled string
+	}{
+		{name: "exact installed-only name", enabled: "shell_create"},
+		{name: "ordinary underscore glob", enabled: "shell_*"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := isolatedRuntimeConfig(t)
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			installOverridePlugin(t, cfg, priv, pub, "persistent-shell", plugins.ToolDef{Name: "shell_create"})
+			cfg.Tools.Enabled = []string{tc.enabled}
+
+			reg, err := BuildRegistryWithPlugins(cfg)
+			if err != nil {
+				t.Fatalf("BuildRegistryWithPlugins: %v", err)
+			}
+			if _, ok := reg.Get("shell_create"); !ok {
+				t.Fatalf("installed tool was filtered before registration for enabled=%q", tc.enabled)
+			}
+			for _, registered := range reg.All() {
+				if !ToolMatchesGlob(registered.Name(), tc.enabled) {
+					t.Fatalf("registry retained %q outside enabled glob %q", registered.Name(), tc.enabled)
+				}
+			}
+		})
+	}
+}
+
 func TestInstalledModuleForToolRejectsNameOnlyStandIn(t *testing.T) {
 	if _, _, _, ok := InstalledModuleForTool(namedStubTool("nope__missing")); ok {
 		t.Error("name-only stand-in resolved as an installed module")

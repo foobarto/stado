@@ -1326,6 +1326,7 @@ plugin install [--local] <local-dir|canonical-remote-identity>
 plugin update [[project:|global:]<source|store-key>|all] [--check]
 plugin use [project:|global:]<source|store-key>
 plugin verify <local-dir>
+plugin abi-check <local-dir> [local-dir...]
 plugin verify-installed [project:|global:]<source|store-key>
 plugin remove [project:|global:]<source|store-key>
 plugin info|doctor|reload [project:|global:]<source|store-key>

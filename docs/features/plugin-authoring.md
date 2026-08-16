@@ -463,12 +463,14 @@ you forgot the details of):
 
 ```sh
 stado plugin doctor <id>           # surfaces + capabilities + suggested invocation
-stado plugin verify <plugin-dir>   # signature + sha256 + rollback verification
+stado plugin verify <plugin-dir>   # signature + sha256 + rollback + exact ABI
+stado plugin abi-check <plugin-dir> # CI-friendly structural ABI check; no trust mutation
 ```
 
-`doctor` is the operator-facing UX — it tells you what to do with
-the plugin. `verify` is the security-facing UX — it tells you
-whether to trust the plugin.
+`doctor` is the operator-facing UX — it tells you what to do with the plugin.
+`verify` is the admission-facing UX — it checks trust and compatibility.
+`abi-check` is narrower: it compiles without executing guest code and checks
+exact import/export signatures, but does not authenticate the signer.
 
 ## Common errors
 

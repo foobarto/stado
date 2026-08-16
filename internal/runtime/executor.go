@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -130,13 +131,15 @@ func PinInvokeExecutor(reg *tools.Registry, exec *tools.Executor) {
 
 // ToolMatchesGlob reports whether a registered tool name matches a config
 // pattern. Patterns are either exact names (bare, wire-form, or canonical
-// dotted) or wildcard globs:
+// dotted) or path.Match-style wildcard globs:
 //
 //   - "read"     — exact bare-name match
 //   - "fs.read"  — exact canonical (dotted) match against a wire-form name
 //   - "fs__read" — exact wire-form match
 //   - "fs.*"     — matches any wire-form tool whose alias segment is "fs"
 //     (fs__read, fs__write, etc.) or canonical form fs.read
+//   - "shell_*"  — matches ordinary underscore-prefixed names such as
+//     shell_create as well as wire-form names such as shell__bash
 //   - "*"        — matches every tool
 //
 // Bundled tools register under wire-form names (`fs__read`, `shell__bash`)
@@ -163,12 +166,21 @@ func ToolMatchesGlob(toolName, pattern string) bool {
 			return true
 		}
 	}
-	// Dotted wildcard: "fs.*" matches wire-form tools with alias "fs__"
-	// and canonical-form tools with prefix "fs.".
-	if rest, ok := strings.CutSuffix(pattern, ".*"); ok {
-		wirePrefix := tools.WireSegment(rest) + "__"
-		dotPrefix := rest + "."
-		return strings.HasPrefix(toolName, wirePrefix) || strings.HasPrefix(toolName, dotPrefix)
+	// General glob match against the exact registered name. The CLI and
+	// config call these values globs, so ordinary patterns such as shell_*
+	// must not fail closed merely because they aren't dotted namespace
+	// wildcards. path.Match is deterministic across host platforms and tool
+	// names cannot contain path separators.
+	if matched, err := path.Match(pattern, toolName); err == nil && matched {
+		return true
+	}
+	// Operators commonly use the canonical dotted form for a wire-form
+	// registration. Match the same glob against that representation too, so
+	// fs.* continues to match fs__read without inventing a second glob parser.
+	if alias, sub, ok := tools.ParseWireForm(toolName); ok {
+		if matched, err := path.Match(pattern, alias+"."+sub); err == nil && matched {
+			return true
+		}
 	}
 	return false
 }
@@ -292,7 +304,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	// misleading "no such tool" warning).
 	warnUnknownExact := func(list []string, label string) {
 		for _, n := range list {
-			if strings.ContainsAny(n, "*?") {
+			if strings.ContainsAny(n, "*?[") {
 				continue // globs: zero match is silent
 			}
 			if known[n] {

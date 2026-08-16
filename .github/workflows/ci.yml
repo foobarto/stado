@@ -101,6 +101,46 @@ jobs:
           version: v2.11.4
           args: --timeout=5m
 
+  official-plugins-abi:
+    name: Official plugins ABI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out stado
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out official plugins
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foobarto/stado-plugins
+          path: .tmp/official-plugins
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.6"
+          cache: true
+
+      - name: Build bundled wasm
+        run: bash plugins/bundled/build.sh
+
+      - name: Check every released official plugin against this host ABI
+        run: |
+          set -euo pipefail
+          mapfile -t released < <(
+            jq -r '.plugins[] | select(.status == "released") | .path' \
+              .tmp/official-plugins/plugin-inventory.json | LC_ALL=C sort
+          )
+          if [ "${#released[@]}" -eq 0 ]; then
+            echo "::error::official released-plugin inventory is empty"
+            exit 1
+          fi
+          plugin_dirs=()
+          for plugin in "${released[@]}"; do
+            plugin_dirs+=(".tmp/official-plugins/${plugin}/dist")
+          done
+          go run ./cmd/stado plugin abi-check "${plugin_dirs[@]}"
+
   # EP-0042 D3 / item-7: the bundled wasm is built from source at
   # build/release time and go:embed'd, so the binary-level signature only
   # covers reproducible bytes if the rebuild is byte-for-byte deterministic.

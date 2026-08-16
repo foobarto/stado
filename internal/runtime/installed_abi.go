@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
@@ -19,23 +22,50 @@ import (
 // or malformed wasm); when set, MissingExports / RemovedHostImports
 // are unset because the module never decoded.
 //
-// MissingExports lists the wasm-side exports the runtime expected but
-// the plugin doesn't provide (e.g. the plugin is missing
-// stado_tool_<name> for a tool declared in the manifest).
+// MissingExports lists the wasm-side exports the runtime expected but the
+// plugin doesn't provide. IncompatibleExports lists exports that have the
+// right name but the wrong WebAssembly function signature.
 //
-// RemovedHostImports lists the host-side imports the plugin expects
-// from the "stado" namespace but that the runtime no longer provides.
+// RemovedHostImports lists the host-side imports the plugin expects from the
+// "stado" namespace but that the runtime no longer provides.
+// UnavailableHostImports lists imports the current host implements but does
+// not expose under this plugin's signed capability declaration.
+// IncompatibleHostImports lists imports whose names still exist but whose
+// signatures no longer match the current host ABI.
 // This is the v0.45.0 / D1 case — plugins compiled against v0.44.x
 // import stado_fs_tool_read / stado_fs_tool_write etc., which were
 // deleted in EP-no-internal-tools Step 7. Pre-fix these failed
 // silently at instantiate time during the first tool call; the eager
 // verifier surfaces them at session/new instead.
 type ABIIssue struct {
-	Plugin             string
-	Version            string
-	MissingExports     []string
-	RemovedHostImports []string
-	CompileError       string
+	Plugin                  string
+	Version                 string
+	MissingExports          []string
+	IncompatibleExports     []ABIFunctionMismatch
+	RemovedHostImports      []string
+	UnavailableHostImports  []string
+	IncompatibleHostImports []ABIFunctionMismatch
+	CompileError            string
+}
+
+// ABIFunctionMismatch preserves both sides of a same-name ABI mismatch so an
+// operator can repair the guest declaration without reverse-engineering a
+// wazero link error.
+type ABIFunctionMismatch struct {
+	Function string
+	Expected string
+	Actual   string
+}
+
+func (m ABIFunctionMismatch) String() string {
+	return fmt.Sprintf("%s: got %s, want %s", m.Function, m.Actual, m.Expected)
+}
+
+// HasProblems reports whether the issue contains any incompatibility.
+func (i ABIIssue) HasProblems() bool {
+	return i.CompileError != "" || len(i.MissingExports) > 0 ||
+		len(i.IncompatibleExports) > 0 || len(i.RemovedHostImports) > 0 ||
+		len(i.UnavailableHostImports) > 0 || len(i.IncompatibleHostImports) > 0
 }
 
 // Missing is a back-compat alias for the union of MissingExports and
@@ -45,13 +75,25 @@ type ABIIssue struct {
 // "rebuild — old plugin uses removed imports" from "rebuild — new
 // tool was added to manifest but stado_tool_<name> isn't exported".
 func (i ABIIssue) Missing() []string {
-	if len(i.MissingExports) == 0 && len(i.RemovedHostImports) == 0 {
+	if len(i.MissingExports) == 0 && len(i.RemovedHostImports) == 0 &&
+		len(i.UnavailableHostImports) == 0 && len(i.IncompatibleExports) == 0 &&
+		len(i.IncompatibleHostImports) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(i.MissingExports)+len(i.RemovedHostImports))
+	out := make([]string, 0, len(i.MissingExports)+len(i.RemovedHostImports)+len(i.UnavailableHostImports)+
+		len(i.IncompatibleExports)+len(i.IncompatibleHostImports))
 	out = append(out, i.MissingExports...)
 	for _, name := range i.RemovedHostImports {
 		out = append(out, "host:"+name)
+	}
+	for _, name := range i.UnavailableHostImports {
+		out = append(out, "host-capability:"+name)
+	}
+	for _, mismatch := range i.IncompatibleExports {
+		out = append(out, "signature:"+mismatch.Function)
+	}
+	for _, mismatch := range i.IncompatibleHostImports {
+		out = append(out, "host-signature:"+mismatch.Function)
 	}
 	sort.Strings(out)
 	return out
@@ -66,8 +108,17 @@ func (i ABIIssue) String() string {
 	if len(i.RemovedHostImports) > 0 {
 		parts = append(parts, fmt.Sprintf("imports removed in this stado version: %v (rebuild required)", i.RemovedHostImports))
 	}
+	if len(i.UnavailableHostImports) > 0 {
+		parts = append(parts, fmt.Sprintf("imports unavailable under the signed manifest capabilities: %v", i.UnavailableHostImports))
+	}
+	if len(i.IncompatibleHostImports) > 0 {
+		parts = append(parts, fmt.Sprintf("host import signature mismatches: %s (rebuild required)", formatABIFunctionMismatches(i.IncompatibleHostImports)))
+	}
 	if len(i.MissingExports) > 0 {
 		parts = append(parts, fmt.Sprintf("missing exports: %v", i.MissingExports))
+	}
+	if len(i.IncompatibleExports) > 0 {
+		parts = append(parts, fmt.Sprintf("export signature mismatches: %s", formatABIFunctionMismatches(i.IncompatibleExports)))
 	}
 	if len(parts) == 0 {
 		return fmt.Sprintf("%s@%s: ABI mismatch (no detail)", i.Plugin, i.Version)
@@ -82,21 +133,60 @@ func (i ABIIssue) String() string {
 	return out
 }
 
-// providedHostImports returns the set of stado-namespace function
-// names the runtime currently provides. Implemented by spinning up a
-// throwaway runtime, registering every host import via
-// InstallHostImports against a zero-value Host (caps gate at call time,
-// not registration), then enumerating the resulting "stado" module's
-// exports. Used by VerifyInstalledPluginsABI to detect plugins that
-// import host functions removed in a stado release.
-func providedHostImports(ctx context.Context) (map[string]bool, error) {
+func formatABIFunctionMismatches(mismatches []ABIFunctionMismatch) string {
+	parts := make([]string, len(mismatches))
+	for index, mismatch := range mismatches {
+		parts[index] = mismatch.String()
+	}
+	return strings.Join(parts, ", ")
+}
+
+type abiFunctionSignature struct {
+	params  []api.ValueType
+	results []api.ValueType
+}
+
+func signatureOf(definition api.FunctionDefinition) abiFunctionSignature {
+	return abiFunctionSignature{
+		params:  append([]api.ValueType(nil), definition.ParamTypes()...),
+		results: append([]api.ValueType(nil), definition.ResultTypes()...),
+	}
+}
+
+func (s abiFunctionSignature) equal(other abiFunctionSignature) bool {
+	return slices.Equal(s.params, other.params) && slices.Equal(s.results, other.results)
+}
+
+func (s abiFunctionSignature) String() string {
+	formatTypes := func(types []api.ValueType) string {
+		if len(types) == 0 {
+			return "()"
+		}
+		names := make([]string, len(types))
+		for index, valueType := range types {
+			names[index] = api.ValueTypeName(valueType)
+		}
+		return "(" + strings.Join(names, ", ") + ")"
+	}
+	return formatTypes(s.params) + " -> " + formatTypes(s.results)
+}
+
+func abiSignature(params, results []api.ValueType) abiFunctionSignature {
+	return abiFunctionSignature{params: params, results: results}
+}
+
+// providedHostImportSignatures returns the stado-namespace functions exposed
+// under one signed manifest's capability shape. It spins up a throwaway host,
+// installs the real import module, and enumerates exact definitions. Most
+// imports always link and deny at call time; cfg:state_dir deliberately omits
+// its symbol unless the manifest declares that capability.
+func providedHostImportSignatures(ctx context.Context, manifest plugins.Manifest) (map[string]abiFunctionSignature, error) {
 	rt, err := pluginRuntime.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("verify rt: %w", err)
 	}
 	defer func() { _ = rt.Close(ctx) }()
 
-	manifest := plugins.Manifest{Name: "abi-verifier", Version: "dev"}
 	identity, err := plugins.RuntimeIdentityForBundledSource("abi-verifier", manifest)
 	if err != nil {
 		return nil, fmt.Errorf("verify host identity: %w", err)
@@ -110,20 +200,170 @@ func providedHostImports(ctx context.Context) (map[string]bool, error) {
 	if mod == nil {
 		return nil, fmt.Errorf("verify: stado namespace module missing post-install")
 	}
-	out := map[string]bool{}
-	for name := range mod.ExportedFunctionDefinitions() {
+	out := map[string]abiFunctionSignature{}
+	for name, definition := range mod.ExportedFunctionDefinitions() {
+		out[name] = signatureOf(definition)
+	}
+	return out, nil
+}
+
+// providedHostImports retains the older name-set seam used by focused tests
+// while the compatibility checker consumes exact signatures.
+func providedHostImports(ctx context.Context) (map[string]bool, error) {
+	signatures, err := providedHostImportSignatures(ctx, allHostImportsManifest())
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(signatures))
+	for name := range signatures {
 		out[name] = true
 	}
 	return out, nil
 }
 
+type pluginABIVerifier struct {
+	runtime     wazero.Runtime
+	allProvided map[string]abiFunctionSignature
+}
+
+func newPluginABIVerifier(ctx context.Context) (*pluginABIVerifier, error) {
+	provided, err := providedHostImportSignatures(ctx, allHostImportsManifest())
+	if err != nil {
+		return nil, err
+	}
+	return &pluginABIVerifier{
+		runtime:     wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig()),
+		allProvided: provided,
+	}, nil
+}
+
+func allHostImportsManifest() plugins.Manifest {
+	// cfg:state_dir is the sole host import whose symbol is conditionally
+	// registered instead of always linking and denying at call time. Keep the
+	// complete-contract manifest explicit so a missing signed capability can be
+	// distinguished from a host import that was actually removed.
+	return plugins.Manifest{
+		Name: "abi-verifier", Version: "0.0.0",
+		Capabilities: []string{"cfg:state_dir"},
+	}
+}
+
+func (v *pluginABIVerifier) close(ctx context.Context) {
+	if v != nil && v.runtime != nil {
+		_ = v.runtime.Close(ctx)
+	}
+}
+
+func (v *pluginABIVerifier) check(ctx context.Context, plugin string, manifest *plugins.Manifest, wasmBytes []byte) (ABIIssue, error) {
+	issue := ABIIssue{Plugin: plugin, Version: manifest.Version}
+	compiled, err := v.runtime.CompileModule(ctx, wasmBytes)
+	if err != nil {
+		issue.CompileError = err.Error()
+		return issue, nil
+	}
+	defer func() { _ = compiled.Close(ctx) }()
+	provided, err := providedHostImportSignatures(ctx, *manifest)
+	if err != nil {
+		return ABIIssue{}, fmt.Errorf("enumerate host imports for %s: %w", plugin, err)
+	}
+
+	exports := compiled.ExportedFunctions()
+	expectedExports := requiredInstalledPluginExportSignatures(manifest)
+	for _, name := range requiredInstalledPluginExports(manifest) {
+		definition, ok := exports[name]
+		if !ok {
+			issue.MissingExports = append(issue.MissingExports, name)
+			continue
+		}
+		actual := signatureOf(definition)
+		expected := expectedExports[name]
+		if !actual.equal(expected) {
+			issue.IncompatibleExports = append(issue.IncompatibleExports, ABIFunctionMismatch{
+				Function: name, Expected: expected.String(), Actual: actual.String(),
+			})
+		}
+	}
+	// Tick is optional for lifecycle applications, but when present its
+	// signature is part of the callable host contract.
+	if definition, ok := exports["stado_plugin_tick"]; ok {
+		expected := abiSignature(nil, []api.ValueType{api.ValueTypeI32})
+		actual := signatureOf(definition)
+		if !actual.equal(expected) {
+			issue.IncompatibleExports = append(issue.IncompatibleExports, ABIFunctionMismatch{
+				Function: "stado_plugin_tick", Expected: expected.String(), Actual: actual.String(),
+			})
+		}
+	}
+
+	seenRemoved := map[string]bool{}
+	seenMismatch := map[string]bool{}
+	for _, imported := range compiled.ImportedFunctions() {
+		moduleName, functionName, _ := imported.Import()
+		if moduleName != pluginRuntime.NamespaceStado {
+			continue
+		}
+		expected, ok := provided[functionName]
+		if !ok {
+			if _, existsForAnotherCapabilitySet := v.allProvided[functionName]; existsForAnotherCapabilitySet {
+				if !slices.Contains(issue.UnavailableHostImports, functionName) {
+					issue.UnavailableHostImports = append(issue.UnavailableHostImports, functionName)
+				}
+			} else if !seenRemoved[functionName] {
+				issue.RemovedHostImports = append(issue.RemovedHostImports, functionName)
+				seenRemoved[functionName] = true
+			}
+			continue
+		}
+		actual := signatureOf(imported)
+		if !actual.equal(expected) && !seenMismatch[functionName] {
+			issue.IncompatibleHostImports = append(issue.IncompatibleHostImports, ABIFunctionMismatch{
+				Function: functionName, Expected: expected.String(), Actual: actual.String(),
+			})
+			seenMismatch[functionName] = true
+		}
+	}
+	sort.Strings(issue.MissingExports)
+	sort.Strings(issue.RemovedHostImports)
+	sort.Strings(issue.UnavailableHostImports)
+	sort.Slice(issue.IncompatibleExports, func(i, j int) bool {
+		return issue.IncompatibleExports[i].Function < issue.IncompatibleExports[j].Function
+	})
+	sort.Slice(issue.IncompatibleHostImports, func(i, j int) bool {
+		return issue.IncompatibleHostImports[i].Function < issue.IncompatibleHostImports[j].Function
+	})
+	return issue, nil
+}
+
+// CheckPluginPackageABI checks one unpacked plugin directory against the exact
+// host ABI compiled into this stado source tree. It validates the manifest,
+// verifies the wasm digest, compiles the module without executing guest code,
+// and compares required exports plus every stado host import by name and
+// signature. It does not authenticate the manifest signature; callers that
+// admit a package must perform the normal trust verification separately.
+func CheckPluginPackageABI(ctx context.Context, dir string) (ABIIssue, error) {
+	manifest, _, err := plugins.LoadFromDir(dir)
+	if err != nil {
+		return ABIIssue{}, err
+	}
+	wasmBytes, err := plugins.ReadVerifiedWASM(manifest.WASMSHA256, filepath.Join(dir, "plugin.wasm"))
+	if err != nil {
+		return ABIIssue{}, err
+	}
+	verifier, err := newPluginABIVerifier(ctx)
+	if err != nil {
+		return ABIIssue{}, err
+	}
+	defer verifier.close(ctx)
+	return verifier.check(ctx, manifest.Name, manifest, wasmBytes)
+}
+
 // VerifyInstalledPluginsABI eagerly checks every installed-and-active
 // plugin in cfg.StateDir()/plugins/ against the runtime ABI:
 //
-//  1. wasm-side exports: stado_alloc, stado_free, and one
-//     stado_tool_<name> export per ToolDef in the manifest.
-//  2. host-side imports: every function the plugin imports from the
-//     "stado" namespace must be in the host's currently-provided set.
+//  1. wasm-side exports: stado_alloc, stado_free, lifecycle callbacks, and one
+//     stado_tool_<name> export per ToolDef must exist with exact signatures.
+//  2. host-side imports: every function the plugin imports from the "stado"
+//     namespace must exist with the exact signature the host provides.
 //     This catches plugins built against an older runtime that
 //     reference host functions deleted in this version (e.g. v0.44.x
 //     plugins importing stado_fs_tool_read after Step 7 removed it).
@@ -133,9 +373,9 @@ func providedHostImports(ctx context.Context) (map[string]bool, error) {
 // what to do with issues — surface them as a session/new error,
 // log + continue, etc.
 //
-// Cost: one host-import installation (per call, not per plugin —
-// reused) + wazero.CompileModule per plugin. CompileModule decodes
-// without instantiating; sub-second total for typical install counts.
+// Cost: one complete host-import enumeration, one capability-shaped
+// enumeration, and one wazero.CompileModule per plugin. CompileModule decodes
+// guest bytes without instantiating or executing them.
 //
 // Skips signature- or sha-failing plugins silently — those are already
 // surfaced at registerInstalledPluginTools time as stado: warn lines
@@ -159,18 +399,11 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		groups[pkg.Identity.Namespace] = append(groups[pkg.Identity.Namespace], pkg)
 	}
 
-	// Build the host-import set once for the whole verify pass.
-	provided, err := providedHostImports(ctx)
+	verifier, err := newPluginABIVerifier(ctx)
 	if err != nil {
-		// Non-fatal: degrade to export-only checks. The caller already
-		// gets actionable info on missing tool exports; missing-host-
-		// import detection is a v0.45.0+ enhancement.
-		emitRegistryDiagnostic("stado: warn: ABI verify host-import set unavailable: %v\n", err)
-		provided = nil
+		return nil, fmt.Errorf("initialize plugin ABI verifier: %w", err)
 	}
-
-	rt := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig())
-	defer func() { _ = rt.Close(ctx) }()
+	defer verifier.close(ctx)
 
 	var issues []ABIIssue
 	for namespace, candidates := range groups {
@@ -204,47 +437,12 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		if err != nil {
 			continue
 		}
-		compiled, err := rt.CompileModule(ctx, verifiedBytes)
+		issue, err := verifier.check(ctx, selected.Identity.Canonical, mf, verifiedBytes)
 		if err != nil {
-			issues = append(issues, ABIIssue{
-				Plugin:       selected.Identity.Canonical,
-				Version:      mf.Version,
-				CompileError: err.Error(),
-			})
-			continue
+			return nil, err
 		}
-		exports := compiled.ExportedFunctions()
-		var missingExports []string
-		for _, name := range requiredInstalledPluginExports(mf) {
-			if _, ok := exports[name]; !ok {
-				missingExports = append(missingExports, name)
-			}
-		}
-
-		var removedImports []string
-		if provided != nil {
-			seen := map[string]bool{}
-			for _, imp := range compiled.ImportedFunctions() {
-				modName, fnName, _ := imp.Import()
-				if modName != pluginRuntime.NamespaceStado {
-					continue
-				}
-				if !provided[fnName] && !seen[fnName] {
-					removedImports = append(removedImports, fnName)
-					seen[fnName] = true
-				}
-			}
-			sort.Strings(removedImports)
-		}
-		_ = compiled.Close(ctx)
-		if len(missingExports) > 0 || len(removedImports) > 0 {
-			sort.Strings(missingExports)
-			issues = append(issues, ABIIssue{
-				Plugin:             selected.Identity.Canonical,
-				Version:            mf.Version,
-				MissingExports:     missingExports,
-				RemovedHostImports: removedImports,
-			})
+		if issue.HasProblems() {
+			issues = append(issues, issue)
 		}
 	}
 	sort.Slice(issues, func(i, j int) bool {
@@ -261,5 +459,36 @@ func requiredInstalledPluginExports(manifest *plugins.Manifest) []string {
 	for _, def := range manifest.Tools {
 		exports = append(exports, "stado_tool_"+def.ExportName())
 	}
+	if manifest.Lifecycle != nil && len(manifest.Lifecycle.Points) > 0 {
+		exports = append(exports, "stado_plugin_lifecycle")
+	}
+	if manifest.Lifecycle != nil && len(manifest.Lifecycle.Events) > 0 {
+		exports = append(exports, "stado_plugin_event")
+	}
+	if len(manifest.Commands) > 0 {
+		exports = append(exports, "stado_plugin_command")
+	}
 	return exports
+}
+
+func requiredInstalledPluginExportSignatures(manifest *plugins.Manifest) map[string]abiFunctionSignature {
+	i32 := api.ValueTypeI32
+	out := map[string]abiFunctionSignature{
+		"stado_alloc": abiSignature([]api.ValueType{i32}, []api.ValueType{i32}),
+		"stado_free":  abiSignature([]api.ValueType{i32, i32}, nil),
+	}
+	callback := abiSignature([]api.ValueType{i32, i32, i32, i32}, []api.ValueType{i32})
+	for _, def := range manifest.Tools {
+		out["stado_tool_"+def.ExportName()] = callback
+	}
+	if manifest.Lifecycle != nil && len(manifest.Lifecycle.Points) > 0 {
+		out["stado_plugin_lifecycle"] = callback
+	}
+	if manifest.Lifecycle != nil && len(manifest.Lifecycle.Events) > 0 {
+		out["stado_plugin_event"] = callback
+	}
+	if len(manifest.Commands) > 0 {
+		out["stado_plugin_command"] = callback
+	}
+	return out
 }

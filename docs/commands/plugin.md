@@ -97,8 +97,19 @@ stado plugin trust <pubkey-hex> "Alice Example"
 stado plugin verify .
 ```
 
-`plugin verify` checks signature, digest, rollback state, optional CRL,
-and optional Rekor lookup.
+`plugin verify` checks signature, digest, rollback state, exact host/guest WASM
+function signatures, optional CRL, and optional Rekor lookup. CI that only
+needs the structural compatibility check can run it without a trust-store
+mutation:
+
+```sh
+stado plugin abi-check path/to/plugin/dist [path/to/another/dist ...]
+```
+
+`abi-check` verifies the manifest-declared WASM digest, compiles without
+executing guest code, and checks every `stado` import plus every required tool
+or lifecycle export by exact signature. It deliberately does not authenticate
+the manifest signer; release admission still uses `plugin verify` or install.
 
 ### Install and run
 
@@ -156,6 +167,7 @@ even when both rows contain identical bytes and the same exact store key.
 | `stado plugin list` | List trusted signers + installed plugins, with author and trust status |
 | `stado plugin installed` | Show canonical sources, store keys, aliases, and project/global scope |
 | `stado plugin verify <dir>` | Verify a plugin directory in place |
+| `stado plugin abi-check <dir> [dir...]` | Compile digest-verified WASM without executing it and compare every host import plus required export to this stado build's exact ABI. Does not authenticate the signer |
 | `stado plugin verify-installed <[project:\|global:]canonical-source-or-store-key>` | Re-verify an installed plugin against the trust store (catch trust-store drift) |
 | `stado plugin install <dir-or-identity>` | Verify, then copy into the plugin directory. Accepts a local directory OR a remote identity `host/owner/repo@version` (fetched + anchor-verified). Flags: `--local` (install under the current project's `.stado/plugins/`; trust remains user-local), `--force` (reinstall over the same version), `--autoload` (persist tools into `[tools].autoload` in the matching user/project config; project loading still needs the user-level trust gate), `--signer <pubkey>` (inline-pin a local package author; on remote install it may only confirm the already-verified owner key, not grant separate trust), `--trust-anchor` (accept the owner's anchor fingerprint on first sight without prompting; verify out of band), `--accept-tag-rewrite` (after independently verifying a force-moved semver tag, replace its locked full commit; invalid for local or full-commit identities) |
 | `stado plugin update <[project:\|global:]canonical-source-or-store-key>` | Update the exact active remote source package in one scope; retained rollback packages retain their immutable lock history. `--check` lists without installing |

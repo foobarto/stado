@@ -24,6 +24,24 @@ Plugins / Infra / Fixes.
 - The optional `sandbox.sockets` request field is removed and old guests that
   send it receive no socket authority. There is no in-process replacement.
 
+### Plugins / fixes / CI
+
+- **Exact host/guest ABI preflight.** `stado plugin abi-check <dir>...` compiles
+  digest-verified WASM without executing guest code and compares every
+  `stado` import plus every manifest-required tool/lifecycle export by exact
+  parameter and result types. Normal `plugin verify` now includes the same
+  check, and installed-plugin preflight distinguishes removed imports,
+  capability-unavailable imports, missing exports, and same-name signature
+  drift.
+- **Tool controls accept actual globs.** `--tools`, `--tools-autoload`, and
+  their config equivalents now accept path-style patterns such as `shell_*`,
+  in addition to exact names, `*`, and dotted namespace forms such as `fs.*`.
+  Exact installed-only allowlists remain registered before filtering.
+- **Official compatibility is a two-repository gate.** Stado CI checks every
+  released entry in `foobarto/stado-plugins` against the exact host ABI under
+  test, complementing the plugin repository's signed/reproducible-artifact
+  gate and preventing a host-side ABI edit from silently stranding releases.
+
 ## Stability commitments
 
 These hold across all releases until stado hits 1.0; after 1.0 they

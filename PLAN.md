@@ -149,8 +149,9 @@ draft [EP-0068](docs/eps/0068-signed-plugin-cli-commands.md).
 
 Remaining gates:
 
-- make every host import documented, capability-scoped, bounded, and covered by
-  ABI tests;
+- keep the exact host-import and required-export signature matrix enforced
+  against every released official plugin in cross-repository CI; finish making
+  every host import documented, capability-scoped, bounded, and behavior-tested;
 - complete the remaining broader [EP-0038](docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md)
   and [EP-0039](docs/eps/0039-plugin-distribution-and-trust.md) surface and
   distribution phases without restoring name-based or compatibility authority;

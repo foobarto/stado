@@ -202,6 +202,16 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"shell__exec", "fs.*", false},
 		{"tools__search", "tools.*", true},
 		{"tools__describe", "tools.*", true},
+		// General globs are accepted, not only dotted namespace wildcards.
+		// Official plugins use names such as shell_create, so documenting
+		// --tools values as globs while rejecting shell_* made the explicit
+		// allowlist fail closed after a successful install.
+		{"shell_create", "shell_*", true},
+		{"shell__bash", "shell_*", true},
+		{"browser_open", "browser_?pen", true},
+		{"browser_open", "browser_[op]pen", true},
+		{"browser_open", "browser_[x]pen", false},
+		{"browser_open", "[", false}, // malformed glob fails closed
 		// Universal wildcard
 		{"fs__read", "*", true},
 		{"fs__read", "*", true},
