@@ -38,6 +38,7 @@ type MCPClient struct {
 	Name   string
 	Client *client.Client
 	tools  []mcp.Tool
+	cancel context.CancelFunc
 }
 
 type MCPManager struct {
@@ -55,7 +56,7 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 	// Build the new client entirely outside the lock so transient
 	// failures (network blip, stdio spawn failure, bad handshake)
 	// don't block other callers of AllClients / GetClient.
-	newClient, toolsList, err := m.connectAndProbe(ctx, cfg)
+	newClient, toolsList, cancel, err := m.connectAndProbe(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -68,11 +69,13 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 	// so tools don't become dead handles.
 	if old, ok := m.clients[cfg.Name]; ok {
 		_ = old.Client.Close()
+		old.cancel()
 	}
 	m.clients[cfg.Name] = &MCPClient{
 		Name:   cfg.Name,
 		Client: newClient,
 		tools:  toolsList,
+		cancel: cancel,
 	}
 	return nil
 }
@@ -80,9 +83,10 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 // connectAndProbe builds, initializes, and probes one MCP client.
 // Returns the live client + its tool list, or an error that may wrap
 // connection / initialization / list-tools failures.
-func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*client.Client, []mcp.Tool, error) {
+func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*client.Client, []mcp.Tool, context.CancelFunc, error) {
 	var c *client.Client
 	var err error
+	commandCancel := context.CancelFunc(func() {})
 
 	if cfg.URL != "" {
 		c, err = client.NewStreamableHttpClient(cfg.URL)
@@ -100,11 +104,14 @@ func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*cl
 			runner := cfg.Runner
 			opts = append(opts, transport.WithCommandFunc(
 				func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
-					cmd, pErr := runner.Command(ctx, policy, command, args, env)
+					commandCtx, cancel := context.WithCancel(ctx)
+					commandCancel = cancel
+					cmd, pErr := runner.Command(commandCtx, policy, command, args, env)
 					if pErr != nil {
+						cancel()
 						return nil, fmt.Errorf("sandbox for MCP server %s: %w", cfg.Name, pErr)
 					}
-					return cmd, nil
+					return cmd.Raw(), nil
 				},
 			))
 		}
@@ -112,7 +119,8 @@ func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*cl
 	}
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect to MCP server %s: %w", cfg.Name, err)
+		commandCancel()
+		return nil, nil, nil, fmt.Errorf("connect to MCP server %s: %w", cfg.Name, err)
 	}
 
 	_, err = c.Initialize(ctx, mcp.InitializeRequest{
@@ -126,16 +134,18 @@ func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*cl
 	})
 	if err != nil {
 		_ = c.Close()
-		return nil, nil, fmt.Errorf("initialize MCP server %s: %w", cfg.Name, err)
+		commandCancel()
+		return nil, nil, nil, fmt.Errorf("initialize MCP server %s: %w", cfg.Name, err)
 	}
 
 	toolsResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		_ = c.Close()
-		return nil, nil, fmt.Errorf("list tools on MCP server %s: %w", cfg.Name, err)
+		commandCancel()
+		return nil, nil, nil, fmt.Errorf("list tools on MCP server %s: %w", cfg.Name, err)
 	}
 
-	return c, toolsResult.Tools, nil
+	return c, toolsResult.Tools, commandCancel, nil
 }
 
 func (m *MCPManager) Close() {
@@ -143,6 +153,7 @@ func (m *MCPManager) Close() {
 	defer m.mu.Unlock()
 	for _, c := range m.clients {
 		_ = c.Client.Close()
+		c.cancel()
 	}
 }
 

@@ -173,12 +173,14 @@ func sandboxPTYSpawnOpts(host *Host, opts pty.SpawnOpts) (pty.SpawnOpts, error) 
 	if err != nil {
 		return opts, err
 	}
-	// Hand the runner's *exec.Cmd to the manager intact — it carries ExtraFiles
+	// Hand the runner's raw exec.Cmd to the manager intact — it carries ExtraFiles
 	// (the seccomp BPF fd that `--seccomp <fd>` references) and SysProcAttr that
 	// a re-derived exec.Command from argv would drop, producing
-	// "bwrap: Can't read seccomp data: Bad file descriptor". Argv/Cmd are left
-	// as the original so List shows the real command, not the bwrap wrapper.
-	opts.PreparedCmd = cmd
+	// "bwrap: Can't read seccomp data: Bad file descriptor". The manager owns
+	// Release at process completion because pty.Start requires *exec.Cmd. Argv/Cmd
+	// are left as the original so List shows the real command, not the wrapper.
+	opts.PreparedCmd = cmd.Raw()
+	opts.PreparedCleanup = cmd.Release
 	return opts, nil
 }
 

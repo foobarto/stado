@@ -21,9 +21,9 @@ import (
 // asserts the kernel-level denial actually fires. NoneRunner has
 // no Tier 2 (it enforces nothing).
 //
-// Multi-layer composition (landlock + seccomp + bwrap stacked) is
-// out of scope here — composition isn't wired in production today.
-// Park as a separate spec when that integration lands.
+// Bubblewrap mount/network namespace + seccomp composition has a dedicated
+// real integration test. Landlock is not yet composed into the production
+// runner and remains a separate PLAN gate.
 
 // availableRunners returns every runner this host can use, in
 // detect order. Wraps the Detect/detectList machinery so tests

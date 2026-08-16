@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -64,7 +63,7 @@ func (r *CeilingRunner) Available() bool {
 // When the ceiling is the zero value (no constraints), the
 // intersection is just p — wrapping is then a no-op decorator.
 // This is the right behavior for ProfileNoSandbox.
-func (r *CeilingRunner) Command(ctx context.Context, p Policy, name string, args, env []string) (*exec.Cmd, error) {
+func (r *CeilingRunner) Command(ctx context.Context, p Policy, name string, args, env []string) (*Command, error) {
 	if r == nil || r.Inner == nil {
 		return NoneRunner{}.Command(ctx, p, name, args, env)
 	}

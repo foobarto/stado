@@ -9,15 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-// detectList prefers bubblewrap, then falls back to None. Landlock/seccomp
-// integration lands in a follow-up; PLAN.md §3.4 uses bwrap as the preferred
-// exec sandbox on Linux anyway.
+// detectList prefers bubblewrap, then falls back to None. BwrapRunner composes
+// mount/network namespaces with seccomp on its ordinary paths. Production
+// Landlock composition remains a separate PLAN gate.
 func detectList() []Runner {
 	return []Runner{BwrapRunner{}, NoneRunner{}}
 }
@@ -30,7 +31,7 @@ type BwrapRunner struct{}
 func (BwrapRunner) Name() string    { return "bwrap" }
 func (BwrapRunner) Available() bool { _, err := exec.LookPath("bwrap"); return err == nil }
 
-func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
+func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*Command, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -195,8 +196,8 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		}
 	}
 	cmd.Env = nil
-	attachCleanup(ctx, cmd, cleanup)
-	return cmd, nil
+	runCleanup := attachCleanup(ctx, cmd, cleanup)
+	return managedCommand(cmd, runCleanup), nil
 }
 
 // underAnyMask reports whether path p is a strict descendant of a masked
@@ -230,22 +231,38 @@ func stableEnv(env []string) []string {
 	return out
 }
 
-func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
+func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) func() {
 	if cleanup == nil {
-		return
+		return func() {}
 	}
 	var once sync.Once
 	runCleanup := func() { once.Do(cleanup) }
 	origCancel := cmd.Cancel
 	cmd.Cancel = func() error {
 		runCleanup()
-		if origCancel != nil {
+		// exec.CommandContext's default Cancel calls cmd.Process.Kill and
+		// panics before Start because Process is nil. Cancelling an unstarted
+		// command still owns resource cleanup, but has no process to signal.
+		if origCancel != nil && cmd.Process != nil {
 			return origCancel()
 		}
 		return nil
 	}
+	// Background/TODO contexts never complete, and an allow-hosts proxy's
+	// blocked Accept loop keeps the proxy itself alive. Tie abandonment cleanup
+	// to the returned command without capturing cmd in either the cleanup or its
+	// argument. Explicit cancellation remains deterministic; this is the
+	// ownership fallback when a caller drops an unstarted or completed command.
+	runtime.AddCleanup(cmd, func(run func()) { run() }, runCleanup)
+	done := ctx.Done()
+	if done == nil {
+		// Do not create an immortal watcher goroutine. The command-owned cleanup
+		// above remains responsible for abandoned Background/TODO commands.
+		return runCleanup
+	}
 	go func() {
-		<-ctx.Done()
+		<-done
 		runCleanup()
 	}()
+	return runCleanup
 }

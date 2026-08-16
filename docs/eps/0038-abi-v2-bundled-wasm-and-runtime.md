@@ -1391,6 +1391,9 @@ the actual embedded WASM modules and their host-import boundaries directly.
   manifest-required tool/lifecycle export by exact parameter and result types.
   Run the same matrix against every released official plugin from both host and
   plugin CI so same-name signature drift cannot hide behind name-only checks.
+- **Documentation coverage:** enumerate the real wazero `stado` host module,
+  including capability-shaped symbols, and require every live import to appear
+  in the plugin-author host-import reference.
 - **Agent surface tests:**
   - `agent.spawn` sync/async return shape.
   - `agent.read_messages` filtering to assistant-role only.

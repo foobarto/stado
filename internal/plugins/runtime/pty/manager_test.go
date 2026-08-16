@@ -4,11 +4,32 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func TestPreparedCommandCleanupRunsAtProcessExit(t *testing.T) {
+	m := NewManager()
+	cleaned := make(chan struct{}, 1)
+	_, err := m.Spawn(SpawnOpts{
+		Argv:        []string{"true"},
+		PreparedCmd: exec.Command("true"),
+		PreparedCleanup: func() {
+			cleaned <- struct{}{}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	select {
+	case <-cleaned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("prepared command cleanup did not run when the PTY child exited")
+	}
+}
 
 // TestSpawnReadDestroy: bash -c 'echo hi' lands "hi" in the ring,
 // reaper records exit 0, Destroy is idempotent.

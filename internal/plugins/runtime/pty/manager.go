@@ -113,7 +113,8 @@ type SpawnOpts struct {
 	// <fd>`) and a resolved Path that a re-derived exec.Command would lose.
 	// Never set from the wasm wire (json:"-"); Argv stays the human-readable
 	// original for List display.
-	PreparedCmd *exec.Cmd `json:"-"`
+	PreparedCmd     *exec.Cmd `json:"-"`
+	PreparedCleanup func()    `json:"-"`
 }
 
 // SessionInfo is the public view of a session — what List returns.
@@ -159,9 +160,10 @@ type session struct {
 	description string // free-text "what this shell is for" (EP-0043 D8)
 	startedAt   time.Time
 
-	// proc/master are immutable once Spawn returns.
-	proc   *exec.Cmd
-	master *os.File
+	// proc/master/procCleanup are immutable once Spawn returns.
+	proc        *exec.Cmd
+	procCleanup func()
+	master      *os.File
 
 	// State guarded by mu; output ring + signaling on cond. The vt10x
 	// terminal is also guarded by mu — its own internal lock would
@@ -480,6 +482,9 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		master, err = pty.Start(cmd)
 	}
 	if err != nil {
+		if opts.PreparedCleanup != nil {
+			opts.PreparedCleanup()
+		}
 		return 0, fmt.Errorf("pty: start: %w", err)
 	}
 
@@ -500,6 +505,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		lastClientTouch: now,
 		lastDrainTouch:  now,
 		proc:            cmd,
+		procCleanup:     opts.PreparedCleanup,
 		master:          master,
 		ring:            newRingBuffer(bufBytes),
 		vt:              vt10x.New(vt10x.WithSize(int(cols), int(rows))),
@@ -554,6 +560,9 @@ func (s *session) drain() {
 
 // reap waits for the child to exit, records exit code, marks closed.
 func (s *session) reap() {
+	if s.procCleanup != nil {
+		defer s.procCleanup()
+	}
 	err := s.proc.Wait()
 	exit := 0
 	if err != nil {
