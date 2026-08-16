@@ -421,6 +421,18 @@ before mounting it. This closes the top-level part of phase 2; subagents still
 use their own broker-created child session so role, mode, and write scope are
 projected from the parent's current effective set rather than inherited whole.
 
+On Linux, the production bubblewrap runner now re-execs through the current
+stado executable after constructing the mount namespace. That narrow helper
+applies the effective filesystem policy with Landlock before replacing itself
+with the already-resolved target. Real integration coverage carries a ceiling
+returned by daemon-backed session admission into this composed runner and
+proves a caller-requested outside mount is removed. The `pasta` host-allowlist
+path warns and retains bubblewrap without the helper because portable
+inherited-descriptor delivery through that extra exec is not established. The
+separate non-session
+`stado tool run` client handshake with `broker.v1.toolrun.sandbox` remains
+deferred; its phase-1 opaque result is not represented here as enforcement.
+
 ## Revision: ordinary broker children and ingestion taint (2026-07-10)
 
 `spawn_agent` now materializes its isolated git worktree and requests a broker

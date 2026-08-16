@@ -482,9 +482,13 @@ Policy selection alone does not prove that every kernel mechanism is active:
 - The seccomp deny-list is defense in depth on the normal bubblewrap paths. It
   is skipped for host-allowlist networking through `pasta`, and a filter setup
   failure emits a warning and continues under bubblewrap without seccomp.
-- Direct `stado run` attempts to apply Landlock to the stado process. Landlock
-  unavailability is non-fatal and emits a warning before continuing without
-  that in-process write restriction.
+- Bubblewrap subprocesses enter through a narrow trampoline that applies the
+  effective Landlock filesystem policy inside the completed mount namespace
+  before exec. Unsupported kernels emit a warning and retain bubblewrap alone;
+  a rule failure on a kernel that passed the support probe fails closed. The
+  `pasta` host-allowlist path also warns and skips the helper because portable
+  inherited-descriptor delivery is not established. Direct `stado run`
+  additionally applies Landlock to the parent stado process.
 
 Use `stado doctor` to inspect the runner and Landlock availability on the
 actual host. Treat `runner: none`, a seccomp warning, or a Landlock warning as

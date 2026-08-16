@@ -137,8 +137,12 @@ Remaining gates:
   longer opens the shared WAL, and the shrinking direct-WAL debt allowlist is
   empty; only the daemon composition root opens the broker-owned store;
 - retain the composed real-bubblewrap regression for mount scope, namespace,
-  seccomp, credential masking, environment filtering, network denial, and
-  teardown; add equivalent composed Landlock and broker-admission coverage;
+  Landlock, seccomp, credential masking, environment filtering, network denial,
+  teardown, and enforcement of the ceiling returned by a real broker
+  admission;
+- wire non-session `stado tool run` through its existing
+  `broker.v1.toolrun.sandbox` admission instead of leaving the phase-1 opaque
+  handle unused on the client path;
 - finish the adversarial default harness and make its declared status honest.
 
 ### Plugin application platform closure

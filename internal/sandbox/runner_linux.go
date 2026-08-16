@@ -17,8 +17,7 @@ import (
 )
 
 // detectList prefers bubblewrap, then falls back to None. BwrapRunner composes
-// mount/network namespaces with seccomp on its ordinary paths. Production
-// Landlock composition remains a separate PLAN gate.
+// mount/network namespaces, Landlock, and seccomp on its ordinary paths.
 func detectList() []Runner {
 	return []Runner{BwrapRunner{}, NoneRunner{}}
 }
@@ -28,6 +27,15 @@ func detectList() []Runner {
 // --unshare-net flags.
 type BwrapRunner struct{}
 
+var (
+	landlockProbeOnce sync.Once
+	landlockProbeErr  error
+	landlockWarnOnce  sync.Once
+	landlockPastaWarn sync.Once
+	bwrapBindFDOnce   sync.Once
+	bwrapHasBindFD    bool
+)
+
 func (BwrapRunner) Name() string    { return "bwrap" }
 func (BwrapRunner) Available() bool { _, err := exec.LookPath("bwrap"); return err == nil }
 
@@ -35,6 +43,24 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
+	}
+	landlock := len(p.FSRead) > 0 || len(p.FSWrite) > 0
+	if landlock {
+		landlockProbeOnce.Do(func() { landlockProbeErr = ProbeLandlock() })
+		if landlockProbeErr != nil {
+			probeErr := landlockProbeErr
+			landlockWarnOnce.Do(func() {
+				fmt.Fprintf(os.Stderr, "stado: warn: Landlock unavailable, continuing with bubblewrap only: %v\n", probeErr)
+			})
+			landlock = false
+		}
+	}
+	var landlockPolicy string
+	if landlock {
+		landlockPolicy, err = encodeLandlockExecPolicy(p)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	bwrapArgs := []string{
@@ -124,6 +150,38 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		proxyPort = tcpAddr.Port
 		usePasta = true
 	}
+	if landlock && usePasta {
+		// pasta's treatment of non-standard inherited descriptors is not a
+		// portable contract. Keep the same honest fallback as seccomp on this
+		// path instead of reverting to a mutable pathname helper.
+		landlockPastaWarn.Do(func() {
+			fmt.Fprintln(os.Stderr, "stado: warn: Landlock helper unavailable through pasta; continuing with bubblewrap network allowlist only")
+		})
+		landlock = false
+	}
+
+	var extraFiles []*os.File
+	if landlock {
+		// /proc/self/exe opens the inode backing the already-running image.
+		// Passing that open description to bwrap prevents a same-policy writer
+		// from replacing a pathname between Command construction and Start.
+		helperFile, openErr := os.Open("/proc/self/exe")
+		if openErr != nil {
+			cleanup()
+			return nil, fmt.Errorf("bwrap: open pinned Landlock helper: %w", openErr)
+		}
+		helperFD := 3 + len(extraFiles)
+		extraFiles = append(extraFiles, helperFile)
+		// Bind after caller mounts and masks so even an FSRead entry for /
+		// cannot shadow the trampoline. New bwrap versions bind the open file
+		// directly; older versions receive the same pinned bytes via bind-data.
+		bwrapArgs = append(bwrapArgs, landlockHelperBindArgs(helperFD, bwrapSupportsBindFD())...)
+		previousCleanup := cleanup
+		cleanup = func() {
+			previousCleanup()
+			_ = helperFile.Close()
+		}
+	}
 	for _, kv := range stableEnv(childEnv) {
 		name, value, ok := splitEnvKV(kv)
 		if !ok {
@@ -142,8 +200,8 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		bwrapArgs = append(bwrapArgs, "--share-net")
 	}
 
-	// EP-0005: hand the compiled seccomp deny-list to bwrap via --seccomp <fd>
-	// (child fd 3 = the first ExtraFiles entry). Defense-in-depth — kills
+	// EP-0005: hand the compiled seccomp deny-list to bwrap via --seccomp <fd>.
+	// Its child fd follows the optional pinned Landlock helper. Defense-in-depth — kills
 	// mount/ptrace/reboot/... (DefaultKillSyscalls). Fail-safe: on any
 	// compile/memfd error, proceed WITHOUT the filter rather than break the
 	// tool call. Skipped under pasta (network-allowlist mode): fd inheritance
@@ -156,11 +214,18 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 			fmt.Fprintf(os.Stderr, "stado: warn: seccomp filter unavailable, running without it: %v\n", ferr)
 		} else {
 			seccompFile = f
-			bwrapArgs = append(bwrapArgs, "--seccomp", "3")
+			seccompFD := 3 + len(extraFiles)
+			extraFiles = append(extraFiles, seccompFile)
+			bwrapArgs = append(bwrapArgs, "--seccomp", strconv.Itoa(seccompFD))
 		}
 	}
 
-	bwrapArgs = append(bwrapArgs, "--", full)
+	bwrapArgs = append(bwrapArgs, "--")
+	if landlock {
+		bwrapArgs = append(bwrapArgs, landlockHelperPath, landlockExecMarker, landlockPolicy, full)
+	} else {
+		bwrapArgs = append(bwrapArgs, full)
+	}
 	bwrapArgs = append(bwrapArgs, args...)
 
 	cmdName := "bwrap"
@@ -183,10 +248,13 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	}
 
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
+	if len(extraFiles) > 0 {
+		cmd.ExtraFiles = extraFiles
+	}
 	if seccompFile != nil {
-		// ExtraFiles[0] becomes child fd 3 (the --seccomp arg above). Close the
-		// memfd after the process finishes (it's dup'd into the child at Start).
-		cmd.ExtraFiles = []*os.File{seccompFile}
+		// Close the parent memfd after the process finishes (it is duplicated
+		// into the child at Start). The pinned helper descriptor, when present,
+		// already participates in cleanup above.
 		prev := cleanup
 		cleanup = func() {
 			if prev != nil {
@@ -198,6 +266,21 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	cmd.Env = nil
 	runCleanup := attachCleanup(ctx, cmd, cleanup)
 	return managedCommand(cmd, runCleanup), nil
+}
+
+func bwrapSupportsBindFD() bool {
+	bwrapBindFDOnce.Do(func() {
+		out, err := exec.Command("bwrap", "--help").Output()
+		bwrapHasBindFD = err == nil && strings.Contains(string(out), "--ro-bind-fd")
+	})
+	return bwrapHasBindFD
+}
+
+func landlockHelperBindArgs(fd int, direct bool) []string {
+	if direct {
+		return []string{"--ro-bind-fd", strconv.Itoa(fd), landlockHelperPath}
+	}
+	return []string{"--perms", "0555", "--ro-bind-data", strconv.Itoa(fd), landlockHelperPath}
 }
 
 // underAnyMask reports whether path p is a strict descendant of a masked

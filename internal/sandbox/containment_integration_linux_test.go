@@ -25,6 +25,7 @@ const (
 	containmentMountEnv  = "STADO_CONTAINMENT_MOUNT_CHILD"
 	containmentAllowed   = "STADO_CONTAINMENT_ALLOWED"
 	containmentForbidden = "STADO_CONTAINMENT_FORBIDDEN"
+	containmentLandlock  = "STADO_CONTAINMENT_LANDLOCK"
 )
 
 // TestBwrapRunner_CombinedContainmentBoundary exercises the production command
@@ -88,7 +89,7 @@ func TestBwrapRunner_CombinedContainmentBoundary(t *testing.T) {
 		Net:     NetPolicy{Kind: NetDenyAll},
 		Env: []string{
 			containmentChildEnv, containmentRootEnv, containmentAddrEnv,
-			containmentAllowed,
+			containmentAllowed, containmentLandlock,
 		},
 	}, sandboxExe, []string{"-test.run=^TestBwrapRunner_CombinedContainmentBoundary$", "-test.v"}, []string{
 		containmentChildEnv + "=1",
@@ -96,14 +97,15 @@ func TestBwrapRunner_CombinedContainmentBoundary(t *testing.T) {
 		containmentAddrEnv + "=" + listener.Addr().String(),
 		containmentAllowed + "=visible",
 		containmentForbidden + "=must-not-cross",
+		containmentLandlock + "=" + landlockExpectation(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.ExtraFiles) != 1 {
-		t.Fatalf("combined boundary has %d seccomp files, want 1", len(cmd.ExtraFiles))
+	if len(cmd.ExtraFiles) != 2 {
+		t.Fatalf("combined boundary has %d helper/seccomp files, want 2", len(cmd.ExtraFiles))
 	}
-	seccompFile := cmd.ExtraFiles[0]
+	seccompFile := cmd.ExtraFiles[1]
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		text := string(out)
@@ -157,6 +159,18 @@ func verifyCombinedContainmentChild(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "read-only", "data"), []byte("changed"), 0o600); err == nil {
 		t.Fatal("write succeeded through read-only mount")
 	}
+	if os.Getenv(containmentLandlock) == "1" {
+		if err := os.WriteFile("/dev/null", []byte("allowed-device-write"), 0o600); err != nil {
+			t.Fatalf("Landlock blocked ordinary /dev/null use: %v", err)
+		}
+		canary := "/dev/stado-landlock-canary"
+		if err := os.WriteFile(canary, []byte("must-not-write"), 0o600); !errors.Is(err, syscall.EACCES) {
+			// Bubblewrap supplies a writable private /dev. Only the composed
+			// Landlock ruleset denies creating this otherwise-visible canary,
+			// which distinguishes real enforcement from helper argv wiring.
+			t.Fatalf("synthetic device canary write = %v, want EACCES from composed Landlock", err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(root, "writable", "result"), []byte("written"), 0o600); err != nil {
 		t.Fatalf("write inside allowed scope: %v", err)
 	}
@@ -184,6 +198,13 @@ func verifyCombinedContainmentChild(t *testing.T) {
 		t.Fatalf("mount syscall child signal = %v, want SIGSYS from seccomp", status.Signal())
 	}
 	t.Log("combined-containment-ok")
+}
+
+func landlockExpectation() string {
+	if ProbeLandlock() == nil {
+		return "1"
+	}
+	return "0"
 }
 
 func TestBwrapRunner_SeccompMountChild(t *testing.T) {

@@ -83,8 +83,12 @@ proxy applies to subprocess policies that use `NetAllowHosts`.
   host-default WASM process/PTY policy and Landlock, not configured stdio MCP
   runner selection. Broker attachment is default-on for TUI, `stado run`,
   `stado run --headless`, ACP, and `mcp-server`; its projected process ceiling
-  reaches all five. Direct `stado run` additionally attempts Landlock on the
-  stado process itself and warns if the kernel cannot provide it.
+  reaches all five. Bubblewrap subprocesses on those surfaces apply the
+  effective Landlock filesystem restriction after entering their mount
+  namespace; direct `stado run` additionally attempts Landlock on the parent
+  stado process itself. Unsupported kernels warn and retain bubblewrap. The
+  `pasta` host-allowlist path warns and skips the child helper because portable
+  descriptor inheritance through that extra exec is not established.
 
 ## Attack surface, mitigations and attacker stories
 ### Tool execution & filesystem access
@@ -102,12 +106,14 @@ proxy applies to subprocess policies that use `NetAllowHosts`.
   and landed without changing the tool-visible cwd.
 - Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
 - Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
-- `stado run` (v0.57.0+) attempts Linux Landlock by default. When available it
-  restricts writes to launch cwd, `/tmp`, and the exact runtime-owned session
-  worktree/sidecar paths required for audit and conversation persistence
-  (reads remain broad at the Landlock layer; the capability gate is the tighter
-  read control). Unavailability warns and continues without that layer;
-  `--no-sandbox` is the explicit per-run opt-out.
+- The production bubblewrap runner applies the effective Linux Landlock
+  filesystem policy inside the completed mount namespace before exec. The
+  direct `stado run` parent also restricts its own writes to launch cwd,
+  `/tmp`, and exact runtime-owned session worktree/sidecar paths required for
+  audit and conversation persistence (its reads remain broad; the capability
+  gate is tighter). Unsupported kernels warn and retain bubblewrap; the
+  `pasta` host-allowlist path also warns and skips child Landlock;
+  `--no-sandbox` is the explicit top-level opt-out.
 - Residual risk: capabilities are approved as a signed package ceiling at install/trust time and may be attenuated per signed tool. An over-broad effective tool grant or a trusted-but-coerced tool still operates within that scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control
@@ -131,10 +137,12 @@ Landlock/seccomp, namespaces, and the HTTPS proxy allow-list.
 - **Host-default protective policy** (EP-0030): on all five top-level
   orchestrator surfaces, process and PTY imports that omit a guest policy get
   the restricted host policy with the launch cwd as its intended write
-  boundary. Bubblewrap enforces that filesystem view when available; WASM
-  process/PTY imports fail if it is not. The broker ceiling can only narrow the
-  policy. Generic detected-runner callers retain the `NoneRunner` fallback
-  described above.
+  boundary. Bubblewrap enforces that filesystem view and, on supported kernels,
+  applies Landlock before the target exec; WASM process/PTY imports fail if no
+  enforcing runner is available. The broker ceiling can only narrow the policy.
+  Generic detected-runner callers retain the `NoneRunner` fallback described
+  above. Host-allowlist networking through `pasta` retains bubblewrap but
+  visibly skips the inherited-FD Landlock helper and seccomp.
 - Network allow‑listing via a local CONNECT proxy (host allow‑list).
 - Every top-level surface gets the protective default without configuration.
 
