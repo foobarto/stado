@@ -72,3 +72,40 @@ func TestMailboxAuthorizationBackpressureExpiryAndStaleAck(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestMailboxReplayRequiresExactMessageAndDelivery(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	broker := New(store, RelationPolicy{"p": {"c": true}, "p2": {"c2": true}})
+	request := SendRequest{
+		MessageID: "stable", SenderSession: "p", SenderGeneration: 1,
+		ReceiverSession: "c", Kind: KindRequest, Payload: json.RawMessage(`{"prompt":"one"}`),
+		Principal: "alice", Actor: "parent", IdempotencyKey: "send",
+	}
+	first, err := broker.Send(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := broker.Send(t.Context(), request)
+	if err != nil || replay.ID != first.ID {
+		t.Fatalf("send replay=%+v err=%v", replay, err)
+	}
+	request.Payload = json.RawMessage(`{"prompt":"changed"}`)
+	if _, err := broker.Send(t.Context(), request); err == nil {
+		t.Fatal("message ID accepted conflicting payload")
+	}
+	delivered, found, err := broker.DeliverFrom(t.Context(), "c", "p", "alice", "broker", "deliver-stable")
+	if err != nil || !found {
+		t.Fatalf("delivery=%+v found=%v err=%v", delivered, found, err)
+	}
+	replayed, found, err := broker.DeliverFrom(t.Context(), "c", "p", "alice", "broker", "deliver-stable")
+	if err != nil || !found || replayed.DeliveryGeneration != delivered.DeliveryGeneration {
+		t.Fatalf("delivery replay=%+v found=%v err=%v", replayed, found, err)
+	}
+	if _, _, err := broker.DeliverFrom(t.Context(), "c2", "p2", "alice", "broker", "deliver-stable"); err == nil {
+		t.Fatal("delivery idempotency key accepted conflicting endpoints")
+	}
+}

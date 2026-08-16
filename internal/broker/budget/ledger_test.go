@@ -43,3 +43,32 @@ func TestRecursiveReservationCannotEscapeRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNamedReservationReplaysExactlyAndCannotReopenAfterRelease(t *testing.T) {
+	store, err := wal.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ledger := New(store)
+	if _, err := ledger.CreateAccount(t.Context(), "root", "", Limits{Tokens: 100}, "alice", "broker", "root"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := ledger.ReserveNamed(t.Context(), "res_stable", "root", Limits{Tokens: 20}, "alice", "broker", "reserve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := ledger.ReserveNamed(t.Context(), "res_stable", "root", Limits{Tokens: 20}, "alice", "broker", "reserve")
+	if err != nil || replay != first {
+		t.Fatalf("replay=%+v first=%+v err=%v", replay, first, err)
+	}
+	if _, err := ledger.ReserveNamed(t.Context(), "res_stable", "root", Limits{Tokens: 21}, "alice", "broker", "conflict"); err == nil {
+		t.Fatal("named reservation accepted conflicting amount")
+	}
+	if _, err := ledger.Release(t.Context(), first.ID, "alice", "broker", "release"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.ReserveNamed(t.Context(), "res_stable", "root", Limits{Tokens: 20}, "alice", "broker", "reserve-after-release"); err == nil {
+		t.Fatal("released named reservation reopened")
+	}
+}

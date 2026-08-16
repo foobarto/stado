@@ -2,6 +2,7 @@
 package mailbox
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"github.com/foobarto/stado/internal/broker/wal"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -132,6 +134,22 @@ func (b *Broker) Send(ctx context.Context, req SendRequest) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
+	if req.MessageID != "" {
+		if old, ok := messages[req.MessageID]; ok {
+			contentType := req.ContentType
+			if contentType == "" {
+				contentType = "application/json"
+			}
+			if old.SenderSession != req.SenderSession || old.SenderGeneration != req.SenderGeneration ||
+				old.ReceiverSession != req.ReceiverSession || old.Kind != req.Kind ||
+				old.CorrelationID != req.CorrelationID || old.CausationID != req.CausationID ||
+				old.ContentType != contentType || !bytes.Equal(old.Payload, req.Payload) ||
+				!old.ExpiresAt.Equal(req.ExpiresAt) {
+				return Message{}, errors.New("message id conflicts with existing message")
+			}
+			return old, nil
+		}
+	}
 	pending := 0
 	var maxSeq uint64
 	for _, m := range messages {
@@ -147,9 +165,6 @@ func (b *Broker) Send(ctx context.Context, req SendRequest) (Message, error) {
 	}
 	if req.MessageID == "" {
 		req.MessageID = mint("msg_")
-	}
-	if old, ok := messages[req.MessageID]; ok {
-		return old, nil
 	}
 	m := Message{ID: req.MessageID, SenderSession: req.SenderSession, SenderGeneration: req.SenderGeneration, ReceiverSession: req.ReceiverSession, SenderSequence: maxSeq + 1, Kind: req.Kind, CorrelationID: req.CorrelationID, CausationID: req.CausationID, ContentType: req.ContentType, Payload: append(json.RawMessage(nil), req.Payload...), Provenance: "untrusted", CreatedAt: b.now().UTC(), ExpiresAt: req.ExpiresAt, State: StateAvailable}
 	if m.ContentType == "" {
@@ -170,9 +185,18 @@ func (b *Broker) DeliverFrom(ctx context.Context, receiver, sender, principal, a
 	_ = ctx
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	messages, err := fold(b.wal.Records())
+	records := b.wal.Records()
+	messages, err := fold(records)
 	if err != nil {
 		return Message{}, false, err
+	}
+	if delivered, ok, err := replayedDelivery(records, idem); err != nil {
+		return Message{}, false, err
+	} else if ok {
+		if delivered.ReceiverSession != receiver || (sender != "" && delivered.SenderSession != sender) {
+			return Message{}, false, errors.New("delivery idempotency key conflicts with existing delivery")
+		}
+		return delivered, true, nil
 	}
 	now := b.now().UTC()
 	var candidates []Message
@@ -209,6 +233,29 @@ func (b *Broker) DeliverFrom(ctx context.Context, receiver, sender, principal, a
 			return Message{}, false, err
 		}
 		return m, true, nil
+	}
+	return Message{}, false, nil
+}
+
+func replayedDelivery(records []wal.Record, idem string) (Message, bool, error) {
+	if idem == "" {
+		return Message{}, false, nil
+	}
+	prefix := idem + ":"
+	for _, record := range records {
+		if !strings.HasPrefix(record.Transaction.IdempotencyKey, prefix) || !strings.HasSuffix(record.Transaction.IdempotencyKey, ":deliver") {
+			continue
+		}
+		for _, event := range record.Transaction.Events {
+			if event.Store != storeName || event.Type != "message.delivered" {
+				continue
+			}
+			var message Message
+			if err := json.Unmarshal(event.Data, &message); err != nil {
+				return Message{}, false, err
+			}
+			return message, true, nil
+		}
 	}
 	return Message{}, false, nil
 }

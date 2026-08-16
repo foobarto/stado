@@ -99,8 +99,13 @@ func (s *Service) ConfigureArtifactStore(store *wal.Store, verifier ArtifactPlug
 	if err := s.configureSessionScopes(store); err != nil {
 		return fmt.Errorf("broker: restore durable session scopes: %w", err)
 	}
+	retainedState, err := newRetainedBrokerState(store)
+	if err != nil {
+		return fmt.Errorf("broker: restore retained child state: %w", err)
+	}
 	s.artifacts = state
 	s.sessionContext = sessioncontext.New(store)
+	s.retained = retainedState
 	return nil
 }
 

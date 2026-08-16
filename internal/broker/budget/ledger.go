@@ -103,6 +103,13 @@ func (l *Ledger) CreateAccount(ctx context.Context, id, parent string, ceiling L
 	return a, nil
 }
 func (l *Ledger) Reserve(ctx context.Context, accountID string, amount Limits, principal, actor, idem string) (Reservation, error) {
+	return l.ReserveNamed(ctx, "", accountID, amount, principal, actor, idem)
+}
+
+// ReserveNamed creates an optional caller-named reservation. Broker RPCs use
+// a deterministic ID so replay after a lost response returns the durable
+// reservation instead of manufacturing an unrecorded replacement.
+func (l *Ledger) ReserveNamed(ctx context.Context, reservationID, accountID string, amount Limits, principal, actor, idem string) (Reservation, error) {
 	_ = ctx
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -114,13 +121,26 @@ func (l *Ledger) Reserve(ctx context.Context, accountID string, amount Limits, p
 	if !ok {
 		return Reservation{}, ErrNotFound
 	}
+	if reservationID != "" {
+		if existing, ok := reservations[reservationID]; ok {
+			if existing.AccountID != accountID || existing.Amount != amount {
+				return Reservation{}, errors.New("reservation id conflicts with existing reservation")
+			}
+			if existing.Released {
+				return Reservation{}, errors.New("reservation id names a released reservation")
+			}
+			return existing, nil
+		}
+	}
 	root := accounts[a.RootID]
 	aggregate := root.Reserved.add(amount)
 	if !aggregate.fits(root.Ceiling) || !a.Reserved.add(amount).fits(a.Ceiling) {
 		return Reservation{}, ErrExhausted
 	}
-	r := Reservation{ID: mint("res_"), AccountID: accountID, RootID: a.RootID, Amount: amount}
-	_ = reservations
+	if reservationID == "" {
+		reservationID = mint("res_")
+	}
+	r := Reservation{ID: reservationID, AccountID: accountID, RootID: a.RootID, Amount: amount}
 	if err := appendEvent(l.wal, r, principal, actor, idem, "reservation.created"); err != nil {
 		return Reservation{}, err
 	}

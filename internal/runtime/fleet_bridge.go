@@ -15,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	brokerbudget "github.com/foobarto/stado/internal/broker/budget"
-	"github.com/foobarto/stado/internal/broker/mailbox"
 	"github.com/foobarto/stado/internal/broker/retained"
 	"github.com/foobarto/stado/internal/orchestration"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
@@ -30,7 +29,7 @@ type FleetBridgeAdapter struct {
 	Spawner Spawner
 	// RootCtx is the long-running context the Fleet was created with.
 	RootCtx           context.Context
-	Retained          *orchestration.Coordinator
+	Retained          orchestration.RetainedCoordinator
 	RetainedAccountID string
 	Principal         string
 	ParentSessionID   string
@@ -198,7 +197,7 @@ func agentSpawnClaim(req pluginRuntime.AgentSpawnRequest) (string, string, error
 type spawnerLauncher struct {
 	spawner   Spawner
 	request   subagent.Request
-	mailbox   *mailbox.Broker
+	retained  orchestration.RetainedCoordinator
 	principal string
 }
 
@@ -206,11 +205,11 @@ func (l spawnerLauncher) Launch(ctx context.Context, admission retained.Admissio
 	req := l.request
 	req.ChildSessionID, req.Execution = admission.ChildSessionID, "wait"
 	spawner := l.spawner
-	if aware, ok := spawner.(InboxAwareSpawner); ok && l.mailbox != nil {
+	if aware, ok := spawner.(InboxAwareSpawner); ok && l.retained != nil {
 		spawner = aware.WithInbox(func() []string {
 			var inputs []string
 			for {
-				msg, found, err := l.mailbox.DeliverFrom(context.Background(), admission.ChildSessionID, admission.ParentSessionID, l.principal, "retained-runtime", "retained-deliver:"+uuid.NewString())
+				msg, found, err := l.retained.DeliverRetained(context.Background(), admission.ChildSessionID, admission.ParentSessionID, l.principal, "retained-runtime", "retained-deliver:"+uuid.NewString())
 				if err != nil || !found {
 					break
 				}
@@ -220,7 +219,7 @@ func (l spawnerLauncher) Launch(ctx context.Context, admission retained.Admissio
 				if json.Unmarshal(msg.Payload, &body) == nil && body.Prompt != "" {
 					inputs = append(inputs, body.Prompt)
 				}
-				_, _ = l.mailbox.CommitReceiverInput(context.Background(), admission.ChildSessionID, msg.ID, msg.DeliveryGeneration, "retained-child-input:"+msg.ID, l.principal, "retained-runtime", "retained-child-ack:"+msg.ID)
+				_, _ = l.retained.CommitRetainedInput(context.Background(), admission.ChildSessionID, msg.ID, msg.DeliveryGeneration, "retained-child-input:"+msg.ID, l.principal, "retained-runtime", "retained-child-ack:"+msg.ID)
 			}
 			return inputs
 		})
@@ -283,7 +282,7 @@ func (a *FleetBridgeAdapter) spawnRetained(ctx context.Context, req pluginRuntim
 		}
 		restartPolicy = retained.RestartPolicy{Mode: req.Supervision, MaxRestarts: req.MaxRestarts, Window: 10 * time.Minute, BaseBackoff: 250 * time.Millisecond, MaxBackoff: 10 * time.Second}
 	}
-	h, err := a.Retained.SpawnRetained(ctx, orchestration.LaunchRequest{AccountID: a.RetainedAccountID, Budget: budget, Principal: a.Principal, Actor: a.ParentSessionID, IdempotencyKey: idem, RestartPolicy: restartPolicy, Launcher: spawnerLauncher{spawner: pinnedSpawner, request: request, mailbox: a.Retained.Mailbox, principal: a.Principal}, Admission: retained.Request{ParentSessionID: a.ParentSessionID, ChildSessionID: childID, Purpose: request.Role, Fork: fork, CeilingDigest: hex.EncodeToString(ceiling[:]), Model: req.Model, ToolProfile: req.ToolProfile, Principal: a.Principal, Actor: a.ParentSessionID, IdempotencyKey: idem + ":admission"}})
+	h, err := a.Retained.SpawnRetained(ctx, orchestration.LaunchRequest{AccountID: a.RetainedAccountID, Budget: budget, Principal: a.Principal, Actor: a.ParentSessionID, IdempotencyKey: idem, RestartPolicy: restartPolicy, Launcher: spawnerLauncher{spawner: pinnedSpawner, request: request, retained: a.Retained, principal: a.Principal}, Admission: retained.Request{ParentSessionID: a.ParentSessionID, ChildSessionID: childID, Purpose: request.Role, Fork: fork, CeilingDigest: hex.EncodeToString(ceiling[:]), Model: req.Model, ToolProfile: req.ToolProfile, Principal: a.Principal, Actor: a.ParentSessionID, IdempotencyKey: idem + ":admission"}})
 	if err != nil {
 		return pluginRuntime.AgentSpawnResult{}, err
 	}
@@ -297,7 +296,7 @@ func (a *FleetBridgeAdapter) spawnRetained(ctx context.Context, req pluginRuntim
 			return result, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
-		aState, ok, getErr := a.Retained.Registry.Get(h.AdmissionID)
+		aState, ok, getErr := a.Retained.GetRetained(h.AdmissionID)
 		if getErr != nil || !ok {
 			return result, fmt.Errorf("retained child disappeared: %w", getErr)
 		}
@@ -322,7 +321,7 @@ func (a *FleetBridgeAdapter) waitRetained(ctx context.Context, result pluginRunt
 			return result, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
-		aState, ok, getErr := a.Retained.Registry.Get(result.ID)
+		aState, ok, getErr := a.Retained.GetRetained(result.ID)
 		if getErr != nil || !ok {
 			return result, fmt.Errorf("retained child disappeared: %w", getErr)
 		}
@@ -356,7 +355,7 @@ func (a *FleetBridgeAdapter) AgentList(ctx context.Context) ([]pluginRuntime.Age
 		}
 	}
 	if a.Retained != nil {
-		children, err := a.Retained.Registry.List()
+		children, err := a.Retained.ListRetained()
 		if err != nil {
 			return nil, err
 		}
@@ -374,7 +373,7 @@ func (a *FleetBridgeAdapter) AgentReadMessages(ctx context.Context, id string, s
 	entry, ok := a.Fleet.Get(id)
 	if !ok {
 		if a.Retained != nil {
-			if child, retainedOK, err := a.Retained.Registry.Get(id); err != nil {
+			if child, retainedOK, err := a.Retained.GetRetained(id); err != nil {
 				return pluginRuntime.AgentMessages{}, err
 			} else if retainedOK && child.ParentSessionID == a.ParentSessionID {
 				return a.readRetained(ctx, child, timeoutMs)
@@ -439,13 +438,13 @@ func pluginAgentTerminal(in subagent.TerminalMetadata) *pluginRuntime.AgentTermi
 func (a *FleetBridgeAdapter) readRetained(ctx context.Context, child retained.Admission, timeoutMs int) (pluginRuntime.AgentMessages, error) {
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 	for {
-		msg, ok, err := a.Retained.Mailbox.DeliverFrom(ctx, child.ParentSessionID, child.ChildSessionID, a.Principal, child.ParentSessionID, "retained-read:"+child.ID+":"+uuid.NewString())
+		msg, ok, err := a.Retained.DeliverRetained(ctx, child.ParentSessionID, child.ChildSessionID, a.Principal, child.ParentSessionID, "retained-read:"+child.ID+":"+uuid.NewString())
 		if err != nil {
 			return pluginRuntime.AgentMessages{}, err
 		}
 		if ok {
 			inputID := "retained-parent-input:" + msg.ID
-			if _, err := a.Retained.Mailbox.CommitReceiverInput(ctx, child.ParentSessionID, msg.ID, msg.DeliveryGeneration, inputID, a.Principal, child.ParentSessionID, "retained-ack:"+msg.ID); err != nil {
+			if _, err := a.Retained.CommitRetainedInput(ctx, child.ParentSessionID, msg.ID, msg.DeliveryGeneration, inputID, a.Principal, child.ParentSessionID, "retained-ack:"+msg.ID); err != nil {
 				return pluginRuntime.AgentMessages{}, err
 			}
 			var body struct {
@@ -473,7 +472,7 @@ func (a *FleetBridgeAdapter) AgentSendMessage(ctx context.Context, id, msg strin
 		return a.Fleet.SendMessage(id, msg)
 	}
 	if a.Retained != nil {
-		if child, ok, err := a.Retained.Registry.Get(id); err != nil {
+		if child, ok, err := a.Retained.GetRetained(id); err != nil {
 			return err
 		} else if ok && child.ParentSessionID == a.ParentSessionID {
 			if child.Status != retained.StatusRunning && child.Status != retained.StatusStarting && child.Status != retained.StatusAdmitted {
@@ -492,7 +491,7 @@ func (a *FleetBridgeAdapter) AgentCancel(ctx context.Context, id string) error {
 		return a.Fleet.Cancel(id)
 	}
 	if a.Retained != nil {
-		if child, ok, err := a.Retained.Registry.Get(id); err != nil {
+		if child, ok, err := a.Retained.GetRetained(id); err != nil {
 			return err
 		} else if ok && child.ParentSessionID == a.ParentSessionID {
 			if a.Retained.Cancel(id) {

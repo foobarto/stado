@@ -26,6 +26,8 @@ const (
 	MethodSessionContextState             = "broker.v1.session.context.state"
 	MethodSessionContextSignals           = "broker.v1.session.context.signals"
 	MethodSessionContextJournal           = "broker.v1.session.context.journal"
+	MethodRetainedBind                    = "broker.v1.retained.bind"
+	MethodRetainedCall                    = "broker.v1.retained.call"
 	MethodToolRunSandbox                  = "broker.v1.toolrun.sandbox"
 	MethodPolicyQuery                     = "broker.v1.policy.query"
 	MethodApplicationBind                 = "broker.v1.application.bind"
@@ -128,6 +130,10 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return s.dispatchSessionContextSignals(params)
 	case MethodSessionContextJournal:
 		return s.dispatchSessionContextJournal(params)
+	case MethodRetainedBind:
+		return s.dispatchRetainedBind(params)
+	case MethodRetainedCall:
+		return s.dispatchRetainedCall(ctx, params)
 	case MethodToolRunSandbox:
 		return s.dispatchToolRunSandbox(ctx, params)
 	case MethodPolicyQuery:
@@ -337,6 +343,25 @@ type SessionContextSignalsParams struct {
 type SessionContextJournalParams struct {
 	SessionContextReadAuth
 	Limit int `json:"limit,omitempty"`
+}
+
+type RetainedBindParams struct {
+	SessionID       string `json:"session_id"`
+	ControllerToken string `json:"controller_token"`
+}
+
+type RetainedBindResult struct {
+	BindingToken    string `json:"binding_token"`
+	AccountID       string `json:"account_id"`
+	Principal       string `json:"principal"`
+	ParentSessionID string `json:"parent_session_id"`
+}
+
+type RetainedCallParams struct {
+	BindingToken string          `json:"binding_token"`
+	RequestID    string          `json:"request_id"`
+	Operation    string          `json:"operation"`
+	Payload      json.RawMessage `json:"payload"`
 }
 
 // ArtifactBindParams is sent only by the native verified plugin loader. The

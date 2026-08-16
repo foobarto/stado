@@ -39,7 +39,46 @@ type Handle struct {
 	Generation     uint64          `json:"generation"`
 	Status         retained.Status `json:"status"`
 }
+
+// RetainedCoordinator is the narrow lifecycle surface consumed by the agent
+// fleet bridge. The local Coordinator implements it over concrete services;
+// broker clients may implement the same contract without exposing a WAL or
+// service internals to the orchestrator.
+type RetainedCoordinator interface {
+	SpawnRetained(context.Context, LaunchRequest) (Handle, error)
+	GetRetained(string) (retained.Admission, bool, error)
+	ListRetained() ([]retained.Admission, error)
+	DeliverRetained(context.Context, string, string, string, string, string) (mailbox.Message, bool, error)
+	CommitRetainedInput(context.Context, string, string, uint64, string, string, string, string) (mailbox.Message, error)
+	FollowUp(context.Context, string, Handle, []byte, string, string, string) (mailbox.Message, error)
+	Cancel(string) bool
+}
+
+// RetainedBackend is the canonical-state half of retained execution. A native
+// coordinator owns only the live launcher and cancellation contexts; the
+// backend owns admission, budgets, lifecycle transitions, and mailboxes.
+// Production implements this through bounded broker RPC. The concrete local
+// services remain available to focused package tests.
+type RetainedBackend interface {
+	AdmitRetained(context.Context, LaunchRequest) (retained.Admission, error)
+	StartRetained(context.Context, retained.Admission, LaunchRequest, time.Duration) (retained.Admission, error)
+	FinishRetained(context.Context, retained.Admission, LaunchRequest, LaunchResult, bool) (RetainedFinish, error)
+	RestartRetained(context.Context, retained.Admission, LaunchRequest) (retained.Admission, error)
+	GetRetained(string) (retained.Admission, bool, error)
+	ListRetained() ([]retained.Admission, error)
+	DeliverRetained(context.Context, string, string, string, string, string) (mailbox.Message, bool, error)
+	CommitRetainedInput(context.Context, string, string, uint64, string, string, string, string) (mailbox.Message, error)
+	FollowUp(context.Context, string, Handle, []byte, string, string, string) (mailbox.Message, error)
+}
+
+type RetainedFinish struct {
+	Admission retained.Admission
+	Restart   bool
+	Backoff   time.Duration
+}
+
 type Coordinator struct {
+	Backend  RetainedBackend
 	Registry *retained.Registry
 	Budgets  *brokerbudget.Ledger
 	Mailbox  *mailbox.Broker
@@ -50,30 +89,45 @@ type Coordinator struct {
 	Policy   *mailbox.DynamicRelationPolicy
 }
 
+var _ RetainedCoordinator = (*Coordinator)(nil)
+
 func New(r *retained.Registry, b *brokerbudget.Ledger, m *mailbox.Broker, l Launcher) *Coordinator {
 	return &Coordinator{Registry: r, Budgets: b, Mailbox: m, Launcher: l, LeaseTTL: time.Minute, cancels: map[string]context.CancelFunc{}}
 }
+
+func NewBrokerCoordinator(backend RetainedBackend) *Coordinator {
+	return &Coordinator{Backend: backend, LeaseTTL: time.Minute, cancels: map[string]context.CancelFunc{}}
+}
+
 func (c *Coordinator) SpawnRetained(ctx context.Context, req LaunchRequest) (Handle, error) {
 	launcher := req.Launcher
 	if launcher == nil {
 		launcher = c.Launcher
 	}
-	if c.Registry == nil || c.Budgets == nil || launcher == nil {
+	if (c.Backend == nil && (c.Registry == nil || c.Budgets == nil)) || launcher == nil {
 		return Handle{}, errors.New("retained coordinator is incomplete")
 	}
-	reservation, err := c.Budgets.Reserve(ctx, req.AccountID, req.Budget, req.Principal, req.Actor, req.IdempotencyKey+":budget")
+	var admission retained.Admission
+	var err error
+	if c.Backend != nil {
+		admission, err = c.Backend.AdmitRetained(ctx, req)
+	} else {
+		var reservation brokerbudget.Reservation
+		reservation, err = c.Budgets.Reserve(ctx, req.AccountID, req.Budget, req.Principal, req.Actor, req.IdempotencyKey+":budget")
+		if err == nil {
+			req.Admission.BudgetReservationID = reservation.ID
+			admission, err = c.Registry.Admit(ctx, req.Admission)
+			if err != nil {
+				_, _ = c.Budgets.Release(ctx, reservation.ID, req.Principal, req.Actor, req.IdempotencyKey+":release")
+			}
+		}
+		if err == nil && c.Policy != nil {
+			c.Policy.Allow(admission.ParentSessionID, admission.ChildSessionID)
+			c.Policy.Allow(admission.ChildSessionID, admission.ParentSessionID)
+		}
+	}
 	if err != nil {
 		return Handle{}, err
-	}
-	req.Admission.BudgetReservationID = reservation.ID
-	admission, err := c.Registry.Admit(ctx, req.Admission)
-	if err != nil {
-		_, _ = c.Budgets.Release(ctx, reservation.ID, req.Principal, req.Actor, req.IdempotencyKey+":release")
-		return Handle{}, err
-	}
-	if c.Policy != nil {
-		c.Policy.Allow(admission.ParentSessionID, admission.ChildSessionID)
-		c.Policy.Allow(admission.ChildSessionID, admission.ParentSessionID)
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	c.mu.Lock()
@@ -81,6 +135,34 @@ func (c *Coordinator) SpawnRetained(ctx context.Context, req LaunchRequest) (Han
 	c.mu.Unlock()
 	go c.run(runCtx, admission, req, launcher)
 	return Handle{AdmissionID: admission.ID, ChildSessionID: admission.ChildSessionID, Generation: admission.Generation, Status: admission.Status}, nil
+}
+
+func (c *Coordinator) GetRetained(id string) (retained.Admission, bool, error) {
+	if c.Backend != nil {
+		return c.Backend.GetRetained(id)
+	}
+	return c.Registry.Get(id)
+}
+
+func (c *Coordinator) ListRetained() ([]retained.Admission, error) {
+	if c.Backend != nil {
+		return c.Backend.ListRetained()
+	}
+	return c.Registry.List()
+}
+
+func (c *Coordinator) DeliverRetained(ctx context.Context, receiver, sender, principal, actor, idem string) (mailbox.Message, bool, error) {
+	if c.Backend != nil {
+		return c.Backend.DeliverRetained(ctx, receiver, sender, principal, actor, idem)
+	}
+	return c.Mailbox.DeliverFrom(ctx, receiver, sender, principal, actor, idem)
+}
+
+func (c *Coordinator) CommitRetainedInput(ctx context.Context, receiver, messageID string, generation uint64, inputID, principal, actor, idem string) (mailbox.Message, error) {
+	if c.Backend != nil {
+		return c.Backend.CommitRetainedInput(ctx, receiver, messageID, generation, inputID, principal, actor, idem)
+	}
+	return c.Mailbox.CommitReceiverInput(ctx, receiver, messageID, generation, inputID, principal, actor, idem)
 }
 func (c *Coordinator) run(ctx context.Context, a retained.Admission, req LaunchRequest, launcher Launcher) {
 	defer func() { c.mu.Lock(); delete(c.cancels, a.ID); c.mu.Unlock() }()
@@ -94,6 +176,9 @@ func (c *Coordinator) run(ctx context.Context, a retained.Admission, req LaunchR
 }
 
 func (c *Coordinator) runGeneration(ctx context.Context, a retained.Admission, req LaunchRequest, launcher Launcher) (bool, retained.Admission) {
+	if c.Backend != nil {
+		return c.runBrokerGeneration(ctx, a, req, launcher)
+	}
 	suffix := fmt.Sprintf(":g%d", a.Generation)
 	lease, err := c.Registry.AcquireLease(ctx, a.ID, a.RuntimeNonce, req.Principal, "retained-runtime", req.IdempotencyKey+":lease"+suffix, c.LeaseTTL)
 	if err != nil {
@@ -137,6 +222,34 @@ func (c *Coordinator) runGeneration(ctx context.Context, a retained.Admission, r
 	}
 	return false, a
 }
+
+func (c *Coordinator) runBrokerGeneration(ctx context.Context, a retained.Admission, req LaunchRequest, launcher Launcher) (bool, retained.Admission) {
+	running, err := c.Backend.StartRetained(ctx, a, req, c.LeaseTTL)
+	if err != nil {
+		return false, a
+	}
+	result, launchErr := launcher.Launch(ctx, running)
+	if launchErr != nil && result.Error == "" {
+		result.Error = launchErr.Error()
+	}
+	finished, err := c.Backend.FinishRetained(context.Background(), running, req, result, errors.Is(ctx.Err(), context.Canceled))
+	if err != nil {
+		return false, running
+	}
+	if !finished.Restart {
+		return false, finished.Admission
+	}
+	select {
+	case <-ctx.Done():
+		return false, finished.Admission
+	case <-time.After(finished.Backoff):
+	}
+	next, err := c.Backend.RestartRetained(context.Background(), finished.Admission, req)
+	if err != nil {
+		return false, finished.Admission
+	}
+	return true, next
+}
 func (c *Coordinator) Cancel(id string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -147,5 +260,8 @@ func (c *Coordinator) Cancel(id string) bool {
 	return ok
 }
 func (c *Coordinator) FollowUp(ctx context.Context, sender string, handle Handle, payload []byte, principal, actor, idem string) (mailbox.Message, error) {
+	if c.Backend != nil {
+		return c.Backend.FollowUp(ctx, sender, handle, payload, principal, actor, idem)
+	}
 	return c.Mailbox.Send(ctx, mailbox.SendRequest{SenderSession: sender, SenderGeneration: 1, ReceiverSession: handle.ChildSessionID, Kind: mailbox.KindRequest, Payload: payload, Principal: principal, Actor: actor, IdempotencyKey: idem})
 }
