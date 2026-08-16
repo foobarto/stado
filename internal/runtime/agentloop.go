@@ -76,6 +76,10 @@ type AgentLoopOptions struct {
 	// Implementations persist deterministic trajectory signals; callback errors
 	// are non-fatal because learning telemetry must not break the active task.
 	OnToolOutcome func(turnIndex, invocationIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
+	// BeforeToolExecution durably pins the exact accumulated conversation
+	// prefix, including the assistant tool-call record. A failure aborts before
+	// any tool runs or trajectory outcome is submitted.
+	BeforeToolExecution func(messages []agent.Message) error
 
 	// OnSubagentEvent fires when spawn_agent creates or finishes a child
 	// session. It is best-effort user/client visibility; audit remains in
@@ -813,6 +817,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			})
 		}
 		emitAgentEvents(opts.OnEvent, turnEvents)
+		if opts.BeforeToolExecution != nil {
+			if err := opts.BeforeToolExecution(msgs); err != nil {
+				turnSpan.RecordError(err)
+				turnSpan.SetStatus(codes.Error, err.Error())
+				turnSpan.End()
+				return finalText, msgs, fmt.Errorf("runtime: persist tool-call evidence: %w", err)
+			}
+		}
 		needsExecutor := false
 		for _, c := range calls {
 			if toolAllowed(allowedTools, c.Name) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
@@ -20,6 +21,16 @@ func (skillNamedPluginStub) Description() string    { return "plugin-shaped test
 func (skillNamedPluginStub) Schema() map[string]any { return map[string]any{"type": "object"} }
 func (skillNamedPluginStub) Run(context.Context, json.RawMessage, pkgtool.Host) (pkgtool.Result, error) {
 	return pkgtool.Result{Content: `{"name":"recon","loaded":true,"body":"ordinary tool body"}`}, nil
+}
+
+type countingSkillNamedPluginStub struct{ runs int }
+
+func (*countingSkillNamedPluginStub) Name() string           { return "skills__load" }
+func (*countingSkillNamedPluginStub) Description() string    { return "counting plugin-shaped test tool" }
+func (*countingSkillNamedPluginStub) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (s *countingSkillNamedPluginStub) Run(context.Context, json.RawMessage, pkgtool.Host) (pkgtool.Result, error) {
+	s.runs++
+	return pkgtool.Result{Content: `{"loaded":true}`}, nil
 }
 
 type skillOriginCaptureProvider struct{ turn int }
@@ -57,6 +68,8 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(skillNamedPluginStub{})
 	var invocations []int
+	var durableCounts []int
+	var durableAtOutcome []int
 	priorCall := agent.Block{ToolUse: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load"}}
 	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
 		Provider: &duplicateCallIDProvider{}, Executor: &tools.Executor{Registry: reg}, Model: "m",
@@ -69,8 +82,21 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 		},
 		MaxTurns:                    3,
 		InitialTrajectoryInvocation: 4,
+		BeforeToolExecution: func(messages []agent.Message) error {
+			calls := 0
+			for _, message := range messages {
+				for _, block := range message.Content {
+					if block.ToolUse != nil {
+						calls++
+					}
+				}
+			}
+			durableCounts = append(durableCounts, calls)
+			return nil
+		},
 		OnToolOutcome: func(_, invocation int, _ agent.ToolUseBlock, _ agent.ToolResultBlock) {
 			invocations = append(invocations, invocation)
+			durableAtOutcome = append(durableAtOutcome, durableCounts[len(durableCounts)-1])
 		},
 	})
 	if err != nil {
@@ -78,6 +104,29 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 	}
 	if len(invocations) != 2 || invocations[0] != 4 || invocations[1] != 5 {
 		t.Fatalf("invocations=%v, want [4 5]", invocations)
+	}
+	if len(durableAtOutcome) != 2 || durableAtOutcome[0] != 3 || durableAtOutcome[1] != 4 {
+		t.Fatalf("durable calls at outcome=%v, want [3 4]", durableAtOutcome)
+	}
+}
+
+func TestAgentLoopPersistenceFailureAbortsBeforeToolExecution(t *testing.T) {
+	reg := tools.NewRegistry()
+	counting := &countingSkillNamedPluginStub{}
+	reg.Register(counting)
+	outcomes := 0
+	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: &duplicateCallIDProvider{}, Executor: &tools.Executor{Registry: reg}, Model: "m",
+		Config:   &config.Config{Tools: config.Tools{Autoload: []string{"skills__load"}}},
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 2,
+		BeforeToolExecution: func([]agent.Message) error { return fmt.Errorf("disk full") },
+		OnToolOutcome:       func(int, int, agent.ToolUseBlock, agent.ToolResultBlock) { outcomes++ },
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist tool-call evidence: disk full") {
+		t.Fatalf("error=%v, want persistence failure", err)
+	}
+	if counting.runs != 0 || outcomes != 0 {
+		t.Fatalf("tool runs=%d outcomes=%d, want zero before persistence", counting.runs, outcomes)
 	}
 }
 

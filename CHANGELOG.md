@@ -14,8 +14,9 @@ Plugins / Infra / Fixes.
   principal, actor, evidence reference, and stable idempotency key; provider
   call IDs are hashed and combined with provider-order invocation ordinals,
   recovered from append-only conversation evidence so compaction cannot
-  rewind them, before entering canonical references. The orchestrator's
-  direct shared-WAL opens and filesystem fallback are removed.
+  rewind them, before entering canonical references. Headless runs pin the
+  assistant tool-call prefix before execution and outcome submission. The
+  orchestrator's direct shared-WAL opens and filesystem fallback are removed.
 - **Composed Linux containment regression.** A real bubblewrap integration test
   now proves read-only and writable mount scopes, credential-directory masking
   with an explicit safe-file restore, environment filtering, deny-all network

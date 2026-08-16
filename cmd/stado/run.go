@@ -333,6 +333,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				} else {
 					opts.InitialTrajectoryInvocation = invocation
 				}
+				opts.BeforeToolExecution = func(messages []agent.Message) error {
+					next, persistErr := runtime.AppendMessagesFrom(persistWorktree, messages, persistedViewLen)
+					persistedViewLen = next
+					return persistErr
+				}
 				// EP-0030: harness mode flag overrides config.
 				if runMode != "" {
 					cfg.Harness.Mode = runMode

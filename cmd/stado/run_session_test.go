@@ -116,6 +116,88 @@ func TestRun_FreshVerificationFailurePersistsWorkAndCritique(t *testing.T) {
 	}
 }
 
+func TestRunPersistsToolCallBeforeOutcomeWithoutDuplicate(t *testing.T) {
+	oldLoadConfig := runLoadConfig
+	oldBuildProvider := runBuildProvider
+	oldAgentLoop := runAgentLoop
+	oldPrompt, oldSkill, oldSessionID := runPrompt, runSkill, runSessionID
+	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, noSandbox
+	defer func() {
+		runLoadConfig = oldLoadConfig
+		runBuildProvider = oldBuildProvider
+		runAgentLoop = oldAgentLoop
+		runPrompt, runSkill, runSessionID = oldPrompt, oldSkill, oldSessionID
+		runMaxTurns, runJSON, runNoTools, noSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
+	}()
+
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv(envBrokerAttach, "0")
+	cwd := filepath.Join(root, "work")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := chdir(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLoadConfig = func() (*config.Config, error) { return cfg, nil }
+	runBuildProvider = func(*config.Config) (agent.Provider, error) { return runHookProvider{}, nil }
+	runAgentLoop = func(_ context.Context, opts runtime.AgentLoopOptions) (string, []agent.Message, error) {
+		if opts.BeforeToolExecution == nil || opts.Executor == nil || opts.Executor.Session == nil {
+			t.Fatal("tool run did not wire durable pre-execution persistence")
+		}
+		call := agent.ToolUseBlock{ID: "same-tool", Name: "shell"}
+		msgs := append([]agent.Message{}, opts.Messages...)
+		msgs = append(msgs, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{{ToolUse: &call}}})
+		if err := opts.BeforeToolExecution(msgs); err != nil {
+			t.Fatalf("persist before tool execution: %v", err)
+		}
+		count, err := runtime.ConversationToolInvocationCount(opts.Executor.Session.WorktreePath)
+		if err != nil || count != 1 {
+			t.Fatalf("durable calls before outcome=%d err=%v, want 1", count, err)
+		}
+		msgs = append(msgs,
+			agent.Message{Role: agent.RoleTool, Content: []agent.Block{{ToolResult: &agent.ToolResultBlock{ToolUseID: call.ID, Content: "ok"}}}},
+			agent.Text(agent.RoleAssistant, "done"),
+		)
+		return "done", msgs, nil
+	}
+
+	runPrompt = "do work"
+	runSkill = ""
+	runSessionID = ""
+	runMaxTurns = 2
+	runJSON = true
+	runNoTools = false
+	noSandbox = true
+
+	runCmd.SetContext(context.Background())
+	if err := runCmd.RunE(runCmd, nil); err != nil {
+		t.Fatalf("runCmd.RunE: %v", err)
+	}
+	entries, err := os.ReadDir(cfg.WorktreeDir())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("worktree entries=%v err=%v", entries, err)
+	}
+	worktree := filepath.Join(cfg.WorktreeDir(), entries[0].Name())
+	msgs, err := runtime.LoadConversation(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("conversation messages=%d, want 4 without duplicate prefix", len(msgs))
+	}
+	if count, err := runtime.ConversationToolInvocationCount(worktree); err != nil || count != 1 {
+		t.Fatalf("final durable calls=%d err=%v, want 1", count, err)
+	}
+}
+
 // TestRun_SessionAppendsMessages: after a continuation run, the
 // conversation.jsonl must include the prior messages + new user
 // message + assistant reply. Stub out the agent loop call by
