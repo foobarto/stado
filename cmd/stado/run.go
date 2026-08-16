@@ -404,8 +404,8 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				if writer, ok := logical.(trajectory.Writer); ok {
 					recorder := trajectory.Recorder{Writer: writer}
 					recorder.EnsureObjective(runPrompt)
-					opts.OnToolOutcome = func(_ int, call agent.ToolUseBlock, result agent.ToolResultBlock) {
-						recorder.ToolOutcome(activeSession.Turn(), call, result)
+					opts.OnToolOutcome = func(_ int, invocation int, call agent.ToolUseBlock, result agent.ToolResultBlock) {
+						recorder.ToolOutcome(activeSession.Turn(), invocation, call, result)
 					}
 				}
 				defer func() {

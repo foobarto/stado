@@ -66,9 +66,10 @@ type AgentLoopOptions struct {
 	// inspect the turn with the same pre-append turn index the TUI hook sees.
 	OnTurnComplete func(turnIndex int, text string, toolCalls []agent.ToolUseBlock, usage agent.Usage, duration time.Duration)
 	// OnToolOutcome receives host-observed call/result facts after execution.
+	// invocationIndex is the stable provider-order ordinal within this turn.
 	// Implementations persist deterministic trajectory signals; callback errors
 	// are non-fatal because learning telemetry must not break the active task.
-	OnToolOutcome func(turnIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
+	OnToolOutcome func(turnIndex, invocationIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
 
 	// OnSubagentEvent fires when spawn_agent creates or finishes a child
 	// session. It is best-effort user/client visibility; audit remains in
@@ -820,7 +821,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
 		toolResults := make([]agent.ToolResultBlock, 0, len(calls))
-		for _, c := range calls {
+		for invocation, c := range calls {
 			if !toolAllowed(allowedTools, c.Name) {
 				results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
 					ToolUseID: c.ID,
@@ -847,7 +848,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			toolResults = append(toolResults, resultBlock)
 			results = append(results, agent.Block{ToolResult: &resultBlock})
 			if opts.OnToolOutcome != nil {
-				opts.OnToolOutcome(turn, c, resultBlock)
+				opts.OnToolOutcome(turn, invocation, c, resultBlock)
 			}
 		}
 		msgs = append(msgs, agent.Message{Role: agent.RoleTool, Content: results})

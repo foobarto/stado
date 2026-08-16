@@ -312,12 +312,10 @@ func TestBrokerSessionTrajectoryWriterUsesDurableBrokerScope(t *testing.T) {
 	}
 	call := agent.ToolUseBlock{ID: "call/with\nseparators", Name: "shell", Input: json.RawMessage(`{"cmd":"false"}`)}
 	result := agent.ToolResultBlock{ToolUseID: call.ID, Content: "exit status 1", IsError: true}
-	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, call, result); err != nil {
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 0, call, result); err != nil {
 		t.Fatal(err)
 	}
-	call.ID = "second-call"
-	result.ToolUseID = call.ID
-	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, call, result); err != nil {
+	if err := peer.RecordTrajectoryToolOutcome(t.Context(), 4, 1, call, result); err != nil {
 		t.Fatal(err)
 	}
 

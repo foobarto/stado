@@ -286,12 +286,15 @@ type SessionContextObjectiveParams struct {
 }
 
 // SessionContextToolOutcomeParams carries bounded mechanical facts observed by
-// the native runtime. Evidence refs, actor, principal, and idempotency are
-// broker-authored from the admitted durable session.
+// the native runtime. Invocation is the stable provider/transcript call order,
+// because some providers do not supply unique call IDs. Evidence refs, actor,
+// principal, and idempotency are broker-authored from the admitted durable
+// session.
 type SessionContextToolOutcomeParams struct {
 	SessionID       string `json:"session_id"`
 	ControllerToken string `json:"controller_token"`
 	Turn            int    `json:"turn"`
+	Invocation      int    `json:"invocation"`
 	CallID          string `json:"call_id"`
 	Tool            string `json:"tool"`
 	ArgsDigest      string `json:"args_digest"`

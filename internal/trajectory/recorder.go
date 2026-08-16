@@ -11,7 +11,7 @@ import (
 // never open the broker WAL from the orchestrator process.
 type Writer interface {
 	EnsureTrajectoryObjective(context.Context, string) error
-	RecordTrajectoryToolOutcome(context.Context, int, agent.ToolUseBlock, agent.ToolResultBlock) error
+	RecordTrajectoryToolOutcome(context.Context, int, int, agent.ToolUseBlock, agent.ToolResultBlock) error
 }
 
 type Recorder struct{ Writer Writer }
@@ -23,9 +23,9 @@ func (r Recorder) EnsureObjective(objective string) {
 	_ = r.Writer.EnsureTrajectoryObjective(context.Background(), objective)
 }
 
-func (r Recorder) ToolOutcome(turn int, call agent.ToolUseBlock, result agent.ToolResultBlock) {
+func (r Recorder) ToolOutcome(turn, invocation int, call agent.ToolUseBlock, result agent.ToolResultBlock) {
 	if r.Writer == nil {
 		return
 	}
-	_ = r.Writer.RecordTrajectoryToolOutcome(context.Background(), turn, call, result)
+	_ = r.Writer.RecordTrajectoryToolOutcome(context.Background(), turn, invocation, call, result)
 }

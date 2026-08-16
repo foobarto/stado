@@ -36,6 +36,42 @@ func (p *skillOriginCaptureProvider) StreamTurn(_ context.Context, _ agent.TurnR
 	return ch, nil
 }
 
+type duplicateCallIDProvider struct{ turn int }
+
+func (p *duplicateCallIDProvider) Name() string                     { return "duplicate-call-id" }
+func (p *duplicateCallIDProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (p *duplicateCallIDProvider) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan agent.Event, error) {
+	p.turn++
+	ch := make(chan agent.Event, 3)
+	if p.turn == 1 {
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load", Input: json.RawMessage(`{"n":1}`)}}
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load", Input: json.RawMessage(`{"n":2}`)}}
+	}
+	ch <- agent.Event{Kind: agent.EvDone}
+	close(ch)
+	return ch, nil
+}
+
+func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(skillNamedPluginStub{})
+	var invocations []int
+	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: &duplicateCallIDProvider{}, Executor: &tools.Executor{Registry: reg}, Model: "m",
+		Config:   &config.Config{Tools: config.Tools{Autoload: []string{"skills__load"}}},
+		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 2,
+		OnToolOutcome: func(_, invocation int, _ agent.ToolUseBlock, _ agent.ToolResultBlock) {
+			invocations = append(invocations, invocation)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 2 || invocations[0] != 0 || invocations[1] != 1 {
+		t.Fatalf("invocations=%v, want [0 1]", invocations)
+	}
+}
+
 func TestAgentLoopDoesNotPrivilegeSkillNamedToolResultIntoUserRole(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(skillNamedPluginStub{})

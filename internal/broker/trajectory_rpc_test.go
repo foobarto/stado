@@ -28,10 +28,10 @@ func TestTrajectoryRPCDerivesDurableAuthorityAndSignals(t *testing.T) {
 		SessionID: handle.SessionID, ControllerToken: handle.controllerToken, Objective: "ship safely",
 	})
 	digest := strings.Repeat("a", 64)
-	toolOutcome := func(callID, argsDigest string) error {
+	toolOutcome := func(invocation int, argsDigest string) error {
 		raw, err := json.Marshal(SessionContextToolOutcomeParams{
 			SessionID: handle.SessionID, ControllerToken: handle.controllerToken,
-			Turn: 3, CallID: callID, Tool: "shell", ArgsDigest: argsDigest,
+			Turn: 3, Invocation: invocation, CallID: "shell", Tool: "shell", ArgsDigest: argsDigest,
 		})
 		if err != nil {
 			return err
@@ -39,15 +39,15 @@ func TestTrajectoryRPCDerivesDurableAuthorityAndSignals(t *testing.T) {
 		_, err = service.Dispatch(context.Background(), MethodSessionContextToolOutcome, raw)
 		return err
 	}
-	for _, callID := range []string{"call-1", "call-2"} {
-		if err := toolOutcome(callID, digest); err != nil {
+	for _, invocation := range []int{0, 1} {
+		if err := toolOutcome(invocation, digest); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := toolOutcome("call-2", digest); err != nil {
+	if err := toolOutcome(1, digest); err != nil {
 		t.Fatalf("idempotent outcome retry: %v", err)
 	}
-	if err := toolOutcome("call-2", strings.Repeat("b", 64)); dispatchCode(err) != ErrCodeInvalidParams {
+	if err := toolOutcome(1, strings.Repeat("b", 64)); dispatchCode(err) != ErrCodeInvalidParams {
 		t.Fatalf("conflicting outcome retry: %v", err)
 	}
 

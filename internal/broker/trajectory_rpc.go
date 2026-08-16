@@ -65,10 +65,10 @@ func (s *Service) dispatchSessionContextToolOutcome(ctx context.Context, raw jso
 		Tool:        params.Tool,
 		ArgsDigest:  params.ArgsDigest,
 		Succeeded:   params.Succeeded,
-		EvidenceRef: fmt.Sprintf("session:%s/turn:%d/tool-call:%s", subject, params.Turn, callRef),
+		EvidenceRef: fmt.Sprintf("session:%s/turn:%d/tool-call:%d:%s", subject, params.Turn, params.Invocation, callRef),
 		Attributes:  attributes,
 	}
-	idem := fmt.Sprintf("trajectory:%s:%d:%s", subject, params.Turn, callRef)
+	idem := fmt.Sprintf("trajectory:%s:%d:%d:%s", subject, params.Turn, params.Invocation, callRef)
 	if _, err := svc.Observe(ctx, obs, principal, "broker:trajectory", idem); err != nil {
 		return nil, trajectoryStoreError(MethodSessionContextToolOutcome, err)
 	}
@@ -123,6 +123,9 @@ func trajectoryStoreError(method string, err error) *DispatchError {
 func validateSessionContextToolOutcome(params SessionContextToolOutcomeParams) error {
 	if params.Turn < 0 {
 		return errors.New("trajectory turn must be non-negative")
+	}
+	if params.Invocation < 0 {
+		return errors.New("trajectory invocation must be non-negative")
 	}
 	if strings.TrimSpace(params.CallID) == "" || utf8.RuneCountInString(params.CallID) > maxTrajectoryCallIDRunes {
 		return errors.New("trajectory call_id is required and bounded")

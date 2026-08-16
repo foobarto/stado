@@ -1067,6 +1067,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
+	m.trajectoryInvocation = trajectoryInvocationBase(m.msgs, len(m.turnToolCalls))
 	return m.advanceToolQueue()
 }
 
@@ -1118,17 +1119,38 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
 		m.pendingCalls = m.pendingCalls[1:]
+		invocation := m.trajectoryInvocation
+		m.trajectoryInvocation++
 		if !m.turnAllowsTool(call.Name) {
 			m.rejectUnavailableTool(call)
 			continue
 		}
-		return m.executeCallAsync(call)
+		return m.executeCallAsync(call, invocation)
 	}
 	// Queue drained — post the results and let the agent loop re-stream.
 	results := m.pendingResults
 	m.pendingResults = nil
 	m.state = stateIdle
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+// trajectoryInvocationBase derives the stable ordinal of the first call in
+// the just-persisted assistant message. Counting the durable transcript keeps
+// ordinals unique across multiple provider rounds in one Git turn and stable
+// when a session is resumed; it does not rely on provider call IDs.
+func trajectoryInvocationBase(messages []agent.Message, currentCalls int) int {
+	total := 0
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.ToolUse != nil {
+				total++
+			}
+		}
+	}
+	if currentCalls < 0 || total < currentCalls {
+		return 0
+	}
+	return total - currentCalls
 }
 
 func (m *Model) turnAllowsTool(name string) bool {
@@ -1230,7 +1252,7 @@ func unavailableToolContent(name string) string {
 // so long-running tools (e.g. bash sleep 30) never block the UI. The result
 // is ferried back via toolResultMsg. A cancellable context lets Ctrl+C stop
 // the tool mid-execution; a tick timer updates the elapsed counter live.
-func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
+func (m *Model) executeCallAsync(call agent.ToolUseBlock, invocation int) tea.Cmd {
 	if m.executor == nil {
 		return func() tea.Msg {
 			return toolResultMsg{result: agent.ToolResultBlock{
@@ -1341,7 +1363,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			IsError:   isErr,
 		}
 		if trajectoryRecorder != nil {
-			trajectoryRecorder.ToolOutcome(trajectoryTurn, call, resultBlock)
+			trajectoryRecorder.ToolOutcome(trajectoryTurn, invocation, call, resultBlock)
 		}
 		return toolResultMsg{result: resultBlock}
 	}

@@ -661,7 +661,7 @@ func (s *BrokerSession) EnsureTrajectoryObjective(ctx context.Context, objective
 // RecordTrajectoryToolOutcome submits bounded mechanical outcome facts. The
 // broker authors the subject, principal, evidence ref, actor, and idempotency
 // key before appending the canonical event.
-func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn int, call agent.ToolUseBlock, result agent.ToolResultBlock) error {
+func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn, invocation int, call agent.ToolUseBlock, result agent.ToolResultBlock) error {
 	if s == nil || s.Skipped || s.client == nil || s.SessionID == "" {
 		return nil
 	}
@@ -672,7 +672,7 @@ func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn in
 	defer cancel()
 	return s.client.Call(callCtx, broker.MethodSessionContextToolOutcome, broker.SessionContextToolOutcomeParams{
 		SessionID: s.SessionID, ControllerToken: s.controllerToken,
-		Turn: turn, CallID: call.ID, Tool: call.Name, ArgsDigest: hex.EncodeToString(sum[:]),
+		Turn: turn, Invocation: invocation, CallID: call.ID, Tool: call.Name, ArgsDigest: hex.EncodeToString(sum[:]),
 		Succeeded: !result.IsError, Denied: denied,
 	}, nil)
 }
