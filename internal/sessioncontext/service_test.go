@@ -43,6 +43,53 @@ func TestStateSeparatesModelAndHostAuthority(t *testing.T) {
 	}
 }
 
+func TestEnsureObjectivePreservesFirstValue(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	state, err := s.EnsureObjective(ctx, "s1", "  ship safely  ", "alice", "broker", "objective:s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Objective != "ship safely" || state.Version != 1 {
+		t.Fatalf("first state=%+v", state)
+	}
+	state, err = s.EnsureObjective(ctx, "s1", "replace me", "mallory", "agent", "objective:s1:later")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Objective != "ship safely" || state.Version != 1 {
+		t.Fatalf("later state=%+v", state)
+	}
+	if got := len(store.Records()); got != 1 {
+		t.Fatalf("records=%d, want 1", got)
+	}
+}
+
+func TestEnsureObjectiveRejectsInvalidInput(t *testing.T) {
+	s, store := setup(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		session   string
+		objective string
+	}{
+		{name: "empty session", objective: "objective"},
+		{name: "empty objective", session: "s1", objective: "  "},
+		{name: "oversize objective", session: "s1", objective: string(make([]rune, 4097))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := s.EnsureObjective(ctx, test.session, test.objective, "alice", "broker", "objective:test"); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestDecisionLifecycleAndJournal(t *testing.T) {
 	s, store := setup(t)
 	defer store.Close()

@@ -1291,10 +1291,12 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	m.toolMu.Unlock()
 	var trajectoryRecorder *trajectory.Recorder
 	trajectoryTurn := 0
-	if m.session != nil && m.cfg != nil {
-		rec := trajectory.Recorder{StateDir: m.cfg.StateDir(), SessionID: m.session.ID, Principal: trajectory.LocalPrincipal()}
-		trajectoryRecorder = &rec
-		trajectoryTurn = m.session.Turn()
+	if m.session != nil {
+		if writer, ok := m.broker.(trajectory.Writer); ok {
+			rec := trajectory.Recorder{Writer: writer}
+			trajectoryRecorder = &rec
+			trajectoryTurn = m.session.Turn()
+		}
 	}
 	return func() tea.Msg {
 		defer func() {

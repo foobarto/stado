@@ -289,7 +289,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				Hooks:         lifecycleHooks,
 				OnEvent:       emitter(runJSON, runQuiet, os.Stdout),
 				OnVerifyEvent: verifyEmitter(runJSON, os.Stdout, os.Stderr),
-				OnToolOutcome: trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: continueSessID, Principal: trajectory.LocalPrincipal()}.ToolOutcome,
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 				},
@@ -327,9 +326,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					}
 				}
 				activeSession = sess
-				recorder := trajectory.Recorder{StateDir: cfg.StateDir(), SessionID: sess.ID, Principal: trajectory.LocalPrincipal()}
-				recorder.EnsureObjective(runPrompt)
-				opts.OnToolOutcome = recorder.ToolOutcome
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
@@ -405,6 +401,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 					return fmt.Errorf("stado run: durable broker session: %w", logicalErr)
 				}
 				opts.Broker = logical
+				if writer, ok := logical.(trajectory.Writer); ok {
+					recorder := trajectory.Recorder{Writer: writer}
+					recorder.EnsureObjective(runPrompt)
+					opts.OnToolOutcome = recorder.ToolOutcome
+				}
 				defer func() {
 					if closeErr := logical.Close(); closeErr != nil {
 						fmt.Fprintf(os.Stderr, "stado run: durable broker session close: %v\n", closeErr)

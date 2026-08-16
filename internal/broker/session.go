@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
@@ -88,6 +89,10 @@ type Service struct {
 	// only production write path while unit tests that exercise policy alone
 	// remain lightweight.
 	artifacts *artifactBrokerState
+	// sessionContext is the broker-owned trajectory/session-context writer over
+	// the same canonical WAL. Orchestrator processes submit typed facts through
+	// authenticated RPC and never open this store directly.
+	sessionContext *sessioncontext.Service
 
 	// sessionScopes is installed with the canonical broker WAL. Only logical
 	// git sessions opt into this durable scope; short-lived tool/subagent/root

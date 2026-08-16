@@ -21,6 +21,8 @@ const (
 	MethodSessionCreate                   = "broker.v1.session.create"
 	MethodSessionTerminate                = "broker.v1.session.terminate"
 	MethodSessionTaint                    = "broker.v1.session.taint"
+	MethodSessionContextObjective         = "broker.v1.session.context.objective"
+	MethodSessionContextToolOutcome       = "broker.v1.session.context.tool_outcome"
 	MethodToolRunSandbox                  = "broker.v1.toolrun.sandbox"
 	MethodPolicyQuery                     = "broker.v1.policy.query"
 	MethodApplicationBind                 = "broker.v1.application.bind"
@@ -113,6 +115,10 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return s.dispatchSessionTerminate(ctx, params)
 	case MethodSessionTaint:
 		return s.dispatchSessionTaint(ctx, params)
+	case MethodSessionContextObjective:
+		return s.dispatchSessionContextObjective(ctx, params)
+	case MethodSessionContextToolOutcome:
+		return s.dispatchSessionContextToolOutcome(ctx, params)
 	case MethodToolRunSandbox:
 		return s.dispatchToolRunSandbox(ctx, params)
 	case MethodPolicyQuery:
@@ -267,6 +273,33 @@ type SessionTaintParams struct {
 // SessionTaintResult is the wire shape for a successful
 // broker.v1.session.taint response.
 type SessionTaintResult struct {
+	OK bool `json:"ok"`
+}
+
+// SessionContextObjectiveParams is native controller input. The broker derives
+// the durable logical subject and principal from the authenticated session;
+// neither can be selected by the client.
+type SessionContextObjectiveParams struct {
+	SessionID       string `json:"session_id"`
+	ControllerToken string `json:"controller_token"`
+	Objective       string `json:"objective"`
+}
+
+// SessionContextToolOutcomeParams carries bounded mechanical facts observed by
+// the native runtime. Evidence refs, actor, principal, and idempotency are
+// broker-authored from the admitted durable session.
+type SessionContextToolOutcomeParams struct {
+	SessionID       string `json:"session_id"`
+	ControllerToken string `json:"controller_token"`
+	Turn            int    `json:"turn"`
+	CallID          string `json:"call_id"`
+	Tool            string `json:"tool"`
+	ArgsDigest      string `json:"args_digest"`
+	Succeeded       bool   `json:"succeeded"`
+	Denied          bool   `json:"denied,omitempty"`
+}
+
+type SessionContextWriteResult struct {
 	OK bool `json:"ok"`
 }
 
