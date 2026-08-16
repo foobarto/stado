@@ -17,6 +17,11 @@ Plugins / Infra / Fixes.
   rewind them, before entering canonical references. Headless runs pin the
   assistant tool-call prefix before execution and outcome submission. The
   orchestrator's direct shared-WAL opens and filesystem fallback are removed.
+- **Session-context reads are broker-owned.** TUI prompt composition now reads
+  its bounded state through the live durable-session controller, while
+  `stado session state|signals|journal` presents the existing native recovery
+  bearer. Both paths receive typed projections from the broker; neither opens
+  the canonical WAL or accepts an unauthenticated logical-session key.
 - **Composed Linux containment regression.** A real bubblewrap integration test
   now proves read-only and writable mount scopes, credential-directory masking
   with an explicit safe-file restore, environment filtering, deny-all network

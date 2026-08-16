@@ -20,6 +20,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/stateprompt"
 	"github.com/foobarto/stado/internal/streambudget"
@@ -41,11 +42,11 @@ func (m *Model) turnSystemPrompt(userPrompt string) string {
 // TUI-hosted append-only lifecycle contributor (EP-0060/0064). Other surfaces
 // do not call this seam and therefore do not imply lifecycle-app parity.
 func (m *Model) turnSystemPromptWithQualityFacts(userPrompt string) (string, string, string) {
-	sessionID := ""
-	if m.session != nil {
-		sessionID = m.session.ID
+	var projected sessioncontext.State
+	if reader, ok := m.broker.(runtime.SessionContextReader); ok {
+		projected, _ = reader.SessionContextState(m.rootCtx)
 	}
-	state, _ := stateprompt.Build(m.cfg.StateDir(), sessionID)
+	state := stateprompt.Build(projected)
 	var sys string
 	if m.persona != nil {
 		sys = personas.AssembleSystem(m.persona, m.systemPrompt, "", state)

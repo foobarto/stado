@@ -35,6 +35,7 @@ import (
 	pluginruntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/sessioncontext"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/internal/tui"
@@ -146,6 +147,7 @@ var _ runtime.BrokerLogicalSessionTransitioner = (*BrokerSession)(nil)
 var _ runtime.BrokerLogicalSessionHandoff = (*BrokerSession)(nil)
 var _ runtime.ApplicationWorkerRunController = (*BrokerSession)(nil)
 var _ trajectory.Writer = (*BrokerSession)(nil)
+var _ runtime.SessionContextReader = (*BrokerSession)(nil)
 
 type brokerArtifactBridge struct {
 	client *daemon.Client
@@ -694,6 +696,22 @@ func (s *BrokerSession) RecordTrajectoryToolOutcome(ctx context.Context, turn, i
 		Turn: turn, Invocation: invocation, CallID: call.ID, Tool: call.Name, ArgsDigest: hex.EncodeToString(sum[:]),
 		Succeeded: !result.IsError, Denied: denied,
 	}, nil)
+}
+
+// SessionContextState reads the bounded projection for this controller's exact
+// durable logical subject. The caller cannot substitute another subject.
+func (s *BrokerSession) SessionContextState(ctx context.Context) (sessioncontext.State, error) {
+	client, sessionID, controllerToken, ok := s.snapshotControllerAuthority()
+	if !ok {
+		return sessioncontext.State{}, nil
+	}
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	var state sessioncontext.State
+	err := client.Call(callCtx, broker.MethodSessionContextState, broker.SessionContextStateParams{
+		SessionID: sessionID, ControllerToken: controllerToken,
+	}, &state)
+	return state, err
 }
 
 // CreateSubagent asks the broker to mint a child projected from this

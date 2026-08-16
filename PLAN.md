@@ -133,8 +133,9 @@ Remaining gates:
   concrete preventive boundary that the existing audit cannot provide;
 - continue moving canonical trace/event writes behind broker ownership:
   trajectory objectives and tool outcomes now use authenticated durable-session
-  RPC, while the session-context CLI, retained bridge, and state-prompt reader
-  remain direct shared-WAL migration debt;
+  RPC; bounded session-context prompt and operator reads use authenticated
+  broker projections, while the retained bridge remains the final direct
+  shared-WAL migration debt;
 - retain the composed real-bubblewrap regression for mount scope, namespace,
   seccomp, credential masking, environment filtering, network denial, and
   teardown; add equivalent composed Landlock and broker-admission coverage;

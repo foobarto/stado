@@ -205,7 +205,8 @@ gap between `session show` (summary) and `audit export` (JSONL).
 ### `session state|signals|journal <id>`
 
 These read-only JSON surfaces expose the bounded context records used by the
-adaptive harness:
+adaptive harness. They require the durable session's native recovery bearer
+and read a typed broker projection; they do not open the canonical event WAL:
 
 - `session state` shows the compact objective, current work, blockers, next
   action, child status, and verification projection.
@@ -215,9 +216,9 @@ adaptive harness:
 
 Host facts and model assertions remain distinct. Model-authored state and
 journal text are quoted context, not instructions or authority, and signals do
-not become durable lessons without a separate review. Fresh activation also
-requires a separately trusted EP-59 presenter; an interactive callback alone is
-not approval authority.
+not become durable lessons merely because they were detected. Agent-managed
+memory activation remains gated on EP-69's explicit scope capabilities and the
+separately signed memory/learn application release.
 
 ### `session gc [--apply]`
 

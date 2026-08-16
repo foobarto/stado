@@ -24,9 +24,7 @@ const authorityImportPath = "github.com/foobarto/stado/internal/broker/authority
 // decision. The target is an empty map: canonical state is submitted through
 // typed broker services and only broker-owned code opens its WAL.
 var walDebt = map[string]int{
-	"cmd/stado/session_context.go::withSessionContext::OpenShared":             1,
 	"internal/runtime/retained_bridge.go::ConfigureRetainedBridge::OpenShared": 1,
-	"internal/stateprompt/context.go::Build::OpenShared":                       1,
 }
 
 // brokerOwnedWALCalls are composition-root opens made on behalf of the broker
