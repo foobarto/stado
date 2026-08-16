@@ -23,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/trajectory"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -66,7 +67,8 @@ type AgentLoopOptions struct {
 	// inspect the turn with the same pre-append turn index the TUI hook sees.
 	OnTurnComplete func(turnIndex int, text string, toolCalls []agent.ToolUseBlock, usage agent.Usage, duration time.Duration)
 	// OnToolOutcome receives host-observed call/result facts after execution.
-	// invocationIndex is the stable provider-order ordinal within this turn.
+	// invocationIndex is the stable provider/transcript-order ordinal across
+	// the accumulated conversation.
 	// Implementations persist deterministic trajectory signals; callback errors
 	// are non-fatal because learning telemetry must not break the active task.
 	OnToolOutcome func(turnIndex, invocationIndex int, call agent.ToolUseBlock, result agent.ToolResultBlock)
@@ -192,6 +194,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = 20
 	}
+	trajectoryInvocation := trajectory.InvocationBase(opts.Messages, 0)
 	toolSurface := &sessionToolSurface{activated: make(map[string]bool)}
 	if opts.Executor != nil && opts.Executor.Registry != nil {
 		toolSurface.ceiling = make(map[string]bool)
@@ -821,7 +824,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
 		toolResults := make([]agent.ToolResultBlock, 0, len(calls))
-		for invocation, c := range calls {
+		for _, c := range calls {
+			invocation := trajectoryInvocation
+			trajectoryInvocation++
 			if !toolAllowed(allowedTools, c.Name) {
 				results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
 					ToolUseID: c.ID,

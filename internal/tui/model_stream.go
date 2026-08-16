@@ -1067,7 +1067,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
-	m.trajectoryInvocation = trajectoryInvocationBase(m.msgs, len(m.turnToolCalls))
+	m.trajectoryInvocation = trajectory.InvocationBase(m.msgs, len(m.turnToolCalls))
 	return m.advanceToolQueue()
 }
 
@@ -1132,25 +1132,6 @@ func (m *Model) advanceToolQueue() tea.Cmd {
 	m.pendingResults = nil
 	m.state = stateIdle
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
-}
-
-// trajectoryInvocationBase derives the stable ordinal of the first call in
-// the just-persisted assistant message. Counting the durable transcript keeps
-// ordinals unique across multiple provider rounds in one Git turn and stable
-// when a session is resumed; it does not rely on provider call IDs.
-func trajectoryInvocationBase(messages []agent.Message, currentCalls int) int {
-	total := 0
-	for _, message := range messages {
-		for _, block := range message.Content {
-			if block.ToolUse != nil {
-				total++
-			}
-		}
-	}
-	if currentCalls < 0 || total < currentCalls {
-		return 0
-	}
-	return total - currentCalls
 }
 
 func (m *Model) turnAllowsTool(name string) bool {

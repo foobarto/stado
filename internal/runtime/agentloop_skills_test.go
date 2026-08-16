@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
@@ -42,10 +43,10 @@ func (p *duplicateCallIDProvider) Name() string                     { return "du
 func (p *duplicateCallIDProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 func (p *duplicateCallIDProvider) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan agent.Event, error) {
 	p.turn++
-	ch := make(chan agent.Event, 3)
-	if p.turn == 1 {
-		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load", Input: json.RawMessage(`{"n":1}`)}}
-		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load", Input: json.RawMessage(`{"n":2}`)}}
+	ch := make(chan agent.Event, 2)
+	if p.turn <= 2 {
+		input := json.RawMessage(fmt.Sprintf(`{"n":%d}`, p.turn))
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load", Input: input}}
 	}
 	ch <- agent.Event{Kind: agent.EvDone}
 	close(ch)
@@ -56,10 +57,17 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(skillNamedPluginStub{})
 	var invocations []int
+	priorCall := agent.Block{ToolUse: &agent.ToolUseBlock{ID: "skills__load", Name: "skills__load"}}
 	_, _, err := AgentLoop(context.Background(), AgentLoopOptions{
 		Provider: &duplicateCallIDProvider{}, Executor: &tools.Executor{Registry: reg}, Model: "m",
-		Config:   &config.Config{Tools: config.Tools{Autoload: []string{"skills__load"}}},
-		Messages: []agent.Message{agent.Text(agent.RoleUser, "hi")}, MaxTurns: 2,
+		Config: &config.Config{Tools: config.Tools{Autoload: []string{"skills__load"}}},
+		Messages: []agent.Message{
+			agent.Text(agent.RoleUser, "prior"),
+			{Role: agent.RoleAssistant, Content: []agent.Block{priorCall, priorCall}},
+			{Role: agent.RoleTool},
+			agent.Text(agent.RoleUser, "resume"),
+		},
+		MaxTurns: 3,
 		OnToolOutcome: func(_, invocation int, _ agent.ToolUseBlock, _ agent.ToolResultBlock) {
 			invocations = append(invocations, invocation)
 		},
@@ -67,8 +75,8 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 2 || invocations[0] != 0 || invocations[1] != 1 {
-		t.Fatalf("invocations=%v, want [0 1]", invocations)
+	if len(invocations) != 2 || invocations[0] != 2 || invocations[1] != 3 {
+		t.Fatalf("invocations=%v, want [2 3]", invocations)
 	}
 }
 
