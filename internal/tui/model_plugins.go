@@ -828,13 +828,11 @@ func (m *Model) newPluginHostAdapter(manifests ...plugins.Manifest) hostAdapter 
 		}
 		adapter := &runtime.FleetBridgeAdapter{Fleet: m.fleet, Spawner: fleetSpawner, RootCtx: rootCtx}
 		if m.cfg != nil && m.session != nil {
-			// Retained execution is an optional extension of the ordinary
-			// fleet bridge. In the interactive daemon-backed surface the
-			// broker WAL can already be owned by the daemon, so configuring
-			// the process-local retained coordinator may legitimately fail.
-			// Keep ordinary async/wait children available; spawnRetained
+			// Retained execution is an optional broker-backed extension of the
+			// ordinary fleet. Keep async/wait children available if this native
+			// controller cannot bind the exact logical session; retained spawn
 			// independently fails closed while Retained remains nil.
-			_, _ = runtime.ConfigureRetainedBridge(rootCtx, m.cfg, m.session, adapter)
+			_, _ = runtime.ConfigureRetainedBridge(rootCtx, m.cfg, m.session, adapter, m.broker)
 		}
 		fleetBridge = adapter
 	}

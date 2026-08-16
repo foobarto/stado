@@ -276,7 +276,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				RootCtx: ctx,
 			}
 			if opts.Config != nil && loopRunner.Parent != nil {
-				closeRetained, retainedErr := ConfigureRetainedBridge(ctx, opts.Config, loopRunner.Parent, fb)
+				closeRetained, retainedErr := ConfigureRetainedBridge(ctx, opts.Config, loopRunner.Parent, fb, opts.Broker)
 				if retainedErr == nil && closeRetained != nil {
 					defer func() { _ = closeRetained() }()
 				}

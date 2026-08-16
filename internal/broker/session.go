@@ -94,6 +94,9 @@ type Service struct {
 	// bounded projections through authenticated RPC; they never open this store
 	// directly.
 	sessionContext *sessioncontext.Service
+	// retained owns durable child admission, recursive budgets, and mailboxes.
+	// The orchestrator retains only live launch/cancellation contexts.
+	retained *retainedBrokerState
 
 	// sessionScopes is installed with the canonical broker WAL. Only logical
 	// git sessions opt into this durable scope; short-lived tool/subagent/root
@@ -460,20 +463,28 @@ func (s *Service) TerminateSession(sessionID, controllerToken string) error {
 // one broker session. Callers hold sessionsMu; bind paths take locks in the
 // same sessions -> artifacts order.
 func (s *Service) invalidateSessionBindingsLocked(sessionID string) {
-	if s.artifacts == nil {
-		return
-	}
-	s.artifacts.mu.Lock()
-	defer s.artifacts.mu.Unlock()
-	for token, binding := range s.artifacts.bindings {
-		if binding.sessionID == sessionID {
-			delete(s.artifacts.bindings, token)
+	if s.artifacts != nil {
+		s.artifacts.mu.Lock()
+		for token, binding := range s.artifacts.bindings {
+			if binding.sessionID == sessionID {
+				delete(s.artifacts.bindings, token)
+			}
 		}
-	}
-	for key := range s.artifacts.lifecycleBindings {
-		if key.sessionID == sessionID {
-			delete(s.artifacts.lifecycleBindings, key)
+		for key := range s.artifacts.lifecycleBindings {
+			if key.sessionID == sessionID {
+				delete(s.artifacts.lifecycleBindings, key)
+			}
 		}
+		s.artifacts.mu.Unlock()
+	}
+	if s.retained != nil {
+		s.retained.mu.Lock()
+		for token, binding := range s.retained.bindings {
+			if binding.sessionID == sessionID {
+				delete(s.retained.bindings, token)
+			}
+		}
+		s.retained.mu.Unlock()
 	}
 }
 

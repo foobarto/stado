@@ -23,9 +23,7 @@ const authorityImportPath = "github.com/foobarto/stado/internal/broker/authority
 // needs no guard update; any additional call requires an explicit architecture
 // decision. The target is an empty map: canonical state is submitted through
 // typed broker services and only broker-owned code opens its WAL.
-var walDebt = map[string]int{
-	"internal/runtime/retained_bridge.go::ConfigureRetainedBridge::OpenShared": 1,
-}
+var walDebt = map[string]int{}
 
 // brokerOwnedWALCalls are composition-root opens made on behalf of the broker
 // process itself. They are ownership, not migration debt, and remain exact so

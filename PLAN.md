@@ -131,11 +131,11 @@ Remaining gates:
 - retain the signed tree/trace history as the provenance and audit substrate;
   do not add generalized taint propagation or a taint-policy matrix without a
   concrete preventive boundary that the existing audit cannot provide;
-- continue moving canonical trace/event writes behind broker ownership:
-  trajectory objectives and tool outcomes now use authenticated durable-session
-  RPC; bounded session-context prompt and operator reads use authenticated
-  broker projections, while the retained bridge remains the final direct
-  shared-WAL migration debt;
+- keep canonical trace/event state behind broker ownership: trajectory writes,
+  bounded session-context reads, and retained admission/budget/lifecycle/mailbox
+  operations now use authenticated durable-session RPC. The retained bridge no
+  longer opens the shared WAL, and the shrinking direct-WAL debt allowlist is
+  empty; only the daemon composition root opens the broker-owned store;
 - retain the composed real-bubblewrap regression for mount scope, namespace,
   seccomp, credential masking, environment filtering, network denial, and
   teardown; add equivalent composed Landlock and broker-admission coverage;

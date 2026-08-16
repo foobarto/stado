@@ -6,17 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	brokerbudget "github.com/foobarto/stado/internal/broker/budget"
-	"github.com/foobarto/stado/internal/broker/mailbox"
 	"github.com/foobarto/stado/internal/broker/retained"
-	"github.com/foobarto/stado/internal/broker/wal"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/orchestration"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
@@ -24,57 +18,43 @@ import (
 	"github.com/foobarto/stado/internal/subagent"
 )
 
-type retainedRuntimeState struct {
-	store                *wal.Store
-	coordinator          *orchestration.Coordinator
-	accountID, principal string
+// RetainedBackendBinding is native controller authority over one exact
+// logical session's broker-owned retained-child state. The opaque backend
+// holds the bearer; only non-secret scope metadata is projected here.
+type RetainedBackendBinding struct {
+	Backend         orchestration.RetainedBackend
+	AccountID       string
+	Principal       string
+	ParentSessionID string
 }
 
-var retainedRuntimes = struct {
-	sync.Mutex
-	bySession map[string]*retainedRuntimeState
-}{bySession: map[string]*retainedRuntimeState{}}
+// RetainedBackendProvider is implemented by daemon-backed native controllers.
+// There is intentionally no filesystem fallback: canonical admission,
+// budgets, lifecycle, and mailboxes stay behind authenticated broker RPC.
+type RetainedBackendProvider interface {
+	BindRetainedBackend(context.Context) (RetainedBackendBinding, error)
+}
 
-// ConfigureRetainedBridge attaches the durable child registry, recursive
-// budget ledger, and mailbox to an existing public fleet bridge.
-func ConfigureRetainedBridge(ctx context.Context, cfg *config.Config, parent *stadogit.Session, bridge *FleetBridgeAdapter) (func() error, error) {
-	if cfg == nil || parent == nil || bridge == nil || bridge.Spawner == nil {
-		return nil, fmt.Errorf("retained bridge requires config, parent, bridge, and spawner")
+// ConfigureRetainedBridge attaches the broker-owned durable child registry,
+// recursive budget ledger, and mailbox to an existing public fleet bridge.
+func ConfigureRetainedBridge(ctx context.Context, cfg *config.Config, parent *stadogit.Session, bridge *FleetBridgeAdapter, controller BrokerController) (func() error, error) {
+	if cfg == nil || parent == nil || bridge == nil || bridge.Spawner == nil || controller == nil {
+		return nil, fmt.Errorf("retained bridge requires config, parent, bridge, spawner, and broker controller")
 	}
-	key := filepath.Clean(cfg.StateDir()) + "\x00" + parent.ID
-	retainedRuntimes.Lock()
-	defer retainedRuntimes.Unlock()
-	principal := "local"
-	if current, lookupErr := user.Current(); lookupErr == nil && current.Uid != "" {
-		principal = "os-user:" + current.Uid
+	provider, ok := controller.(RetainedBackendProvider)
+	if !ok {
+		return nil, fmt.Errorf("retained execution requires an authenticated broker backend")
 	}
-	state := retainedRuntimes.bySession[key]
-	if state == nil {
-		store, err := wal.OpenShared(filepath.Join(cfg.StateDir(), "broker", "events"))
-		if err != nil {
-			return nil, err
-		}
-		ledger := brokerbudget.New(store)
-		accountID := "session:" + parent.ID
-		if _, ok, getErr := ledger.GetAccount(accountID); getErr != nil {
-			_ = store.Close()
-			return nil, getErr
-		} else if !ok {
-			_, err = ledger.CreateAccount(ctx, accountID, "", brokerbudget.Limits{Tokens: 2_000_000, ToolCalls: 10_000, Turns: 2_000, WallSeconds: 86_400}, principal, "broker", "retained-account:"+parent.ID)
-			if err != nil {
-				_ = store.Close()
-				return nil, err
-			}
-		}
-		policy := mailbox.NewDynamicRelationPolicy()
-		mail := mailbox.New(store, policy)
-		coord := orchestration.New(retained.New(store), ledger, mail, nil)
-		coord.Policy = policy
-		state = &retainedRuntimeState{store: store, coordinator: coord, accountID: accountID, principal: principal}
-		retainedRuntimes.bySession[key] = state
+	binding, err := provider.BindRetainedBackend(ctx)
+	if err != nil {
+		return nil, err
 	}
-	bridge.Retained, bridge.RetainedAccountID = state.coordinator, state.accountID
-	bridge.Principal, bridge.ParentSessionID = state.principal, parent.ID
+	if binding.Backend == nil || binding.AccountID == "" || binding.Principal == "" || binding.ParentSessionID != parent.ID {
+		return nil, fmt.Errorf("retained broker binding does not match the active logical session")
+	}
+	bridge.Retained = orchestration.NewBrokerCoordinator(binding.Backend)
+	bridge.RetainedAccountID = binding.AccountID
+	bridge.Principal, bridge.ParentSessionID = binding.Principal, binding.ParentSessionID
 	bridge.ResolveForkPoint = func(callCtx context.Context, req pluginRuntime.AgentSpawnRequest) (retained.ForkPoint, error) {
 		source := parent
 		var err error
@@ -124,7 +104,7 @@ func ConfigureRetainedBridge(ctx context.Context, cfg *config.Config, parent *st
 		}
 		return retained.ForkPoint{SourceSessionID: source.ID, SourceGeneration: 1, CommittedTurn: turn, ConversationDigest: hex.EncodeToString(digest[:]), TreeCommit: treeText, TraceCommit: traceText, ResolvedAt: time.Now().UTC()}, nil
 	}
-	// The process-local broker owns this handle until process exit; callers may
-	// create a fresh bridge each turn without cancelling retained children.
+	// The daemon owns canonical state. This closure deliberately does not cancel
+	// retained children when a per-turn bridge is discarded.
 	return func() error { return nil }, nil
 }
