@@ -45,6 +45,10 @@ type AgentLoopOptions struct {
 	InitialTaint ContextTaint
 	Model        string
 	Messages     []agent.Message
+	// InitialTrajectoryInvocation is a durable lower bound for the next
+	// transcript-order tool ordinal. Persistence-aware callers seed it from
+	// append-only conversation evidence so compaction cannot rewind identity.
+	InitialTrajectoryInvocation int
 
 	// Hooks is the lifecycle-hook runner for the LLM-side points:
 	// pre_llm (deny -> abort the turn; mutate -> rewrite system prompt /
@@ -194,7 +198,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = 20
 	}
-	trajectoryInvocation := trajectory.InvocationBase(opts.Messages, 0)
+	trajectoryInvocation := max(opts.InitialTrajectoryInvocation, trajectory.InvocationBase(opts.Messages, 0))
 	toolSurface := &sessionToolSurface{activated: make(map[string]bool)}
 	if opts.Executor != nil && opts.Executor.Registry != nil {
 		toolSurface.ceiling = make(map[string]bool)

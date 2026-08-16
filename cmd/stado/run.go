@@ -328,6 +328,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 				activeSession = sess
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
+				if invocation, countErr := runtime.ConversationToolInvocationCount(sess.WorktreePath); countErr != nil {
+					fmt.Fprintf(os.Stderr, "stado run: trajectory invocation recovery: %v\n", countErr)
+				} else {
+					opts.InitialTrajectoryInvocation = invocation
+				}
 				// EP-0030: harness mode flag overrides config.
 				if runMode != "" {
 					cfg.Harness.Mode = runMode

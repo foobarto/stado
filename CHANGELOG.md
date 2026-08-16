@@ -12,9 +12,10 @@ Plugins / Infra / Fixes.
   initial run objective, now cross an authenticated native RPC bound to the
   durable logical session. The broker derives the canonical subject,
   principal, actor, evidence reference, and stable idempotency key; provider
-  call IDs are hashed and combined with transcript/provider-order invocation
-  ordinals before entering canonical references. The orchestrator's direct
-  shared-WAL opens and filesystem fallback are removed.
+  call IDs are hashed and combined with provider-order invocation ordinals,
+  recovered from append-only conversation evidence so compaction cannot
+  rewind them, before entering canonical references. The orchestrator's
+  direct shared-WAL opens and filesystem fallback are removed.
 - **Composed Linux containment regression.** A real bubblewrap integration test
   now proves read-only and writable mount scopes, credential-directory masking
   with an explicit safe-file restore, environment filtering, deny-all network

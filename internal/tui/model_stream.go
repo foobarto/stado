@@ -195,7 +195,14 @@ func (m *Model) LoadPersistedConversation() {
 		return
 	}
 	loaded, err := runtime.LoadConversation(m.session.WorktreePath)
-	if err != nil || len(loaded) == 0 {
+	if err != nil {
+		return
+	}
+	m.trajectoryInvocation = trajectory.InvocationBase(loaded, 0)
+	if invocation, countErr := runtime.ConversationToolInvocationCount(m.session.WorktreePath); countErr == nil {
+		m.trajectoryInvocation = max(m.trajectoryInvocation, invocation)
+	}
+	if len(loaded) == 0 {
 		return
 	}
 	m.msgs = loaded
@@ -1067,7 +1074,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
-	m.trajectoryInvocation = trajectory.InvocationBase(m.msgs, len(m.turnToolCalls))
+	m.trajectoryInvocation = max(m.trajectoryInvocation, trajectory.InvocationBase(m.msgs, len(m.turnToolCalls)))
 	return m.advanceToolQueue()
 }
 

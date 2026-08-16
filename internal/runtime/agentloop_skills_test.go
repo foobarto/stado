@@ -67,7 +67,8 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 			{Role: agent.RoleTool},
 			agent.Text(agent.RoleUser, "resume"),
 		},
-		MaxTurns: 3,
+		MaxTurns:                    3,
+		InitialTrajectoryInvocation: 4,
 		OnToolOutcome: func(_, invocation int, _ agent.ToolUseBlock, _ agent.ToolResultBlock) {
 			invocations = append(invocations, invocation)
 		},
@@ -75,8 +76,8 @@ func TestAgentLoopToolOutcomeUsesProviderOrderNotCallID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 2 || invocations[0] != 2 || invocations[1] != 3 {
-		t.Fatalf("invocations=%v, want [2 3]", invocations)
+	if len(invocations) != 2 || invocations[0] != 4 || invocations[1] != 5 {
+		t.Fatalf("invocations=%v, want [4 5]", invocations)
 	}
 }
 

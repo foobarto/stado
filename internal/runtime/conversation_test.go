@@ -65,6 +65,45 @@ func TestConversation_MissingFile_ReturnsNil(t *testing.T) {
 	}
 }
 
+func TestConversationToolInvocationCountSurvivesCompaction(t *testing.T) {
+	wt := t.TempDir()
+	call := func() agent.Block {
+		return agent.Block{ToolUse: &agent.ToolUseBlock{ID: "same-tool", Name: "same-tool"}}
+	}
+	if err := AppendMessage(wt, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{call(), call()}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendCompaction(wt, ConversationCompaction{Summary: "prior calls compacted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendMessage(wt, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{call()}}); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadConversation(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visibleCalls := 0
+	for _, message := range loaded {
+		for _, block := range message.Content {
+			if block.ToolUse != nil {
+				visibleCalls++
+			}
+		}
+	}
+	if visibleCalls != 1 {
+		t.Fatalf("compacted replay calls=%d, want 1", visibleCalls)
+	}
+	invocations, err := ConversationToolInvocationCount(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocations != 3 {
+		t.Fatalf("append-only invocation count=%d, want 3", invocations)
+	}
+}
+
 // TestConversation_EmptyWorktreeArg: defensive — an empty worktree
 // string in either direction should no-op cleanly rather than panic.
 func TestConversation_EmptyWorktreeArg(t *testing.T) {

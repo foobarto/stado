@@ -299,6 +299,20 @@ func RawConversationLog(worktree string) ([]byte, error) {
 	return data, nil
 }
 
+// ConversationToolInvocationCount returns the number of tool calls in the
+// append-only conversation evidence. Unlike LoadConversation's replay view,
+// this count never decreases when a compaction marker replaces old messages
+// with a summary, so it can seed stable trajectory invocation ordinals after
+// compaction or process restart.
+func ConversationToolInvocationCount(worktree string) (int, error) {
+	raw, err := RawConversationLog(worktree)
+	if err != nil {
+		return 0, err
+	}
+	_, invocations, err := decodeConversation(bytes.NewReader(raw))
+	return invocations, err
+}
+
 // WriteConversation replaces the on-disk conversation log atomically
 // with the given message slice only when the log is absent or empty.
 // Live sessions must use AppendMessage / AppendCompaction so the raw
@@ -387,7 +401,23 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 }
 
 func decodeMessages(r io.Reader) ([]agent.Message, error) {
+	msgs, _, err := decodeConversation(r)
+	return msgs, err
+}
+
+func decodeConversation(r io.Reader) ([]agent.Message, int, error) {
 	var msgs []agent.Message
+	toolInvocations := 0
+	appendMessages := func(messages ...agent.Message) {
+		for _, message := range messages {
+			for _, block := range message.Content {
+				if block.ToolUse != nil {
+					toolInvocations++
+				}
+			}
+		}
+		msgs = append(msgs, messages...)
+	}
 	deliveryIDs := make(map[string]struct{})
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), int(maxConversationRecordBytes))
@@ -415,13 +445,13 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 				if probe.Schema == conversationDeliverySchemaV1 {
 					delivery, err := strictDecodeConversationDelivery(line)
 					if err != nil {
-						return msgs, err
+						return msgs, toolInvocations, err
 					}
 					if _, duplicate := deliveryIDs[delivery.DeliveryID]; duplicate {
-						return msgs, errors.New("conversation delivery: duplicate delivery ID evidence")
+						return msgs, toolInvocations, errors.New("conversation delivery: duplicate delivery ID evidence")
 					}
 					deliveryIDs[delivery.DeliveryID] = struct{}{}
-					msgs = append(msgs, delivery.Messages...)
+					appendMessages(delivery.Messages...)
 					continue
 				}
 				if probe.Schema != "" {
@@ -435,7 +465,7 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 				if err := json.Unmarshal(line, &wrapped); err != nil {
 					break
 				}
-				msgs = append(msgs, wrapped.Message)
+				appendMessages(wrapped.Message)
 				continue
 			}
 		}
@@ -451,10 +481,10 @@ func decodeMessages(r io.Reader) ([]agent.Message, error) {
 			// ignoring it rather than replaying an empty message.
 			continue
 		}
-		msgs = append(msgs, m)
+		appendMessages(m)
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return msgs, err
+		return msgs, toolInvocations, err
 	}
-	return msgs, nil
+	return msgs, toolInvocations, nil
 }
