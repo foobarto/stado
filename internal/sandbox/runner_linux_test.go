@@ -95,6 +95,36 @@ func TestBwrapRunnerCommand_AbandonedAllowHostsCommandClosesProxy(t *testing.T) 
 	}
 }
 
+func TestBwrapRunnerCommand_CompletedAllowHostsCommandClosesProxy(t *testing.T) {
+	if err := ensurePastaSpliceOnly(); err != nil {
+		t.Skipf("pasta unavailable: %v", err)
+	}
+	cmd, err := (BwrapRunner{}).Command(context.Background(), Policy{
+		Exec: []string{"true"},
+		Net:  NetPolicy{Kind: NetAllowHosts, Hosts: []string{"example.com"}},
+	}, "true", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cmd.Release)
+	env := collectSetenv(cmd.Args)
+	addr := "127.0.0.1:" + proxyPortFromEnv(t, env["HTTPS_PROXY"])
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		t.Fatalf("proxy was not listening before command run: %v", err)
+	}
+	_ = conn.Close()
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("managed command run: %v", err)
+	}
+	if conn, err = net.DialTimeout("tcp", addr, 50*time.Millisecond); err == nil {
+		_ = conn.Close()
+		t.Fatal("completed managed command left its allow-hosts proxy listening")
+	}
+	runtime.KeepAlive(cmd) // Prove Run cleanup, not the abandonment fallback.
+}
+
 // createAbandonedAllowHostsCommand returns only the proxy address so the
 // command becomes unreachable at this function boundary. Its AddCleanup owner
 // must close the proxy even though a Background context never completes.

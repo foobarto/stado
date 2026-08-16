@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,7 +20,7 @@ type recordingRunner struct {
 
 func (r *recordingRunner) Name() string    { return "recording" }
 func (r *recordingRunner) Available() bool { return r.available }
-func (r *recordingRunner) Command(_ context.Context, p Policy, name string, args, _ []string) (*exec.Cmd, error) {
+func (r *recordingRunner) Command(_ context.Context, p Policy, name string, args, _ []string) (*Command, error) {
 	r.gotPolicy = p
 	r.gotCmd = name
 	r.gotArgs = args

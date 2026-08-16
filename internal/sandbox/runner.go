@@ -15,8 +15,66 @@ import (
 type Runner interface {
 	Name() string    // "bwrap" | "firejail" | "none"
 	Available() bool // can this host use this runner?
-	Command(ctx context.Context, p Policy, cmd string, args []string, env []string) (*exec.Cmd, error)
+	Command(ctx context.Context, p Policy, cmd string, args []string, env []string) (*Command, error)
 }
+
+// Command owns an exec.Cmd and any runner resources that must live exactly as
+// long as that subprocess. Run and Wait release those resources on every exit
+// path; Start releases them if the process cannot be started. Callers that use
+// Start must eventually use Wait (or cancel the command's context).
+//
+// Raw is only for adapters whose API requires *exec.Cmd. In that case the
+// command context must own a deterministic cancellation point because the
+// adapter bypasses these lifecycle methods.
+type Command struct {
+	*exec.Cmd
+	release func()
+}
+
+// WrapCommand gives an ordinary exec.Cmd the managed command shape. It is used
+// by unsandboxed call sites, where there are no runner resources to release.
+func WrapCommand(cmd *exec.Cmd) *Command {
+	return &Command{Cmd: cmd, release: func() {}}
+}
+
+func managedCommand(cmd *exec.Cmd, release func()) *Command {
+	if release == nil {
+		release = func() {}
+	}
+	return &Command{Cmd: cmd, release: release}
+}
+
+// Start starts the subprocess and releases runner resources immediately if
+// startup fails. A successful Start transfers completion ownership to Wait.
+func (c *Command) Start() error {
+	err := c.Cmd.Start()
+	if err != nil {
+		c.release()
+	}
+	return err
+}
+
+// Run executes the subprocess and deterministically releases runner resources.
+func (c *Command) Run() error {
+	defer c.release()
+	return c.Cmd.Run()
+}
+
+// Wait waits for a started subprocess and deterministically releases runner
+// resources regardless of its exit status.
+func (c *Command) Wait() error {
+	defer c.release()
+	return c.Cmd.Wait()
+}
+
+// Release closes runner-owned resources without waiting for the subprocess.
+// It is safe to call more than once. Adapters that start Raw must arrange to
+// call Release at their own process-completion boundary.
+func (c *Command) Release() { c.release() }
+
+// Raw exposes the underlying exec.Cmd for third-party adapters that cannot
+// accept Command. Such adapters must retain and cancel the command context.
+func (c *Command) Raw() *exec.Cmd { return c.Cmd }
 
 // Detect picks the most capable Runner available on this host. Order of
 // preference: platform-specific primary → lightweight fallback → NoneRunner.
@@ -38,7 +96,7 @@ type NoneRunner struct{}
 func (NoneRunner) Name() string    { return "none" }
 func (NoneRunner) Available() bool { return true }
 
-func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
+func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*Command, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -48,7 +106,7 @@ func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []str
 		cmd.Dir = p.CWD
 	}
 	cmd.Env = filterEnv(baseEnv(env), p.Env)
-	return cmd, nil
+	return WrapCommand(cmd), nil
 }
 
 // Denied is the error returned when a policy forbids the requested operation.

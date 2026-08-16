@@ -20,9 +20,9 @@ type suppliedSandboxRunner struct {
 
 func (r *suppliedSandboxRunner) Name() string    { return "supplied" }
 func (r *suppliedSandboxRunner) Available() bool { return true }
-func (r *suppliedSandboxRunner) Command(ctx context.Context, _ sandbox.Policy, name string, args, _ []string) (*exec.Cmd, error) {
+func (r *suppliedSandboxRunner) Command(ctx context.Context, _ sandbox.Policy, name string, args, _ []string) (*sandbox.Command, error) {
 	r.called = true
-	return exec.CommandContext(ctx, name, args...), nil //nolint:gosec
+	return sandbox.WrapCommand(exec.CommandContext(ctx, name, args...)), nil //nolint:gosec
 }
 
 type runnerToolHost struct {

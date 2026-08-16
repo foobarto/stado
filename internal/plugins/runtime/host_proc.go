@@ -21,7 +21,7 @@ import (
 
 // procHandle holds the state for a long-lived spawned process.
 type procHandle struct {
-	cmd    *exec.Cmd
+	cmd    *sandbox.Command
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 }
@@ -783,16 +783,16 @@ func intersectNet(host, guest string) string {
 	return ""
 }
 
-// buildSandboxedCmd constructs the *exec.Cmd. When policy is nil, runs
+// buildSandboxedCmd constructs the managed sandbox command. When policy is nil, runs
 // unsandboxed (today's stado_exec semantics). When set, routes through
 // sandbox.Detect()'s runner with the supplied policy. If the runner is
 // "none" but a non-nil policy was requested, returns an error — silent-
 // fall-back-to-unsandboxed would defeat the plugin author's intent.
-func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir string, argv []string, env []string) (*exec.Cmd, error) {
+func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir string, argv []string, env []string) (*sandbox.Command, error) {
 	return buildSandboxedCmdWithRunner(ctx, sandbox.Detect(), policy, workdir, argv, env)
 }
 
-func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, policy *sandboxPolicy, workdir string, argv []string, env []string) (*exec.Cmd, error) {
+func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, policy *sandboxPolicy, workdir string, argv []string, env []string) (*sandbox.Command, error) {
 	if policy == nil {
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec
 		cmd.Dir = workdir
@@ -803,7 +803,7 @@ func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, pol
 		// (ssh/sudo password prompts open /dev/tty directly — see
 		// detachControllingTTY).
 		detachControllingTTY(cmd)
-		return cmd, nil
+		return sandbox.WrapCommand(cmd), nil
 	}
 	// "none" means no Linux runner is available. It must hard-fail when a
 	// policy was requested — silent fall-back-to-unsandboxed would
@@ -822,7 +822,7 @@ func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, pol
 		// Sandbox wrappers don't always start a new session; detach the
 		// controlling tty here too so /dev/tty-grabbing children can't
 		// corrupt the TUI through the sandbox.
-		detachControllingTTY(cmd)
+		detachControllingTTY(cmd.Raw())
 	}
 	return cmd, err
 }

@@ -31,7 +31,7 @@ type BwrapRunner struct{}
 func (BwrapRunner) Name() string    { return "bwrap" }
 func (BwrapRunner) Available() bool { _, err := exec.LookPath("bwrap"); return err == nil }
 
-func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
+func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*Command, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -196,8 +196,8 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		}
 	}
 	cmd.Env = nil
-	attachCleanup(ctx, cmd, cleanup)
-	return cmd, nil
+	runCleanup := attachCleanup(ctx, cmd, cleanup)
+	return managedCommand(cmd, runCleanup), nil
 }
 
 // underAnyMask reports whether path p is a strict descendant of a masked
@@ -231,9 +231,9 @@ func stableEnv(env []string) []string {
 	return out
 }
 
-func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
+func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) func() {
 	if cleanup == nil {
-		return
+		return func() {}
 	}
 	var once sync.Once
 	runCleanup := func() { once.Do(cleanup) }
@@ -258,10 +258,11 @@ func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
 	if done == nil {
 		// Do not create an immortal watcher goroutine. The command-owned cleanup
 		// above remains responsible for abandoned Background/TODO commands.
-		return
+		return runCleanup
 	}
 	go func() {
 		<-done
 		runCleanup()
 	}()
+	return runCleanup
 }
