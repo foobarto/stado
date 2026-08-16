@@ -180,8 +180,8 @@ func verifyCombinedContainmentChild(t *testing.T) {
 		t.Fatalf("mount syscall child was not killed by seccomp: %T %v", err, err)
 	}
 	status, ok := exitErr.Sys().(syscall.WaitStatus)
-	if !ok || !status.Signaled() {
-		t.Fatalf("mount syscall child was not signaled by seccomp: %T %v", exitErr.Sys(), exitErr.Sys())
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGSYS {
+		t.Fatalf("mount syscall child signal = %v, want SIGSYS from seccomp", status.Signal())
 	}
 	t.Log("combined-containment-ok")
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -239,17 +240,24 @@ func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
 	origCancel := cmd.Cancel
 	cmd.Cancel = func() error {
 		runCleanup()
-		if origCancel != nil {
+		// exec.CommandContext's default Cancel calls cmd.Process.Kill and
+		// panics before Start because Process is nil. Cancelling an unstarted
+		// command still owns resource cleanup, but has no process to signal.
+		if origCancel != nil && cmd.Process != nil {
 			return origCancel()
 		}
 		return nil
 	}
+	// Background/TODO contexts never complete, and an allow-hosts proxy's
+	// blocked Accept loop keeps the proxy itself alive. Tie abandonment cleanup
+	// to the returned command without capturing cmd in either the cleanup or its
+	// argument. Explicit cancellation remains deterministic; this is the
+	// ownership fallback when a caller drops an unstarted or completed command.
+	runtime.AddCleanup(cmd, func(run func()) { run() }, runCleanup)
 	done := ctx.Done()
 	if done == nil {
-		// context.Background and context.TODO never complete. Do not pin the
-		// command, proxy, or seccomp fd behind an immortal watcher goroutine;
-		// cmd.Cancel still offers explicit cleanup, and otherwise the command's
-		// owned files become collectible with the command.
+		// Do not create an immortal watcher goroutine. The command-owned cleanup
+		// above remains responsible for abandoned Background/TODO commands.
 		return
 	}
 	go func() {
