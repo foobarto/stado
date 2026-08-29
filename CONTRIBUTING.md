@@ -1,7 +1,9 @@
 # Contributing to stado
 
 Thanks for your interest. stado is pre-1.0 and iterating fast — PRs,
-bug reports, and one-line corrections are all welcome.
+bug reports, and one-line corrections are all welcome. Participation is
+subject to the account-wide
+[Code of Conduct](https://github.com/foobarto/.github/blob/main/CODE_OF_CONDUCT.md).
 
 ## Build
 
@@ -240,6 +242,5 @@ keep whichever interpretation preserves more of the four.
   and say which terminal emulator you're in (tmux / alacritty /
   kitty / iTerm / Windows Terminal / etc.) — TUI regressions
   usually hinge on terminal quirks.
-- Security-sensitive reports go through the channel in
-  [SECURITY.md](SECURITY.md) (publish cookbook section has the
-  contact).
+- Security-sensitive reports go through the private channel in
+  [SECURITY.md](SECURITY.md); do not open a public issue.

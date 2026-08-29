@@ -1,4 +1,30 @@
-# stado Security Model
+# stado Security Policy and Model
+
+## Reporting a vulnerability
+
+Do not report exploitable behavior in a public issue or pull request.
+
+**Preferred:** use GitHub's
+[private vulnerability reporting](https://github.com/foobarto/stado/security/advisories/new)
+to open a confidential security advisory.
+
+**Backup:** email `bartosz@foobarto.me` with `[stado-security]` in the subject.
+PGP is strongly preferred for sensitive material; the fingerprint is
+`F858 BE96 A0D1 E6FD CAF7 C4D6 06FD 46A0 2874 AF8D` and the public key is at
+<https://foobarto.me/.well-known/openpgpkey/foobarto.me.asc>.
+
+Include the affected release or commit, a minimal reproduction, concrete
+impact, and relevant host/kernel details. We aim to acknowledge reports within
+72 hours and coordinate disclosure on a 90-day default, or sooner after a fix
+ships. The account-wide rules of engagement and safe-harbor statement are in
+the [default security policy](https://github.com/foobarto/.github/blob/main/SECURITY.md).
+
+Security fixes target the latest published release and the default branch.
+Older releases receive fixes only when a project advisory says so.
+
+---
+
+## Security model
 
 stado implements three layers of supply-chain protection; the first two are
 active for v0.80.x, while the third is provisioned separately:
@@ -524,11 +550,3 @@ and containment boundaries are maintained in
 Linux is the only supported platform now and through v1. Darwin and Windows
 carry no current build, runtime, or containment promise
 ([EP-0065](docs/eps/0065-linux-only-platform-scope.md)).
-
-## Reporting a vulnerability
-
-Open a GitHub security advisory on
-`github.com/foobarto/stado/security/advisories`. Please don't open a
-public issue for anything that looks exploitable.
-
-We aim to acknowledge reports within 72 hours.
