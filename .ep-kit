@@ -1,5 +1,5 @@
-# EP Kit configuration
-# See ep-kit/README.md for available keys
+# Strata configuration (legacy filename retained for compatibility)
+# See https://github.com/foobarto/strata for available keys
 
 dir=docs/eps
 prefix=ep
